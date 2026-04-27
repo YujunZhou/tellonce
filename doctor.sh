@@ -88,7 +88,7 @@ echo ""
 # ============================================================
 # Test group 1: Unit tests
 # ============================================================
-echo "[1/4] Unit tests (path_config + deterministic + shadow + chaos + rule_params):"
+echo "[1/4] Unit tests (path_config + deterministic + shadow + chaos + rule_params + auto_light_entry):"
 run_test "test_path_config (12)"        python3 "${SKILL_DIR}/lib/test_path_config.py"
 run_test "test_deterministic_block (14)" python3 "${SKILL_DIR}/lib/test_deterministic_block.py"
 run_test "test_verify_retry_shadow (12)" python3 "${SKILL_DIR}/lib/test_verify_retry_shadow.py"
@@ -97,6 +97,8 @@ run_test "test_rule_params (6, Phase 7)" python3 "${SKILL_DIR}/lib/test_rule_par
 # Step 4 fix (Phase 8 I5 / kickoff §3 Step 4): test_b4_blocking 已改用 path_config + tempfile,
 # 现在所有 user 都能跑. 不再 HOME-based skip.
 run_test "test_b4_blocking (14)" python3 "${SKILL_DIR}/lib/test_b4_blocking.py"
+# Sprint v23 day-1 (2026-04-27): hook auto-fallback 防 600s 假阳; 新加 7 unit
+run_test "test_auto_light_entry (7, v23)" python3 "${SKILL_DIR}/lib/test_auto_light_entry.py"
 
 # ============================================================
 # Test group 2: Path / permission
