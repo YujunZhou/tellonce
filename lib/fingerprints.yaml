@@ -1,0 +1,282 @@
+# Preference-tracker Fingerprint Draft v1 (for v3 proposal 补丁 9)
+# 2026-04-22 — draft for user review, not yet active
+# Path (when approved): /home/user/.claude/skills/preference-tracker/lib/fingerprints.yaml
+#
+# Semantics:
+#   triggers (any-of): 用户 message 或 project context 包含任一词 → force include atomic_id
+#   triggers_pattern: regex 模式, multi-line 匹配
+#   enforcement: deterministic | semantic_judge | soft_reminder
+#   priority: critical | high | normal
+#   action: 短描述 fp 该 force apply 什么 (对 hook 提示)
+#
+# 取 20 条最高价值 deterministic rule 开头. 非 deterministic 的不放这里.
+
+fingerprints:
+
+  # --- Language / output format ---
+
+  lang-pref-001:
+    desc: "给用户看的用中文, 交付物外部读者用英文"
+    triggers_force_en:
+      - "paper"
+      - "appendix"
+      - "rebuttal"
+      - "camera-ready"
+      - "NeurIPS"
+      - "ICLR"
+      - "ACL"
+      - "AAAI"
+      - "external reviewer"
+      - "for reviewer"
+    triggers_force_zh:
+      - "给我看"
+      - "给用户看"
+      - "给你用户"
+      - "response to user"
+      - "回复"
+      - "解释一下"
+    enforcement: deterministic
+    priority: critical
+
+  lang-pit-001:
+    desc: "自主执行后写 summary/report/audit 不默认英文"
+    triggers:
+      - "summary.md"
+      - "status.md"
+      - "report.md"
+      - "audit.md"
+      - "final.md"
+    enforcement: deterministic
+    priority: high
+    action: "写这类 doc 时必须中文 (除非是 paper 外部)"
+
+  # --- MD formatting traps ---
+
+  fmt-pit-001:
+    desc: "嵌套 ``` 必须 4+ 反引号包裹"
+    triggers_pattern: '```[\s\S]*?```'
+    enforcement: deterministic
+    priority: high
+    action: "写 MD 含代码片段时外层用 ```` or ~~~~"
+
+  # --- File path / location ---
+
+  oth-pref-001:
+    desc: "progress/status MD 不写 /tmp, 写项目内"
+    triggers:
+      - "progress.md"
+      - "status.md"
+      - "report.md"
+      - "summary.md"
+      - "OVERNIGHT"
+      - "FINAL_BEST"
+    enforcement: deterministic
+    priority: high
+    action: "路径必须在 project dir, 不 /tmp"
+
+  # --- Session / handoff ---
+
+  wrt-pref-015:
+    desc: "Session handoff 用 6-section 格式, 不省 token"
+    triggers:
+      - "handoff"
+      - "SESSION_HANDOFF"
+      - "compact"
+      - "next session"
+      - "handover"
+    enforcement: deterministic
+    priority: critical
+    action: "写 handoff 必走 0-6 section 结构 + verbose"
+
+  wrt-pref-014:
+    desc: "给 user 的文档 verbose clear > 省 token"
+    triggers:
+      - "proposal"
+      - "handoff"
+      - "report"
+      - "blueprint"
+    enforcement: deterministic
+    priority: high
+
+  wrt-pref-013:
+    desc: "每个术语/ id/ 数字首次出现带解释"
+    triggers:
+      - "blueprint"
+      - "manifest"
+      - "atomic_id"
+      - "fid_stage"
+    enforcement: deterministic
+    priority: high
+    action: "引用内部 ID 时必须 + 解释 (3 元组: 是啥/为啥提/影响啥)"
+
+  # --- Experiment lifecycle ---
+
+  exp-pit-001:
+    desc: "API 大规模 >50 call 前 preflight credit"
+    triggers:
+      - "全跑"
+      - "204 pair"
+      - "full 204"
+      - "3 seed"
+      - "--workers"
+      - "parallel=4"
+    enforcement: deterministic
+    priority: high
+    action: "跑之前必须 balance check + 3 sample preflight"
+
+  exp-pit-003:
+    desc: "Fidelity 数据集必须含负样本"
+    triggers:
+      - "fidelity"
+      - "simulator"
+      - "specificity"
+      - "negative sample"
+      - "mixed dataset"
+    enforcement: deterministic
+    priority: high
+    action: "positive-only fidelity 是 bug, 必须 mixed"
+
+  exp-pref-001:
+    desc: "大规模实验前 2-3 样本预检, 不截断"
+    triggers:
+      - "200 pair"
+      - "全 204"
+      - "full run"
+      - "scale up"
+    enforcement: deterministic
+    priority: high
+
+  # --- Workflow ---
+
+  wf-pit-008:
+    desc: "Background probe pivot 后必须 kill 原 task"
+    triggers:
+      - "background"
+      - "run_in_background"
+      - "nohup"
+      - "bg &"
+    enforcement: deterministic
+    priority: high
+    action: "pivot 或 blocker 后 kill 所有已启动 bg process"
+
+  wf-pit-012:
+    desc: "Propose plan 不能同 response 自启 autonomous"
+    triggers:
+      - "开始跑"
+      - "直接执行"
+      - "autonomous block"
+      - "跑一夜"
+    enforcement: deterministic
+    priority: critical
+    action: "必须 explicit go 信号再启 multi-hour block"
+
+  wf-pref-027:
+    desc: "evolving artifact 必须 versioned, 永不 overwrite"
+    triggers:
+      - "manifest.json"
+      - "schema"
+      - "SKILL_UPGRADE"
+      - "v5"
+      - "v6"
+      - "v3"
+    enforcement: deterministic
+    priority: high
+    action: "改前必须 cp 到 _vN.json"
+
+  # --- Communication ---
+
+  comm-pref-006:
+    desc: "Never use system-internal invented jargon"
+    triggers_pattern: '\b(run_one_V\d+|fid_stage\d+|_pack|bundle_condG|TASK_ORDER)\b'
+    enforcement: deterministic
+    priority: high
+    action: "user-facing 里函数名 / class 名必须翻译成描述"
+
+  comm-pit-003:
+    desc: "末尾 bullet 不重复, 俄罗斯套娃 antipattern"
+    triggers_pattern: '(\n-\s.+\n){3,}(\n-\s.+\n){3,}'
+    enforcement: deterministic
+    priority: normal
+    action: "response 末尾 bullet 只写一次"
+
+  comm-pref-010:
+    desc: "数据/rule drafts/结果写文件给路径"
+    triggers:
+      - "draft rule"
+      - "rule library"
+      - "结果"
+      - "数据"
+    enforcement: deterministic
+    priority: high
+    action: "不用 bash print, 写文件"
+
+  # --- Writing ---
+
+  wrt-pref-012:
+    desc: "Paper 只写 best, exploration 多试不写 null finding"
+    triggers:
+      - "paper sec"
+      - "论文章节"
+      - "ablation"
+      - "Section 6"
+      - "Sec 6"
+    enforcement: deterministic
+    priority: high
+    action: "写 paper 时 filter exploration / null finding"
+
+  wrt-pref-011:
+    desc: "Figure/table 必须 anchor 到 claim"
+    triggers:
+      - "figure inventory"
+      - "table inventory"
+      - "paper figure"
+    enforcement: deterministic
+    priority: high
+
+# Total: 18 条 critical/high deterministic fps
+# 还需加:
+#   - wf-pref-007 empirical verify
+#   - wf-pref-022 inherited plan not trusted
+#   - exp-proj-* project specific rules
+# → Phase B1 实装后再 iterate
+
+  exp-pref-017:
+    desc: "PBG image 实验 prompt 直接给 image-gen, 绝不插 actor LLM 中间层"
+    triggers:
+      - "image gen prompt"
+      - "image-gen prompt"
+      - "actor 写"
+      - "actor LLM"
+      - "image disc"
+      - "PBG image"
+      - "Gemini Flash"
+      - "GPT-5 Image Mini"
+    enforcement: deterministic
+    priority: critical
+    action: "解释/设计 image PBG 实验时, 不引入 actor LLM 重写步骤; 直接 literal user prompt → image-gen"
+    applies_when: "designing or explaining PBG image experiments"
+
+  exp-proj-041:
+    desc: "Paper 1 Sec 3 全部 condition 实验执行 + 写作 都只用 Anthropic SDK API, 不用 claude CLI subprocess"
+    triggers:
+      - "Sec 3"
+      - "sec 3"
+      - "sec3"
+      - "section 3"
+      - "Sec3"
+      - "paper main"
+      - "Sec 3 main"
+      - "paper Sec 3"
+      - "condG"
+      - "cond G"
+      - "G_fc"
+      - "B_fc"
+      - "H_push"
+      - "condH"
+      - "force_comply"
+      - "claude -p"
+      - "claude_call"
+    enforcement: deterministic
+    priority: critical
+    action: "跑 Sec 3 任何 condition (A/B/C/G/H) 实验, MUST 用 anthropic.Anthropic SDK, **❌ 禁用** claude CLI subprocess; 选 cond runner 前 grep `client.messages.create` 确认 SDK 路径; 不要直接续用 run_condG_force_comply.py / run_condG_fc_v5.py 这种 CLI 历史 runner"
+    applies_when: "Paper 1 Sec 3 实验执行 OR 写作 (figure/table/prose)"

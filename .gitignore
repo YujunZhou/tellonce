@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Install / runtime artifacts (用户装包后产生, 不进仓库)
+install.log
+*.tmp
+*.bak
+
+# Versioned 备份 (per `wf-pref-027` — 本地保留, 仓库不收)
+*.pre_*.bak
+*.v3_pre_pt_*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 用户态运行数据 (个人项目-state, 不该入仓库)
+# state/ 已默认走 <project>/.claude/preference-tracker-state/, 不在 skill 目录下
+# 但若有人手动放, 防一下
+state/
+runtime/

@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""Install helper — merge preference-tracker hooks into <project>/.claude/settings.local.json.
+
+Used by install.sh / uninstall.sh / doctor.sh.
+
+Modes:
+  --add: 加 hooks 到 settings (idempotent, additive, 不删现有)
+  --remove: 撤 preference-tracker hooks 从 settings (uninstall)
+  --verify: 列已注册的 hook (doctor)
+
+Per `wf-pref-027` versioned 备份 — 改前 cp settings.local.json.v3_pre_pt_<ts>.json.
+Per `code-pref-291` Python merge (非 jq) — 通用, 不依赖 module load.
+"""
+import argparse
+import json
+import os
+import shutil
+import sys
+from datetime import datetime
+
+
+# Hooks 定义 (name → (event, position, command_path 相对 <hooks_dir>))
+PT_HOOKS = {
+    'memory-deterministic-block.sh': {
+        'event': 'Stop',
+        'timeout': 10,
+        'desc': 'Phase B5 Tier A item 1: deterministic regex hard-block',
+    },
+    'memory-shadow-judge.sh': {
+        'event': 'Stop',
+        'timeout': 30,
+        'desc': 'Phase B5 Tier A item 2: shadow LLM judge (log-only)',
+    },
+    'memory-shadow-alert-inject.sh': {
+        'event': 'UserPromptSubmit',
+        'timeout': 5,
+        'desc': 'Phase B5 Tier A item 3: soft inject from shadow alert',
+    },
+    'memory-verify-compliance.sh': {
+        'event': 'Stop',
+        'timeout': 5,
+        'desc': 'Phase B3 lite + B4: compliance log + pending-finalize gate',
+    },
+    'memory-retrieve-inject.sh': {
+        'event': 'UserPromptSubmit',
+        'timeout': 5,
+        'desc': 'Phase B1: deterministic fingerprint retrieve',
+    },
+    'memory-pending-promote.sh': {
+        'event': 'Stop',
+        'timeout': 5,
+        'desc': 'Phase A: pending observation → queue',
+    },
+    'memory-pending-inject.sh': {
+        'event': 'UserPromptSubmit',
+        'timeout': 5,
+        'desc': 'Phase A: pending queue → next-turn inject',
+    },
+    'check-observation-log.sh': {
+        'event': 'Stop',
+        'timeout': 10,
+        'desc': 'Iron Law: append-only obs log gate',
+    },
+}
+
+
+def _versioned_backup(settings_path: str) -> str:
+    """Cp settings.local.json → settings.local.json.v3_pre_pt_<ts>.json. Returns backup path."""
+    if not os.path.exists(settings_path):
+        return ''
+    ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+    backup = f'{settings_path}.v3_pre_pt_{ts}.json'
+    shutil.copy2(settings_path, backup)
+    return backup
+
+
+def _load_settings(settings_path: str) -> dict:
+    """Load settings.local.json (空文件 / 不存在 → 默认 dict)."""
+    if not os.path.exists(settings_path):
+        return {'permissions': {'allow': [], 'defaultMode': 'auto'}, 'hooks': {}}
+    try:
+        with open(settings_path) as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f'❌ settings.local.json 非法 JSON: {e}', file=sys.stderr)
+        sys.exit(1)
+
+
+def _save_settings(settings_path: str, data: dict):
+    """Write back with pretty format."""
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+    with open(settings_path, 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+
+
+def _hook_already_registered(settings: dict, event: str, command_path: str) -> bool:
+    """Check 是否 hook 已在 settings.<event>[].hooks[] 注册."""
+    for entry in settings.get('hooks', {}).get(event, []):
+        for h in entry.get('hooks', []):
+            if h.get('command') == command_path:
+                return True
+    return False
+
+
+def cmd_add(settings_path: str, hooks_dir: str):
+    """Add PT hooks to settings.local.json (idempotent).
+
+    I3 fix (Phase 8 review): sanity-check hooks_dir 在 settings parent 下 +
+    每个 hook .sh 文件存在. 不存在打 warning 不 exit (允许 install.sh 先 cp 再
+    注册的工序), 但裸用此 script 时给用户明显信号.
+    """
+    expected_parent = os.path.dirname(os.path.abspath(settings_path))
+    if os.path.dirname(os.path.abspath(hooks_dir)) != expected_parent:
+        print(
+            f'⚠ hooks_dir ({hooks_dir}) 不在 settings parent ({expected_parent}) 下',
+            file=sys.stderr,
+        )
+        print('  注册可成功但 hooks 跑不起来. 用 install.sh 自动处理路径.', file=sys.stderr)
+    missing = [h for h in PT_HOOKS if not os.path.isfile(os.path.join(hooks_dir, h))]
+    if missing:
+        print(
+            f'⚠ {len(missing)} hooks .sh 文件不存在: '
+            f'{", ".join(missing[:3])}{"..." if len(missing) > 3 else ""}',
+            file=sys.stderr,
+        )
+        print('  注册成功但运行时 Claude Code harness 报 command not found.', file=sys.stderr)
+
+    backup = _versioned_backup(settings_path)
+    if backup:
+        print(f'  versioned backup: {backup}')
+
+    settings = _load_settings(settings_path)
+    settings.setdefault('hooks', {})
+
+    added = 0
+    skipped = 0
+    for hook_name, info in PT_HOOKS.items():
+        cmd = os.path.join(hooks_dir, hook_name)
+        event = info['event']
+        timeout = info['timeout']
+        if _hook_already_registered(settings, event, cmd):
+            skipped += 1
+            continue
+        # Append to first entry's hooks list (Stop / UserPromptSubmit 都是单 entry)
+        chain = settings['hooks'].setdefault(event, [])
+        if not chain:
+            chain.append({'hooks': []})
+        # 用第一个 entry (matcher 不限定)
+        chain[0].setdefault('hooks', []).append({
+            'type': 'command',
+            'command': cmd,
+            'timeout': timeout,
+        })
+        added += 1
+    _save_settings(settings_path, settings)
+    print(f'  added {added} hooks, skipped {skipped} (already registered)')
+
+
+def cmd_remove(settings_path: str, hooks_dir: str):
+    """Remove PT hooks from settings.local.json."""
+    backup = _versioned_backup(settings_path)
+    if backup:
+        print(f'  versioned backup: {backup}')
+
+    settings = _load_settings(settings_path)
+    pt_commands = {os.path.join(hooks_dir, h) for h in PT_HOOKS}
+
+    removed = 0
+    for event, chain in settings.get('hooks', {}).items():
+        for entry in chain:
+            new_hooks = []
+            for h in entry.get('hooks', []):
+                if h.get('command') in pt_commands:
+                    removed += 1
+                else:
+                    new_hooks.append(h)
+            entry['hooks'] = new_hooks
+    _save_settings(settings_path, settings)
+    print(f'  removed {removed} hooks')
+
+
+def cmd_verify(settings_path: str, hooks_dir: str):
+    """List PT hooks 注册情况."""
+    settings = _load_settings(settings_path)
+    pt_commands = {os.path.join(hooks_dir, h): h for h in PT_HOOKS}
+
+    found = {}
+    for event, chain in settings.get('hooks', {}).items():
+        for entry in chain:
+            for h in entry.get('hooks', []):
+                cmd = h.get('command', '')
+                if cmd in pt_commands:
+                    found[pt_commands[cmd]] = event
+
+    print('Preference-tracker hooks 注册情况:')
+    print(f'  settings: {settings_path}')
+    print(f'  hooks dir: {hooks_dir}')
+    print()
+    missing = []
+    for hook_name, info in PT_HOOKS.items():
+        if hook_name in found:
+            print(f'  ✓ {hook_name} → {info["event"]}')
+        else:
+            print(f'  ✗ {hook_name} → MISSING (expected {info["event"]})')
+            missing.append(hook_name)
+    if missing:
+        print(f'\n❌ {len(missing)} hooks not registered. Run install.sh.')
+        sys.exit(1)
+    print(f'\n✅ All {len(PT_HOOKS)} hooks registered.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Merge preference-tracker hooks to settings.local.json')
+    parser.add_argument('--settings', required=True, help='Path to .claude/settings.local.json')
+    parser.add_argument('--hooks-dir', required=True, help='Path to .claude/hooks/ (where .sh wrappers live)')
+    g = parser.add_mutually_exclusive_group(required=True)
+    g.add_argument('--add', action='store_true', help='Add PT hooks (install)')
+    g.add_argument('--remove', action='store_true', help='Remove PT hooks (uninstall)')
+    g.add_argument('--verify', action='store_true', help='List PT hooks 注册情况 (doctor)')
+    args = parser.parse_args()
+
+    if args.add:
+        cmd_add(args.settings, args.hooks_dir)
+    elif args.remove:
+        cmd_remove(args.settings, args.hooks_dir)
+    elif args.verify:
+        cmd_verify(args.settings, args.hooks_dir)
+
+
+if __name__ == '__main__':
+    main()
