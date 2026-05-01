@@ -6,19 +6,74 @@
 
 ---
 
-## 一行命令装 (推荐 — 走 SSH 路径)
+## 第一步: 拉源代码 (两种方式都行, 二选一)
+
+**SSH (推荐, 已配 GitHub 公钥):**
 
 ```bash
 git clone git@github.com:YujunZhou/preference-tracker.git ~/.claude/skills/preference-tracker
-cd /path/to/your/working/project    # 你 Claude Code 平时跑的项目根
-bash ~/.claude/skills/preference-tracker/install.sh
 ```
 
-如果你没配 SSH 公钥到 GitHub, 也可走 https:
+**HTTPS (没配 SSH):**
 
 ```bash
 git clone https://github.com/YujunZhou/preference-tracker.git ~/.claude/skills/preference-tracker
 ```
+
+---
+
+## 第二步: 注册 hooks — 二选一
+
+### 方式 A: 装到 user-global (推荐 — 一次装, 所有项目自动生效)
+
+```bash
+python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --add
+```
+
+写入 `~/.claude/settings.json` (CC user-global), 你以后任何 `cd` 进的目录跑 Claude Code 都自动生效。state / memory / obs_log 仍按当前 cwd 自动分项目, 项目之间数据不串。
+
+**适合**: 想给多个项目都开 PT (比如同时改几个 paper / 几个 repo) 的人, 不想每个项目装一次。
+
+**临时关单个项目** (不想要 PT 跑的那个 shell):
+
+```bash
+export B5_DETERMINISTIC_DISABLED=1 B5_SHADOW_DISABLED=1 B5_INJECT_DISABLED=1
+```
+
+### 方式 B: 装到单个项目 (传统)
+
+```bash
+cd /path/to/your/working/project    # 你 Claude Code 平时跑的项目根
+bash ~/.claude/skills/preference-tracker/install.sh
+```
+
+写入 `<project>/.claude/settings.local.json` (项目本地, gitignore), 只在该项目生效。会同时初始化 state 目录 + 写 `~/.preference-tracker.config.json` 锚定 PROJECT_ROOT.
+
+**适合**: 只想给 1-2 个项目开 PT, 其他项目完全干净的人。
+
+**多个项目就重复跑**: 每个项目目录里跑一次 `bash install.sh`. 互不影响。
+
+---
+
+## 升级 (从老版本 / 老安装方式切到新的)
+
+如果你之前装过老版本 (注册的是 `<project>/.claude/hooks/...` 这种 project-local 路径), 强烈建议升级 — 老路径有 hostile-repo RCE 风险 (Round-4 C1 fix), 新版只注册 `~/.claude/skills/preference-tracker/hooks/...` 不可被项目覆盖。
+
+```bash
+# 1. 拉最新代码
+cd ~/.claude/skills/preference-tracker && git pull
+
+# 2a. 老的 per-project 安装 → 重跑 install.sh, 它会自动撤老注册写新注册
+cd /path/to/old-pt-project && bash ~/.claude/skills/preference-tracker/install.sh
+
+# 2b. 想顺便改成 user-global → 先撤老 per-project 注册再装 global:
+cd /path/to/old-pt-project
+python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings .claude/settings.local.json --hooks-dir .claude/hooks --remove
+python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings .claude/settings.local.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --remove
+python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --add
+```
+
+升级保留: 已注册的钩子 / 已写入的偏好阈值 / 你的本地白名单 (`lib/deterministic_block_whitelist_user.txt`) / 项目里已积累的 state + memory.
 
 ---
 
@@ -33,25 +88,22 @@ bash ~/.claude/skills/preference-tracker/dashboard.sh     # 7 天合规摘要 + 
 
 ---
 
-## 升级
-
-```bash
-cd ~/.claude/skills/preference-tracker
-git pull
-bash doctor.sh    # 验旧版状态没坏
-```
-
-`git pull` 拉新版后, 已注册的钩子 / 已写入的偏好阈值 / 你的本地白名单 (`lib/deterministic_block_whitelist_user.txt`) 都会保留。
-
----
-
 ## 卸载
 
+**user-global 模式装的, 想撤:**
+
 ```bash
+python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --remove
+```
+
+**per-project 模式装的, 想撤:**
+
+```bash
+cd /path/to/your/project
 bash ~/.claude/skills/preference-tracker/uninstall.sh
 ```
 
-默认保留你已积累的合规日志 / 状态目录 / 偏好记忆文件, 仅撤钩子注册 + 删 `~/.claude/skills/preference-tracker/` 子目录里的钩子拷贝。完全清除加 `--purge-state`.
+默认保留你已积累的合规日志 / 状态目录 / 偏好记忆文件, 仅撤钩子注册。完全清除加 `--purge-state`. 想顺便删老安装在 `<project>/.claude/hooks/` 里的 .sh (PT v1+ 不再管理这些文件, 默认保留以防误删用户自己的同名 hook): `--purge-legacy-project-hooks`.
 
 ---
 

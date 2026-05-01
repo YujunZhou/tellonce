@@ -24,16 +24,25 @@ In-session enforcement system: detect & 阻断 LLM agent reply 里反复违反�
 
 ## 装
 
-```bash
-# 1. 拷 skill 整目录到 ~/.claude/skills/
-cp -r /path/to/preference-tracker ~/.claude/skills/
+**Step 1**: 拉源代码
 
-# 2. 跑 install.sh 一键装
-cd /path/to/your/project   # 你的项目根
-bash ~/.claude/skills/preference-tracker/install.sh
+```bash
+git clone git@github.com:YujunZhou/preference-tracker.git ~/.claude/skills/preference-tracker
 ```
 
-`install.sh` 5 段全鲁棒 (准备 → 安装 → 收集 → 执行 → 卸载机制就绪): 自动 detect cwd / OS user / Python / Claude CLI; versioned 备份 settings; 跑 doctor 自检 PASS 才算装好; 失败 trap ERR rollback.
+**Step 2**: 注册 hooks — **二选一**:
+
+```bash
+# 方式 A — user-global (推荐, 一次装所有项目都生效):
+python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --add
+
+# 方式 B — per-project (只给单个项目开):
+cd /path/to/your/project && bash ~/.claude/skills/preference-tracker/install.sh
+```
+
+详细对比 + 升级 / 卸载步骤见 [`INSTALL.md`](INSTALL.md).
+
+per-project 的 `install.sh` 5 段全鲁棒 (准备 → 安装 → 收集 → 执行 → 卸载机制就绪): 自动 detect cwd / OS user / Python / Claude CLI; versioned 备份 settings; 跑 doctor 自检 PASS 才算装好; 失败 trap ERR rollback.
 
 ---
 
