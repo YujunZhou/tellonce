@@ -49,20 +49,8 @@ if [[ "${ROLLBACK}" == true ]]; then
     fi
     echo "回滚 settings: ${LATEST} → ${SETTINGS}"
     cp "${LATEST}" "${SETTINGS}"
-    echo "撤 hooks .sh (per lib/_pt_hooks.txt source-of-truth):"
-    HOOK_LIST_FILE="${SKILL_DIR}/lib/_pt_hooks.txt"
-    if [[ ! -f "${HOOK_LIST_FILE}" ]]; then
-        echo "❌ ${HOOK_LIST_FILE} 不存在 (skill 包不完整)"
-        exit 1
-    fi
-    while IFS= read -r hook; do
-        # skip blank + 注释
-        [[ -z "${hook}" || "${hook}" == \#* ]] && continue
-        if [[ -f "${HOOKS_DIR}/${hook}" ]]; then
-            rm -f "${HOOKS_DIR}/${hook}"
-            echo "  - ${hook}"
-        fi
-    done < "${HOOK_LIST_FILE}"
+    echo "settings 回滚已完成. project-local hooks ${HOOKS_DIR}/ 保留 (Round-5 H2 fix)."
+    echo "  这些文件 PT v1+ 不再注册 (settings 已回滚不引用), 自己决定要不要删."
     echo "✅ 回滚完成. state + memory 保留."
     exit 0
 fi

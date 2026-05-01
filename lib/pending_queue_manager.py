@@ -33,6 +33,7 @@ import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config  # Phase 4.1 解耦
+import redaction  # Round-5 H3 fix (2026-05-01): redact secrets in queue entries
 
 OBS_LOG = path_config.get_observations_log_path()
 QUEUE = path_config.get_pending_queue_path()
@@ -104,7 +105,9 @@ def _atomic_replace_queue(keep):
                 f.write(json.dumps(e, ensure_ascii=False) + '\n')
             f.flush()
             os.fsync(f.fileno())
+        path_config.chmod_or_warn(tmp, 0o600)
         shutil.move(tmp, QUEUE)
+        path_config.chmod_or_warn(QUEUE, 0o600)
     except Exception:
         try:
             os.unlink(tmp)
@@ -181,12 +184,14 @@ def _log_error(where, exc):
     try:
         os.makedirs(os.path.dirname(ERROR_LOG), exist_ok=True)
         with open(ERROR_LOG, 'a', encoding='utf-8') as f:
+            # Round-5 H3 fix: error message may quote a path or value with secrets.
             f.write(json.dumps({
                 'ts': _now().isoformat(),
                 'where': where,
-                'err': str(exc)[:500],
+                'err': redaction.redact(str(exc)[:500]),
                 'err_type': type(exc).__name__,
             }, ensure_ascii=False) + '\n')
+        path_config.chmod_or_warn(ERROR_LOG, 0o600)
     except Exception:
         pass
 
@@ -318,6 +323,10 @@ def _promote_locked():
             'confirmation_text': act.get('confirmation_text'),
             'user_message_excerpt': trig.get('user_message_excerpt'),
         }
+        # Round-5 H3 fix: detected_signal.content / confirmation_text /
+        # user_message_excerpt all quote raw user/agent text and may contain
+        # API keys / SSH keys / DB URIs. Redact before persisting.
+        entry = redaction.sanitize(entry)
         newly_promoted.append(entry)
         have.add(eid)
 
@@ -327,6 +336,8 @@ def _promote_locked():
             with open(QUEUE, 'a', encoding='utf-8') as f:
                 for e in newly_promoted:
                     f.write(json.dumps(e, ensure_ascii=False) + '\n')
+            # Round-5 H3 fix: queue carries user-content excerpts; restrict.
+            path_config.chmod_or_warn(QUEUE, 0o600)
         except Exception:
             pass
 
@@ -373,16 +384,19 @@ def _write_pending_alert(queue):
                     'must be processed before the next major work block.\n\n')
             f.write('## Unresolved entries\n\n')
             for i, e in enumerate(queue, 1):
+                # Round-5 H3 fix: queue entries are already redacted at promote
+                # time, but defense-in-depth — re-redact every string we render
+                # (covers entries written before the round-5 fix).
                 sig = e.get('detected_signal') or {}
                 f.write(f'### {i}. proposed `{e.get("proposed_atomic_id") or "<unknown>"}`\n')
                 f.write(f'- **promoted_at**: {e.get("promoted_at")}\n')
                 f.write(f'- **source_obs_entry_id**: `{e.get("source_obs_entry_id")}`\n')
                 f.write(f'- **signal_type**: {sig.get("signal_type")}\n')
                 f.write(f'- **domain**: {sig.get("domain")}\n')
-                f.write(f'- **content**: {sig.get("content")}\n')
+                f.write(f'- **content**: {redaction.redact(sig.get("content") or "")}\n')
                 ume = e.get('user_message_excerpt')
                 if ume:
-                    f.write(f'- **user said (≤200)**: {ume}\n')
+                    f.write(f'- **user said (≤200)**: {redaction.redact(ume)}\n')
                 f.write('\n')
             f.write('## Action\n\n')
             f.write('1. Review each entry above.\n')
@@ -390,6 +404,8 @@ def _write_pending_alert(queue):
                     '(NOOP / UPDATE / SUPERSEDE / NEW) per `wf-pit-016`.\n')
             f.write('3. Run `python3 ~/.claude/skills/preference-tracker/lib/'
                     'pending_queue_manager.py prune` to drop resolved entries from queue.\n')
+        # Round-5 H3 fix: alert MD echoes user content; restrict.
+        path_config.chmod_or_warn(ALERT, 0o600)
     except Exception:
         pass
 

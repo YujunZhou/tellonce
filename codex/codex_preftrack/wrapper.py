@@ -14,6 +14,26 @@ from .mode import load_mode, write_mode
 from .verify import load_default_whitelist, verify_output
 
 
+class _StringSink:
+    """Adapter so the byte-tee can write to sinks that lack `.buffer` (e.g.
+    pytest's CaptureIO replacement for sys.stdout). Decodes with errors='replace'
+    and writes via the text-mode write()/flush() API."""
+    def __init__(self, text_stream):
+        self._stream = text_stream
+
+    def write(self, chunk_bytes):
+        try:
+            self._stream.write(chunk_bytes.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except Exception:
+            pass
+
+
 # Subprocess env policy.
 #
 # CX-4 + post-fix-review fix: we want to strip obvious leak vectors
@@ -158,11 +178,16 @@ def run_wrapped(
     )
 
     child_env = _filter_env(os.environ.copy())
-    # Codex review H1 fix (2026-05-01): tee child stdout/stderr to user's terminal
-    # AND capture for sanitize+persist. Old code used capture_output=True which
-    # silently swallowed everything — `codex_preftrack exec -- pytest` produced
-    # 0 bytes on the user's terminal. Streaming tee preserves the wrapper's
-    # transparent-passthrough contract so wrapped commands look native.
+    # Codex review H1 fix (2026-05-01) + Round-5 H1 follow-up:
+    # 1. Byte-mode Popen — text=True would crash a tee thread with
+    #    UnicodeDecodeError when the child writes non-UTF-8 bytes (compilers,
+    #    binaries, locale-mismatched logs).
+    # 2. Tee to sys.stdout.buffer / sys.stderr.buffer so non-UTF-8 bytes pass
+    #    through to the user's terminal unchanged.
+    # 3. Decode-for-persist with errors='replace' so sanitize() / verify_output
+    #    still see strings, but garbled bytes don't poison the captured copy.
+    # 4. Convert negative returncode (signal kill) to shell convention 128+sig
+    #    so wrappers behave like a normal shell (e.g. SIGTERM → 143, not -15).
     import threading as _threading
     stdout = ""
     stderr = ""
@@ -173,20 +198,22 @@ def run_wrapped(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
             env=child_env,
         )
 
-        def _tee(src, sink_stream, buf_list):
+        def _tee_bytes(src, sink_buffer, buf_list):
             try:
-                for line in iter(src.readline, ""):
-                    if not line:
+                while True:
+                    chunk = src.readline()
+                    if not chunk:
                         break
-                    buf_list.append(line)
+                    buf_list.append(chunk)
                     try:
-                        sink_stream.write(line)
-                        sink_stream.flush()
+                        sink_buffer.write(chunk)
+                        sink_buffer.flush()
                     except Exception:
+                        # Sink failures (e.g. parent's stdout closed) shouldn't
+                        # crash the tee — keep capturing so we can still persist.
                         pass
             finally:
                 try:
@@ -196,28 +223,37 @@ def run_wrapped(
 
         out_chunks: list = []
         err_chunks: list = []
-        t_out = _threading.Thread(target=_tee, args=(proc.stdout, sys.stdout, out_chunks), daemon=True)
-        t_err = _threading.Thread(target=_tee, args=(proc.stderr, sys.stderr, err_chunks), daemon=True)
+        # sys.stdout/sys.stderr may be replaced by pytest with non-buffer wrappers;
+        # fall back to writing the chunk via str(errors=replace) in that case.
+        out_sink = getattr(sys.stdout, "buffer", None) or _StringSink(sys.stdout)
+        err_sink = getattr(sys.stderr, "buffer", None) or _StringSink(sys.stderr)
+        t_out = _threading.Thread(target=_tee_bytes, args=(proc.stdout, out_sink, out_chunks), daemon=True)
+        t_err = _threading.Thread(target=_tee_bytes, args=(proc.stderr, err_sink, err_chunks), daemon=True)
         t_out.start()
         t_err.start()
         try:
-            rc = proc.wait(timeout=timeout_s)
+            raw_rc = proc.wait(timeout=timeout_s)
+            timed_out = False
         except subprocess.TimeoutExpired:
             proc.kill()
             try:
-                proc.wait(timeout=5)
+                raw_rc = proc.wait(timeout=5)
             except Exception:
-                pass
-            t_out.join(timeout=2)
-            t_err.join(timeout=2)
-            stdout = "".join(out_chunks)
-            stderr = "".join(err_chunks) + f"\n[wrapper] subprocess timed out after {timeout_s}s\n"
+                raw_rc = -9
+            timed_out = True
+        t_out.join(timeout=5)
+        t_err.join(timeout=5)
+        stdout = b"".join(out_chunks).decode("utf-8", errors="replace")
+        stderr = b"".join(err_chunks).decode("utf-8", errors="replace")
+        if timed_out:
+            stderr += f"\n[wrapper] subprocess timed out after {timeout_s}s\n"
             rc = 3
+        elif raw_rc < 0:
+            # Negative returncode means killed by signal -raw_rc. Shell convention
+            # is 128 + signal_number so wrappers compose with `set -e` etc.
+            rc = 128 + (-raw_rc)
         else:
-            t_out.join(timeout=5)
-            t_err.join(timeout=5)
-            stdout = "".join(out_chunks)
-            stderr = "".join(err_chunks)
+            rc = raw_rc
     except FileNotFoundError as exc:
         msg = f"[wrapper] command not found: {exc.filename!r}\n"
         try:

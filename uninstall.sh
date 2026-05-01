@@ -30,11 +30,13 @@ CONFIG_FILE="${HOME}/.preference-tracker.config.json"
 KEEP_SKILL_DIR=false
 PURGE_STATE=false
 KEEP_CONFIG=false
+PURGE_LEGACY_HOOKS=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --keep-skill-dir) KEEP_SKILL_DIR=true; shift ;;
         --purge-state) PURGE_STATE=true; shift ;;
         --keep-config) KEEP_CONFIG=true; shift ;;
+        --purge-legacy-project-hooks) PURGE_LEGACY_HOOKS=true; shift ;;
         *) shift ;;
     esac
 done
@@ -103,28 +105,34 @@ else
     echo "[1/5] settings.local.json 不存在, skip"
 fi
 
-# 2. rm hooks .sh (per lib/_pt_hooks.txt source-of-truth, I-NEW fix)
+# 2. project-local hook .sh 处理
+# Codex review Round-5 H2 fix (2026-05-01): 不再无脑 rm project-local hook
+# 文件. 新 install 已经不在 ${HOOKS_DIR} 写文件 (注册的全是 ${SKILL_DIR}/hooks/),
+# 所以这里的 rm 只对老安装生效, 但 user 或 hostile repo 可能放了同名 hook,
+# rm 掉就把别人的代码删了. 默认 skip; 加 --purge-legacy-project-hooks 显式
+# 同意才 rm.
 echo ""
-echo "[2/5] 删 hooks .sh:"
 HOOK_LIST_FILE="${SKILL_DIR}/lib/_pt_hooks.txt"
-if [[ -f "${HOOK_LIST_FILE}" ]]; then
-    while IFS= read -r hook; do
-        [[ -z "${hook}" || "${hook}" == \#* ]] && continue
-        if [[ -f "${HOOKS_DIR}/${hook}" ]]; then
-            rm -f "${HOOKS_DIR}/${hook}"
-            echo "  - ${hook}"
-        fi
-    done < "${HOOK_LIST_FILE}"
+if [[ "${PURGE_LEGACY_HOOKS}" == true ]]; then
+    echo "[2/5] 删 project-local hooks .sh (--purge-legacy-project-hooks):"
+    if [[ -f "${HOOK_LIST_FILE}" ]]; then
+        while IFS= read -r hook; do
+            [[ -z "${hook}" || "${hook}" == \#* ]] && continue
+            if [[ -f "${HOOKS_DIR}/${hook}" ]]; then
+                rm -f "${HOOKS_DIR}/${hook}"
+                echo "  - ${hook}"
+            fi
+        done < "${HOOK_LIST_FILE}"
+    fi
 else
-    echo "  ⚠ ${HOOK_LIST_FILE} 不存在, 用 fallback inline 列表"
-    for hook in memory-deterministic-block.sh memory-shadow-judge.sh memory-shadow-alert-inject.sh \
-                memory-verify-compliance.sh memory-retrieve-inject.sh memory-pending-promote.sh \
-                memory-pending-inject.sh check-observation-log.sh; do
-        if [[ -f "${HOOKS_DIR}/${hook}" ]]; then
-            rm -f "${HOOKS_DIR}/${hook}"
-            echo "  - ${hook}"
-        fi
-    done
+    echo "[2/5] project-local hooks .sh 保留 (默认):"
+    if [[ -d "${HOOKS_DIR}" ]] && ls "${HOOKS_DIR}"/memory-*.sh > /dev/null 2>&1; then
+        echo "  发现老安装在 ${HOOKS_DIR}/ 里的 .sh:"
+        ls "${HOOKS_DIR}"/memory-*.sh "${HOOKS_DIR}"/check-observation-log.sh 2>/dev/null | sed 's/^/    /'
+        echo "  这些文件 PT v1+ 不再注册 (settings.local.json 已撤). 留给你审"
+        echo "  自己决定是不是 PT 老安装产物. 想让 uninstall 删: 重跑加"
+        echo "    --purge-legacy-project-hooks"
+    fi
 fi
 
 # 3. 询问 skill dir
