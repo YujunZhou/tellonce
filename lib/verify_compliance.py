@@ -578,10 +578,7 @@ def main():
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
         with open(LOG_PATH, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
-        try:
-            os.chmod(LOG_PATH, 0o600)
-        except OSError:
-            pass
+        path_config.chmod_or_warn(LOG_PATH, 0o600)
     except Exception:
         pass
 

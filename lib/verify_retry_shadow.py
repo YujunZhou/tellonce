@@ -214,11 +214,7 @@ def _append_shadow_log(entry):
     try:
         with open(SHADOW_LOG, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
-        # Best-effort chmod to 0600. Ignore failures (e.g. NFS without chmod, Windows).
-        try:
-            os.chmod(SHADOW_LOG, 0o600)
-        except OSError:
-            pass
+        path_config.chmod_or_warn(SHADOW_LOG, 0o600)
     except Exception:
         pass
 
@@ -256,10 +252,7 @@ def _update_alert_md(violation_alerts):
         with open(SHADOW_ALERT_MD, 'w', encoding='utf-8') as f:
             f.write(body)
         # H10 fix: contains violation evidence; restrict to user-only.
-        try:
-            os.chmod(SHADOW_ALERT_MD, 0o600)
-        except OSError:
-            pass
+        path_config.chmod_or_warn(SHADOW_ALERT_MD, 0o600)
     except Exception:
         pass
 
@@ -584,10 +577,7 @@ def main():
         os.makedirs(os.path.dirname(COMPLIANCE_LOG), exist_ok=True)
         with open(COMPLIANCE_LOG, 'a', encoding='utf-8') as f:
             f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
-        try:
-            os.chmod(COMPLIANCE_LOG, 0o600)
-        except OSError:
-            pass
+        path_config.chmod_or_warn(COMPLIANCE_LOG, 0o600)
     except Exception:
         pass
 

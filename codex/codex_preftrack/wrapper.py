@@ -145,10 +145,8 @@ def run_wrapped(
     # exist_ok=False — uuid4 collision is astronomically unlikely; raising on
     # collision is safer than silently merging two runs into one dir.
     run_dir.mkdir(parents=True, exist_ok=False)
-    try:
-        os.chmod(run_dir, 0o700)
-    except OSError:
-        pass
+    from .ledger import _chmod_or_warn
+    _chmod_or_warn(run_dir, 0o700)
 
     redacted_cmd = _sanitize_cmd_for_log(cmd)
     meta = {"run_id": run_id, "cmd": redacted_cmd, "mode": "wrapper"}

@@ -22,10 +22,42 @@ Per `tool-pit-130` state 走 .claude/preference-tracker-state/, 不 /tmp.
 """
 import json
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
+
+
+_CHMOD_WARN_ONCE = set()
+
+
+def chmod_or_warn(path, mode, critical=True):
+    """chmod best-effort, but warn once-per-path on failure for security-critical
+    files so a misconfigured filesystem (NFS no_squash, FAT32) doesn't silently
+    leave files world-readable. Set critical=False for hardening hints (e.g. lock
+    files). Set env PT_QUIET_CHMOD=1 to silence warnings.
+    """
+    try:
+        os.chmod(path, mode)
+    except OSError as e:
+        if not critical:
+            return
+        key = str(path)
+        if key in _CHMOD_WARN_ONCE:
+            return
+        _CHMOD_WARN_ONCE.add(key)
+        if os.environ.get('PT_QUIET_CHMOD') == '1':
+            return
+        try:
+            sys.stderr.write(
+                f'preference-tracker: warning: chmod {oct(mode)} on {path} '
+                f'failed ({e.__class__.__name__}: {e}). File may be '
+                f'world-readable; consider remounting on a chmod-capable '
+                f'filesystem or set PT_QUIET_CHMOD=1 to silence.\n'
+            )
+        except Exception:
+            pass
 
 
 def _clear_cache():

@@ -7,9 +7,41 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Iterator
+
+
+_CHMOD_WARN_ONCE: set = set()
+
+
+def _chmod_or_warn(path, mode: int, *, critical: bool = True) -> None:
+    """chmod best-effort, but warn once-per-path on failure for security-critical
+    files so a misconfigured filesystem (NFS no_squash, FAT32) doesn't silently
+    leave files world-readable. Set critical=False for files where mode is just
+    a hardening hint (e.g. lock files).
+    """
+    try:
+        os.chmod(path, mode)
+    except OSError as e:
+        if not critical:
+            return
+        key = str(path)
+        if key in _CHMOD_WARN_ONCE:
+            return
+        _CHMOD_WARN_ONCE.add(key)
+        if os.environ.get("CODEX_PT_QUIET_CHMOD") == "1":
+            return
+        try:
+            sys.stderr.write(
+                f"codex_preftrack: warning: chmod {oct(mode)} on {path} failed "
+                f"({e.__class__.__name__}: {e}). File may be world-readable; "
+                f"consider remounting on a chmod-capable filesystem or set "
+                f"CODEX_PT_QUIET_CHMOD=1 to silence.\n"
+            )
+        except Exception:
+            pass
 
 
 class DuplicateEventError(ValueError):
@@ -121,10 +153,7 @@ def secure_write_text(path: Path, data: str, *, atomic: bool = False) -> None:
     if atomic:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(data, encoding="utf-8")
-        try:
-            os.chmod(tmp, 0o600)
-        except OSError:
-            pass
+        _chmod_or_warn(tmp, 0o600)
         with tmp.open("r+", encoding="utf-8") as f:
             f.flush()
             os.fsync(f.fileno())
@@ -140,19 +169,13 @@ def secure_write_text(path: Path, data: str, *, atomic: bool = False) -> None:
             pass
     else:
         path.write_text(data, encoding="utf-8")
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    _chmod_or_warn(path, 0o600)
 
 
 def secure_mkdir(path: Path) -> None:
-    """mkdir -p `path` with mode 0o700 (user-only). Best-effort chmod on existing dirs."""
+    """mkdir -p `path` with mode 0o700 (user-only). Warn on chmod failure."""
     path.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(path, 0o700)
-    except OSError:
-        pass
+    _chmod_or_warn(path, 0o700)
 
 
 def _redact_string(value: str) -> str:
@@ -201,11 +224,8 @@ def append_event(state_root: Path, event: dict) -> str:
     event.setdefault("payload", {})
     line = json.dumps(event, ensure_ascii=False, sort_keys=True)
     with lock_path.open("a+", encoding="utf-8") as lock:
-        # Tighten lockfile perms (best-effort).
-        try:
-            os.chmod(lock_path, 0o600)
-        except OSError:
-            pass
+        # Lockfile mode is a hardening hint, not security-critical (no secrets here).
+        _chmod_or_warn(lock_path, 0o600, critical=False)
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         # Tail-only dedup: only check the last 1000 events. event_id is now
         # uuid4-backed (122 bits) so collisions across full history are
@@ -218,10 +238,7 @@ def append_event(state_root: Path, event: dict) -> str:
             f.write(line + "\n")
             f.flush()
             os.fsync(f.fileno())
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
+        _chmod_or_warn(path, 0o600)
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return event["event_id"]
 
@@ -324,10 +341,7 @@ def repair_tail(state_root: Path) -> RepairResult:
         with quarantine_path.open("a", encoding="utf-8") as f:
             f.write(f"\n# repair_tail at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
             f.write("".join(corrupt))
-        try:
-            os.chmod(quarantine_path, 0o600)
-        except OSError:
-            pass
+        _chmod_or_warn(quarantine_path, 0o600)
 
     # Atomically rewrite events.jsonl to contain only good lines.
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -336,10 +350,7 @@ def repair_tail(state_root: Path) -> RepairResult:
             f.write(raw)
         f.flush()
         os.fsync(f.fileno())
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
+    _chmod_or_warn(tmp, 0o600)
     tmp.replace(path)
     try:
         dir_fd = os.open(str(path.parent), os.O_RDONLY)

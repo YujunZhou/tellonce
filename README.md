@@ -179,6 +179,10 @@ Issues / PRs welcome via the project's GitHub repository.
 - `README.md` — 本文 (装/用/卸/故障)
 - `FAQ.md` — 15 条常见问题
 - `install.sh` / `doctor.sh` / `uninstall.sh` / `dashboard.sh`
-- `lib/` — 8 lib `.py` + path_config + tests
-- `hooks/` — 8 hook `.sh` wrappers
+- `lib/` — lib `.py` + path_config + tests
+- `hooks/` — hook `.sh` wrappers
 - `seed_memory/` — 3 enforce rules (装时 cp 给新 user 如不存在)
+- `codex/` — Codex 变体 (wrapper-driven, 详见 `codex/SKILL.md`)
+- `codex_preftrack_skill/preference-tracker` — symlink → `codex/`. Codex CLI 默认从
+  `<repo>/<skill_name>/preference-tracker` 加载 skill, 该 symlink 提供这个布局
+  而不需 fork 整个目录树

@@ -126,18 +126,13 @@ def write_memory_atomic(path: Path, data: dict, body: str) -> str:
     text = render_memory(data, body)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
+    from .ledger import _chmod_or_warn
+    _chmod_or_warn(tmp, 0o600)
     with tmp.open("r+", encoding="utf-8") as f:
         f.flush()
         os.fsync(f.fileno())
     tmp.replace(path)
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    _chmod_or_warn(path, 0o600)
     # Persist the rename in the parent directory.
     try:
         dir_fd = os.open(str(path.parent), os.O_RDONLY)

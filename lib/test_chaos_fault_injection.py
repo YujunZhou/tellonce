@@ -32,7 +32,12 @@ def make_transcript(messages):
 
 
 def reset_state(tmp):
-    """Reset env vars + path_config cache to use tmp dir."""
+    """Reset env vars + path_config cache to use tmp dir.
+
+    conftest.py has an autouse fixture that drops these env keys and reloads
+    path-snapshotting modules after each test, so downstream test files don't
+    inherit a chaos test's tmp dirs.
+    """
     os.environ['B5_STATE_DIR'] = os.path.join(tmp, 'state')
     os.environ['B5_OBS_LOG_DIR'] = os.path.join(tmp, 'obs')
     os.environ['B5_PROJECT_ROOT'] = tmp
