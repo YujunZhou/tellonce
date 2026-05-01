@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import subprocess
 import shutil
@@ -202,17 +203,36 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             self.assertTrue(record.state_root.exists())
 
     def test_doctor_private_path_audit_fails(self):
+        # Public-release default has no built-in PRIVATE_PATTERNS, so we
+        # provide one via the documented env-extension contract and verify
+        # the detector fires.
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
             project = base / "project"
             home.mkdir()
             project.mkdir()
-            with patch.dict(os.environ, {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"}):
+            with patch.dict(
+                os.environ,
+                {
+                    "HOME": str(home),
+                    "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                    "CODEX_PT_PRIVATE_PATTERNS": "__test_leaked_token__",
+                },
+            ):
+                # Reload doctor to pick up env-extended patterns.
+                import importlib
+
+                from codex_preftrack import doctor as _doctor
+
+                importlib.reload(_doctor)
                 install(project)
                 bad = project / ".codex" / "preference-tracker" / "managed_runtime.txt"
-                bad.write_text("/home/user/.claude/skills/preference-tracker", encoding="utf-8")
-                report = run_doctor(project)
+                bad.write_text(
+                    "this file accidentally contains __test_leaked_token__ from a fork",
+                    encoding="utf-8",
+                )
+                report = _doctor.run_doctor(project)
             self.assertEqual(report.sections["private_paths"], "FAIL")
 
     def test_verify_warns_on_tmp_artifact(self):
@@ -255,18 +275,37 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             self.assertFalse((project / ".codex" / "preference-tracker").exists())
 
     def test_doctor_ignores_registration_private_paths(self):
+        # registration.json is special-cased: even if it contains the
+        # configured leak pattern, it's never flagged (it's expected to
+        # contain absolute paths by design).
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
             project = base / "project"
             home.mkdir()
             project.mkdir()
-            with patch.dict(os.environ, {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"}):
+            with patch.dict(
+                os.environ,
+                {
+                    "HOME": str(home),
+                    "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                    "CODEX_PT_PRIVATE_PATTERNS": "__test_token_for_registration_test__",
+                },
+            ):
+                import importlib
+
+                from codex_preftrack import doctor as _doctor
+
+                importlib.reload(_doctor)
                 install(project)
                 registration = project / ".codex" / "preference-tracker" / "registration.json"
-                data = registration.read_text(encoding="utf-8")
-                registration.write_text(data.replace(str(project), "/home/user/project"), encoding="utf-8")
-                report = run_doctor(project)
+                # Inject the leak token inside a real JSON field so the file
+                # stays valid JSON; the audit must still skip registration.json
+                # by special-case (its filename, not its content).
+                data_obj = json.loads(registration.read_text(encoding="utf-8"))
+                data_obj["__decoy_for_test__"] = "__test_token_for_registration_test__"
+                registration.write_text(json.dumps(data_obj, indent=2), encoding="utf-8")
+                report = _doctor.run_doctor(project)
             self.assertNotEqual(report.sections["private_paths"], "FAIL")
 
     def test_skill_package_wrappers_exist(self):

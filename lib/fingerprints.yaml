@@ -1,6 +1,5 @@
-# Preference-tracker Fingerprint Draft v1 (for v3 proposal 补丁 9)
-# 2026-04-22 — draft for user review, not yet active
-# Path (when approved): /home/user/.claude/skills/preference-tracker/lib/fingerprints.yaml
+# Preference-tracker Fingerprint Library v1
+# Loaded at runtime by lib/retrieve_inject.py + lib/verify_compliance.py via path_config.
 #
 # Semantics:
 #   triggers (any-of): 用户 message 或 project context 包含任一词 → force include atomic_id

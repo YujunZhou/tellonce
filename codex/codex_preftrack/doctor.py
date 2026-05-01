@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,12 +9,20 @@ from .mode import load_mode
 from .paths import load_registration
 
 
-# Functional leak detector: if any state file under state_root contains these
-# author-local strings, it usually means a stale config or legacy Codex skill
-# build leaked into a same-host user's installation. The strings themselves are
-# the leak signature, not configuration — keep them here so the detector keeps
-# working even after the rest of the codebase is sanitized.
-PRIVATE_PATTERNS = ("yzhou25", "/scratch365", "/home/user", ".claude")
+# Functional leak detector: if any state file under state_root contains a
+# substring matching one of these patterns, the installation likely picked up
+# a stale config or a legacy build that hardcoded a fork-author's path.
+#
+# Default is empty — public release ships with no built-in author signature.
+# Forks that want to detect their own private-token leaks can extend this via
+# the env var `CODEX_PT_PRIVATE_PATTERNS` (comma-separated).
+_DEFAULT_PRIVATE_PATTERNS: tuple[str, ...] = ()
+_ENV_PATTERNS = tuple(
+    p.strip()
+    for p in os.environ.get("CODEX_PT_PRIVATE_PATTERNS", "").split(",")
+    if p.strip()
+)
+PRIVATE_PATTERNS: tuple[str, ...] = _DEFAULT_PRIVATE_PATTERNS + _ENV_PATTERNS
 
 
 @dataclass(frozen=True)

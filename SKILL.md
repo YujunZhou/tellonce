@@ -80,27 +80,6 @@ If you haven't scanned for signals and recorded the result, your response is inc
 
 ---
 
-## example-research-project PROGRESS.md Maintenance
-
-When updating `example-research-project/PROGRESS.md`, treat it as **current paper progress + current operations summary**, not a session transcript.
-
-Keep in `PROGRESS.md`:
-- Current dashboard items that affect ongoing work: active section status, experiment results, blockers, running processes, pending memory, and active infra.
-- Paper-relevant sections unless user explicitly removes them: `Sec 3`, `Sec 4`, `Sec 5`, `Sec 6`.
-- Current Sec 6 plan only: ClawArena/all-ClawArena train stream, frozen ID/OOD eval, `no_memory` / `prompt_memory` / `mem0_memory` / `compiled_enforcement`, metric directions, and Layer 2 status.
-
-Move to `ARCHIVE.md`:
-- Historical session logs, stale runs, deprecated benchmark routes, debug narratives, old answered questions, and replaced plans.
-- Strike-through or "was replaced by" entries; rewrite to the current fact or archive the old fact.
-- Inactive benchmark routes such as SWE-Bench, Terminal-Bench, and PinchBench unless user reactivates them.
-
-Claim boundary to preserve:
-- Current ClawArena `compiled_enforcement` is harness-level compiled rule prompt injection, **not** Codex native Skill/hook enforcement.
-
-After cleanup, grep `PROGRESS.md` for stale route names and old debug terms before committing.
-
----
-
 ## Gate Function
 
 ```

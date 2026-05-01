@@ -204,6 +204,5 @@ python3 ~/.claude/skills/preference-tracker/lib/path_config.py
 ---
 
 更多 issue:
-- 邮件: yzhou25@nd.edu (内测期间直接邮件最快, paper Sec 6 second-user case study 第一周收 friction)
-- GitHub repo: 待 standalone repo 建 (paper 发表后开源)
-- 内测期间所有反馈/bug/误杀/想加 whitelist 都欢迎邮件直接发, 不需走 issue tracker
+- GitHub Issues: https://github.com/YujunZhou/preference-tracker/issues
+- bug / 误杀 / 想加 whitelist / 阈值不灵 → 开 issue 时附 doctor.sh 输出 + dashboard 7 天数据更易诊断

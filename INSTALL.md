@@ -71,7 +71,7 @@ bash ~/.claude/skills/preference-tracker/uninstall.sh
    - `<state>/runtime/b5_shadow_alerts/B5_SHADOW_ALERT.md` — 含 latest 3 violation 全文
    - `~/.claude/projects/<cwd_escaped>/memory/*.md` — 用户自己加的偏好记录
 
-3. **不上传** 任何数据到 yzhou25 / 其他用户机器, 也不发邮件 / Slack / GitHub.
+3. **不上传** 任何数据到本仓库作者机器或任何第三方 (除上述 Anthropic CLI/API 通道), 也不发邮件 / Slack / GitHub.
 
 4. **API key 计费**:
    - `lib/detect_user_prefer.py` 默认 OFF (PT_PREFER_BACKEND=off, C6 fix). 不调任何
@@ -88,6 +88,6 @@ bash ~/.claude/skills/preference-tracker/uninstall.sh
 
 ## 报问题 / 反馈
 
-内测期间 (2026-04-27 起) 直接邮件 yzhou25@nd.edu, 不需走 issue tracker。
+GitHub Issues: https://github.com/YujunZhou/preference-tracker/issues
 
 详细常见问题见 `FAQ.md` (15 条), 设计与实现见 `README.md`.
