@@ -8,7 +8,7 @@ Coverage (12 test):
   - render markdown: empty / non-empty
   - apply_threshold: find / update / preserves-other-params / not-found / versioned-backup / snooze
 
-Per `wf-pref-027`: tests use tempfile; never touch yzhou25 production state.
+Per `wf-pref-027`: tests use tempfile; never touch any user's production state.
 """
 import datetime
 import json
@@ -94,10 +94,26 @@ class TestLoadWindow(_SandboxBase):
 
 class TestPerRuleStats(_SandboxBase):
 
-    def test_deterministic_violation_counted(self):
+    def test_deterministic_violation_string_list(self):
+        # C2 schema: deterministic_block writes a flat string list.
         compliance = [{
             'check_source': 'deterministic_block',
-            'b5_check': {'deterministic_violations': [{'atomic_id': 'lang-pit-130'}]},
+            'b5_check': {
+                'deterministic_status': 'block',
+                'deterministic_violations': ['lang-pit-130'],
+            },
+        }]
+        stats = advisor.per_rule_stats(compliance, [])
+        self.assertEqual(stats['lang-pit-130']['triggered_n'], 1)
+
+    def test_deterministic_violation_dict_list_backcompat(self):
+        # Tolerate older dict-shaped entries.
+        compliance = [{
+            'check_source': 'deterministic_block',
+            'b5_check': {
+                'deterministic_status': 'block',
+                'deterministic_violations': [{'atomic_id': 'lang-pit-130'}],
+            },
         }]
         stats = advisor.per_rule_stats(compliance, [])
         self.assertEqual(stats['lang-pit-130']['triggered_n'], 1)
@@ -108,15 +124,49 @@ class TestPerRuleStats(_SandboxBase):
         self.assertEqual(stats['lang-pref-001']['fp_marked_n'], 1)
         self.assertEqual(stats['lang-pit-130']['fp_marked_n'], 1)
 
-    def test_shadow_only_miss_counted(self):
-        shadow = [{
-            'rule_votes': [
-                {'atomic_id': 'lang-pit-130', 'verdict': 'violated', 'deterministic_caught': False},
-                {'atomic_id': 'lang-pit-130', 'verdict': 'violated', 'deterministic_caught': True},
-                {'atomic_id': 'lang-pit-130', 'verdict': 'pass'},
-            ],
+    def test_shadow_flat_alerted_counted(self):
+        # C3 schema: shadow log entries are flat per-rule dicts, no `rule_votes`.
+        # Two alerted shadow entries, one matched by deterministic block (within 60s,
+        # same session) → counts as violated_n=2 but shadow_only_n=1.
+        now = datetime.datetime.now(datetime.timezone.utc)
+        ts_iso = now.isoformat()
+        compliance = [{
+            'timestamp': ts_iso,
+            'session_id': 'sid-A',
+            'check_source': 'deterministic_block',
+            'b5_check': {
+                'deterministic_status': 'block',
+                'deterministic_violations': ['lang-pit-130'],
+            },
         }]
-        stats = advisor.per_rule_stats([], shadow)
+        shadow = [
+            {  # alerted, deterministic also caught (sid-A) → not shadow-only
+                'timestamp': ts_iso,
+                'session_id': 'sid-A',
+                'rule_id': 'lang-pit-130',
+                'alerted': True,
+            },
+            {  # alerted, deterministic missed (sid-B never blocked) → shadow-only
+                'timestamp': ts_iso,
+                'session_id': 'sid-B',
+                'rule_id': 'lang-pit-130',
+                'alerted': True,
+            },
+            {  # not alerted, no reason_no_alert → counts as pass
+                'timestamp': ts_iso,
+                'session_id': 'sid-A',
+                'rule_id': 'lang-pit-130',
+                'alerted': False,
+            },
+            {  # not alerted, rate-limited → suppressed (not pass, not violated)
+                'timestamp': ts_iso,
+                'session_id': 'sid-A',
+                'rule_id': 'lang-pit-130',
+                'alerted': False,
+                'reason_no_alert': 'rate_limited',
+            },
+        ]
+        stats = advisor.per_rule_stats(compliance, shadow)
         self.assertEqual(stats['lang-pit-130']['shadow_violated_n'], 2)
         self.assertEqual(stats['lang-pit-130']['shadow_only_n'], 1)
         self.assertEqual(stats['lang-pit-130']['shadow_pass_n'], 1)
@@ -261,14 +311,12 @@ class TestAdviseEndToEnd(_SandboxBase):
                 }) + '\n')
 
         with open(path_config.get_shadow_log_path(), 'w', encoding='utf-8') as f:
-            for _ in range(10):
+            for i in range(10):
                 f.write(json.dumps({
                     'timestamp': now.isoformat(),
-                    'rule_votes': [{
-                        'atomic_id': 'e2e-rule-001',
-                        'verdict': 'violated',
-                        'deterministic_caught': False,
-                    }],
+                    'session_id': f'sid-{i}',
+                    'rule_id': 'e2e-rule-001',
+                    'alerted': True,
                 }) + '\n')
 
         suggestions, output_path = advisor.advise(days=7)

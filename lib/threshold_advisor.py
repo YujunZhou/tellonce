@@ -93,14 +93,39 @@ def _empty_record():
     }
 
 
+def _coerce_violation_rule_id(violation):
+    """C2 fix: deterministic_block.log_check writes violations as a string list
+    (rule_id strings), but earlier callers / tests expected dicts. Accept both
+    shapes; never AttributeError.
+    """
+    if isinstance(violation, str):
+        return violation
+    if isinstance(violation, dict):
+        return violation.get('atomic_id') or violation.get('rule_id')
+    return None
+
+
 def per_rule_stats(compliance_entries: List[dict], shadow_entries: List[dict]) -> Dict[str, dict]:
-    """Aggregate per-rule trigger counts from compliance + shadow logs."""
+    """Aggregate per-rule trigger counts from compliance + shadow logs.
+
+    C2/C3 fix (2026-05-01 review): both schemas were misaligned with what the
+    producers actually write.
+
+      Producer (deterministic_block.log_check):
+        b5_check.deterministic_violations = [<rule_id_str>, ...]
+      Producer (verify_retry_shadow._append_shadow_log):
+        flat dict {rule_id, judge_confidence, evidence, feedback, alerted,
+                   reason_no_alert?, b5_check{shadow_violation_rule_ids}, ...}
+        — there is NO `rule_votes` list; advisor was reading a phantom key.
+
+    Below now matches both producers exactly.
+    """
     stats: Dict[str, dict] = {}
 
     for entry in compliance_entries:
         if entry.get('check_source') == 'deterministic_block':
             for violation in entry.get('b5_check', {}).get('deterministic_violations', []):
-                rule_id = violation.get('atomic_id') or violation.get('rule_id')
+                rule_id = _coerce_violation_rule_id(violation)
                 if not rule_id:
                     continue
                 stats.setdefault(rule_id, _empty_record())
@@ -112,20 +137,61 @@ def per_rule_stats(compliance_entries: List[dict], shadow_entries: List[dict]) -
                 stats.setdefault(rule_id, _empty_record())
                 stats[rule_id]['fp_marked_n'] += 1
 
-    for entry in shadow_entries:
-        for vote in entry.get('rule_votes', []):
-            rule_id = vote.get('atomic_id') or vote.get('rule_id')
-            if not rule_id:
+    # Build a quick lookup of "did deterministic catch rule R at session S near
+    # timestamp T (±60s)?" so we can mark shadow-only misses correctly.
+    det_catches = []
+    for entry in compliance_entries:
+        if entry.get('check_source') != 'deterministic_block':
+            continue
+        if entry.get('b5_check', {}).get('deterministic_status') != 'block':
+            continue
+        ts = _parse_iso_timestamp(entry.get('timestamp', ''))
+        if ts is None:
+            continue
+        sid = entry.get('session_id', '')
+        for v in entry.get('b5_check', {}).get('deterministic_violations', []):
+            rid = _coerce_violation_rule_id(v)
+            if rid:
+                det_catches.append((sid, rid, ts))
+
+    def _deterministic_caught(sid: str, rid: str, ts) -> bool:
+        if ts is None:
+            return False
+        window = datetime.timedelta(seconds=60)
+        for csid, crid, cts in det_catches:
+            if crid != rid or csid != sid:
                 continue
-            stats.setdefault(rule_id, _empty_record())
-            verdict = vote.get('verdict', '')
-            deterministic_caught = bool(vote.get('deterministic_caught'))
-            if verdict == 'violated':
-                stats[rule_id]['shadow_violated_n'] += 1
-                if not deterministic_caught:
-                    stats[rule_id]['shadow_only_n'] += 1
-            elif verdict in ('pass', 'ok', 'compliant'):
-                stats[rule_id]['shadow_pass_n'] += 1
+            if abs((cts - ts).total_seconds()) <= window.total_seconds():
+                return True
+        return False
+
+    for entry in shadow_entries:
+        # New flat schema: each entry is one (rule_id, alerted) tuple.
+        rule_id = entry.get('rule_id') or entry.get('atomic_id')
+        if not rule_id:
+            # Defensive: also handle `b5_check.shadow_violation_rule_ids` plural form.
+            for rid in (entry.get('b5_check') or {}).get('shadow_violation_rule_ids', []) or []:
+                stats.setdefault(rid, _empty_record())
+                stats[rid]['shadow_violated_n'] += 1
+            continue
+
+        stats.setdefault(rule_id, _empty_record())
+        alerted = bool(entry.get('alerted', False))
+        if alerted:
+            stats[rule_id]['shadow_violated_n'] += 1
+            ts = _parse_iso_timestamp(entry.get('timestamp', ''))
+            sid = entry.get('session_id', '')
+            if not _deterministic_caught(sid, rule_id, ts):
+                stats[rule_id]['shadow_only_n'] += 1
+        else:
+            # Not alerted means: judge said violation but rate-limited / below
+            # confidence — count as "shadow saw something" for visibility but
+            # not as missed-by-deterministic.
+            reason = entry.get('reason_no_alert', '')
+            if reason in ('confidence_below_threshold', 'rate_limited'):
+                # Suppress as data point — not a clean compliance / miss signal.
+                continue
+            stats[rule_id]['shadow_pass_n'] += 1
 
     return stats
 
@@ -246,7 +312,7 @@ def write_suggestion_file(content: str) -> str:
     os.makedirs(target_dir, exist_ok=True)
     today = datetime.date.today().isoformat()
     path = os.path.join(target_dir, f'{today}.md')
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
     return path
 
@@ -264,14 +330,20 @@ def latest_suggestion_path() -> str:
 
 
 def advise(days: int = 7) -> Tuple[Dict[str, list], str]:
-    """Top-level: load, analyze, write. Returns (suggestions_dict, output_path)."""
+    """Top-level: load, analyze, write. Returns (suggestions_dict, output_path).
+
+    H7 fix: rule_params._clear_cache() used to live inside the per-rule loop,
+    which guaranteed an lru_cache miss on every iteration → re-listdir of the
+    memory dir + re-read of every .md file per rule. Cleared once before the
+    loop instead.
+    """
     compliance = _load_compliance_window(days)
     shadow = _load_shadow_window(days)
     stats = per_rule_stats(compliance, shadow)
 
+    rule_params._clear_cache()
     suggestions_per_rule: Dict[str, list] = {}
     for rule_id in stats:
-        rule_params._clear_cache()
         current = rule_params.read_rule_params(rule_id)
         if not current:
             continue

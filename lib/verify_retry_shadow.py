@@ -28,7 +28,7 @@ Defenses:
 
 Per `code-pref-101` JSON for reward-hack-resistant verdict.
 Per `wf-pref-036` defensive fallbacks (judge timeout/error → log warning, exit 0).
-Per `tool-pit-130` state lives in /scratch365 not /tmp.
+Per `tool-pit-130` state lives in <project>/.claude/preference-tracker-state/, not /tmp.
 Per `exp-pref-022` Anthropic Sonnet 4-6 default judge model.
 """
 import json
@@ -167,7 +167,7 @@ def _bump_daily_cost(extra_usd):
     cur = _read_daily_cost()
     new = cur + extra_usd
     try:
-        with open(path, 'w') as f:
+        with open(path, 'w', encoding='utf-8') as f:
             json.dump({'date': _today_str(), 'total_usd': new}, f)
     except Exception:
         pass
@@ -208,11 +208,17 @@ def _is_rate_limited(rule_id, hours=24):
 
 
 def _append_shadow_log(entry):
-    """Append entry dict to b5_shadow_log.jsonl."""
+    """Append entry dict to b5_shadow_log.jsonl. Restrict to user-only readable
+    (H10 fix: shadow log contains evidence/feedback excerpts of user content)."""
     os.makedirs(os.path.dirname(SHADOW_LOG), exist_ok=True)
     try:
-        with open(SHADOW_LOG, 'a') as f:
+        with open(SHADOW_LOG, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        # Best-effort chmod to 0600. Ignore failures (e.g. NFS without chmod, Windows).
+        try:
+            os.chmod(SHADOW_LOG, 0o600)
+        except OSError:
+            pass
     except Exception:
         pass
 
@@ -247,8 +253,13 @@ def _update_alert_md(violation_alerts):
         body = '\n'.join(sections) + '\n'
     os.makedirs(os.path.dirname(SHADOW_ALERT_MD), exist_ok=True)
     try:
-        with open(SHADOW_ALERT_MD, 'w') as f:
+        with open(SHADOW_ALERT_MD, 'w', encoding='utf-8') as f:
             f.write(body)
+        # H10 fix: contains violation evidence; restrict to user-only.
+        try:
+            os.chmod(SHADOW_ALERT_MD, 0o600)
+        except OSError:
+            pass
     except Exception:
         pass
 
@@ -324,35 +335,48 @@ Rules:
 
 
 def _judge_call_sdk(rules, last_user, response):
-    """Fallback: Anthropic SDK call (used when B5_USE_SDK=1 explicitly set).
+    """Optional: Anthropic SDK call (only when B5_USE_SDK=1 + B5_SDK_MODULE set).
 
-    Charges API credit per call. Mirror force_comply paper experiment path.
+    Charges API credit per call. Default install path (CLI subscription) is 0
+    cost; SDK only matters for paper-replication / SDK-only environments.
 
-    Per `tool-pit-004`: 默认走 CLI 走 user 订阅 0 元; SDK 路径仅 paper 实验或
-    CLI 失败时兜底. 同学装包环境若没 paper 私 module, 友好返错让用户切回 CLI
-    或装 anthropic 包 (I1 fix per Phase 8 review).
+    To enable: set both env vars
+      B5_USE_SDK=1
+      B5_SDK_MODULE=/path/to/your/sdk_wrapper_module   # exposes verify_all_global()
+
+    The wrapper module must define `verify_all_global(rules, last_user, response) ->
+    {"verdicts": [{rule_id, applicable, compliant, judge_confidence, evidence, feedback}, ...]}`.
+
+    Without B5_SDK_MODULE the call returns a friendly error so the caller can fall
+    back to CLI; no hardcoded paths.
     """
     t0 = time.time()
-    yzhou25_module = '/home/user/zyj/example-research-project/experiment/skill_hook_poc'
-    if not os.path.isdir(yzhou25_module):
+    sdk_module_path = os.environ.get('B5_SDK_MODULE', '').strip()
+    if not sdk_module_path:
         return [], 0.0, (time.time() - t0) * 1000, (
-            'B5_USE_SDK=1 但本环境无 paper-experiment SDK 模块. '
-            '建议: unset B5_USE_SDK 走 CLI (默认), 或装 anthropic 包并自行 wire.'
+            'B5_USE_SDK=1 but B5_SDK_MODULE is unset. '
+            'Either unset B5_USE_SDK to use CLI (default), or set B5_SDK_MODULE '
+            'to a directory exposing verify_all_global().'
+        )
+    if not os.path.isdir(sdk_module_path):
+        return [], 0.0, (time.time() - t0) * 1000, (
+            f'B5_SDK_MODULE={sdk_module_path!r} is not a directory.'
         )
     try:
-        sys.path.insert(0, yzhou25_module)
-        import verify as v
+        sys.path.insert(0, sdk_module_path)
+        import verify as v  # noqa: E402 — dynamic loader
     except Exception as e:
         return [], 0.0, (time.time() - t0) * 1000, f'verify import failed: {e}'
     try:
         loaded_rules = [{'rule_id': r['rule_id'], 'rule_text': r['rule_text']} for r in rules]
         result = v.verify_all_global(loaded_rules, last_user, response)
         verdicts_raw = result.get('verdicts', [])
-        # 修正后的 cost 公式 (per I2 — 系数从 200/100 提到 500/300, char→token 从 1/4 提到 1/3)
+        # Cost estimate (Haiku 4-5: $1/M input, $5/M output). Used only when SDK
+        # path doesn't surface real usage; consumers may overwrite if they have
+        # actual token counts.
         n_rules = len(loaded_rules)
         in_tokens = 500 * n_rules + len(response) // 3
         out_tokens = 300 * n_rules
-        # Haiku 4-5 价: $1/M in, $5/M out (cheaper than Sonnet)
         cost_usd = (in_tokens * 1 / 1_000_000) + (out_tokens * 5 / 1_000_000)
         verdicts = []
         for v_dict in verdicts_raw:
@@ -555,11 +579,15 @@ def main():
 
     status, log_entry = evaluate(data)
 
-    # Append to compliance log
+    # Append to compliance log; H10 fix chmod 0600 (contains response excerpts)
     try:
         os.makedirs(os.path.dirname(COMPLIANCE_LOG), exist_ok=True)
-        with open(COMPLIANCE_LOG, 'a') as f:
+        with open(COMPLIANCE_LOG, 'a', encoding='utf-8') as f:
             f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+        try:
+            os.chmod(COMPLIANCE_LOG, 0o600)
+        except OSError:
+            pass
     except Exception:
         pass
 

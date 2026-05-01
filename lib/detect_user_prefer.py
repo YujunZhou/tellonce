@@ -8,13 +8,31 @@ urgent response. Default urgent on any failure (cheaper degradation).
 CLI: python3 detect_user_prefer.py <transcript_path>
 Stdout: single char 'u' or 'c'.
 
-Latency: ~300-500ms via Haiku 4.5 + max_tokens=2 + no thinking. Acceptable
-because called only when detected=False AND only for deterministic_block
-(every day ~5 trips per dashboard 6d data).
+C6 fix (2026-05-01 review): default is now NO-API. The previous behaviour
+silently called Anthropic SDK on every Stop where last obs entry had
+detected=false (the base-rate path), charging the user's API key without
+any visible signal. Reviewed env contract:
+
+  PT_PREFER_BACKEND=off (default)   → return 'u' immediately, no API call,
+                                      no token spend. Behaviour: short-circuit
+                                      gate is fully open on detected=false,
+                                      identical to prior behaviour ON FAILURE.
+  PT_PREFER_BACKEND=sdk             → Anthropic Python SDK (legacy path).
+                                      Charges per call; user opts in.
+  PT_PREFER_BACKEND=cli             → Use `claude -p` subprocess (subscription
+                                      mode, 0 metered cost).
+
+This means the deterministic_block short-circuit still works (urgent = skip)
+but no longer silently bills users. To re-enable adaptive classification
+explicitly: `export PT_PREFER_BACKEND=cli` (subscription) or `=sdk` (API).
 """
 import json
 import os
+import subprocess
 import sys
+
+
+_BACKEND = os.environ.get('PT_PREFER_BACKEND', 'off').strip().lower()
 
 
 def _read_last_user_msg(transcript_path: str, max_chars: int = 200) -> str:
@@ -47,10 +65,17 @@ def _read_last_user_msg(transcript_path: str, max_chars: int = 200) -> str:
     return ''
 
 
-def classify(user_msg: str) -> str:
-    """Return 'u' (urgent) or 'c' (clarity). Default 'u' on any error."""
-    if not user_msg.strip():
-        return 'u'
+_CLASSIFY_PROMPT = (
+    "User's last message:\n{user_msg}\n\n"
+    "Does the user prefer URGENT (fast, terse, action-oriented) "
+    "or CLARITY (detailed, explained, careful) response right now? "
+    "Reply ONE letter only: u or c."
+)
+
+
+def _classify_via_sdk(user_msg: str) -> str:
+    """Anthropic Python SDK call (charges API credit). Opt-in via
+    PT_PREFER_BACKEND=sdk."""
     try:
         import anthropic
     except ImportError:
@@ -59,22 +84,49 @@ def classify(user_msg: str) -> str:
         client = anthropic.Anthropic()
     except Exception:
         return 'u'
-    prompt = (
-        f"User's last message:\n{user_msg}\n\n"
-        "Does the user prefer URGENT (fast, terse, action-oriented) "
-        "or CLARITY (detailed, explained, careful) response right now? "
-        "Reply ONE letter only: u or c."
-    )
     try:
         resp = client.messages.create(
             model="claude-haiku-4-5",
             max_tokens=2,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": _CLASSIFY_PROMPT.format(user_msg=user_msg)}],
         )
         out = resp.content[0].text.strip().lower()
         return 'c' if out.startswith('c') else 'u'
     except Exception:
         return 'u'
+
+
+def _classify_via_cli(user_msg: str) -> str:
+    """`claude -p` subprocess (subscription mode, 0 metered cost). Opt-in via
+    PT_PREFER_BACKEND=cli. Falls back to 'u' on any error."""
+    try:
+        proc = subprocess.run(
+            ['claude', '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg),
+             '--model', 'claude-haiku-4-5', '--output-format', 'text'],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return 'u'
+    except Exception:
+        return 'u'
+    if proc.returncode != 0:
+        return 'u'
+    out = (proc.stdout or '').strip().lower()
+    return 'c' if out.startswith('c') else 'u'
+
+
+def classify(user_msg: str) -> str:
+    """Return 'u' (urgent) or 'c' (clarity). Default 'u' on any error or when
+    PT_PREFER_BACKEND is unset / off (no API call, no subscription cost)."""
+    if not user_msg.strip():
+        return 'u'
+    backend = _BACKEND
+    if backend == 'sdk':
+        return _classify_via_sdk(user_msg)
+    if backend == 'cli':
+        return _classify_via_cli(user_msg)
+    # backend == 'off' or unrecognized → no remote call, default to urgent
+    return 'u'
 
 
 def main() -> int:

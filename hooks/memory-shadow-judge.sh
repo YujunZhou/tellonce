@@ -11,7 +11,10 @@ _INPUT_SC=$(cat)
 _CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // empty' 2>/dev/null)
 _OBS_LOG_FOR_SC=$(python3 -c 'import sys, os; sys.path.insert(0, os.path.expanduser("~/.claude/skills/preference-tracker/lib")); import path_config; print(path_config.get_observations_log_path())' 2>/dev/null)
 if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SID_SC}" ]; then
-  _MTIME_SC=$(stat -c %Y "${_OBS_LOG_FOR_SC}" 2>/dev/null || echo 0)
+  # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.
+  _MTIME_SC=$(stat -c %Y "${_OBS_LOG_FOR_SC}" 2>/dev/null \
+              || stat -f %m "${_OBS_LOG_FOR_SC}" 2>/dev/null \
+              || echo 0)
   _AGE_SC=$(( $(date +%s) - _MTIME_SC ))
   if [ "${_AGE_SC}" -lt 60 ]; then
     _LAST_LINE_SC=$(tail -1 "${_OBS_LOG_FOR_SC}" 2>/dev/null)
@@ -32,4 +35,6 @@ fi
 # Set ANTHROPIC_CREDIT_OK=1 to enable judge (default off until credit verified).
 # Defensive: any internal error → exit 0 (don't block legit work).
 
-exec python3 "${HOME}/.claude/skills/preference-tracker/lib/verify_retry_shadow.py"
+# Re-feed captured stdin (drained by `cat` above). See C1 fix in
+# memory-deterministic-block.sh for full context.
+printf '%s' "${_INPUT_SC}" | exec python3 "${HOME}/.claude/skills/preference-tracker/lib/verify_retry_shadow.py"

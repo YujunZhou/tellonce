@@ -19,47 +19,59 @@ import sys
 from datetime import datetime
 
 
-# Hooks 定义 (name → (event, position, command_path 相对 <hooks_dir>))
+# Hooks 定义 (name → (event, timeout, desc)).
+# H15 fix (2026-05-01): order matches README architecture diagram. Claude Code
+# Stop hooks run sequentially; if an earlier hook returns exit 2, later ones
+# don't run. The README declared:
+#
+#   Stop chain: check-observation-log → deterministic-block → verify-compliance
+#               → shadow-judge → pending-promote
+#   UserPromptSubmit: retrieve-inject → pending-inject → shadow-alert-inject
+#
+# Python 3.7+ dict preserves insertion order, so this dict literally drives the
+# settings.local.json registration order.
 PT_HOOKS = {
+    # ── Stop chain (executed top to bottom) ─────────────────────────────
+    'check-observation-log.sh': {
+        'event': 'Stop',
+        'timeout': 10,
+        'desc': 'Iron Law: append-only obs log gate',
+    },
     'memory-deterministic-block.sh': {
         'event': 'Stop',
         'timeout': 10,
         'desc': 'Phase B5 Tier A item 1: deterministic regex hard-block',
-    },
-    'memory-shadow-judge.sh': {
-        'event': 'Stop',
-        'timeout': 30,
-        'desc': 'Phase B5 Tier A item 2: shadow LLM judge (log-only)',
-    },
-    'memory-shadow-alert-inject.sh': {
-        'event': 'UserPromptSubmit',
-        'timeout': 5,
-        'desc': 'Phase B5 Tier A item 3: soft inject from shadow alert',
     },
     'memory-verify-compliance.sh': {
         'event': 'Stop',
         'timeout': 5,
         'desc': 'Phase B3 lite + B4: compliance log + pending-finalize gate',
     },
-    'memory-retrieve-inject.sh': {
-        'event': 'UserPromptSubmit',
-        'timeout': 5,
-        'desc': 'Phase B1: deterministic fingerprint retrieve',
+    'memory-shadow-judge.sh': {
+        'event': 'Stop',
+        'timeout': 30,
+        'desc': 'Phase B5 Tier A item 2: shadow LLM judge (log-only)',
     },
     'memory-pending-promote.sh': {
         'event': 'Stop',
         'timeout': 5,
         'desc': 'Phase A: pending observation → queue',
     },
+    # ── UserPromptSubmit chain ──────────────────────────────────────────
+    'memory-retrieve-inject.sh': {
+        'event': 'UserPromptSubmit',
+        'timeout': 5,
+        'desc': 'Phase B1: deterministic fingerprint retrieve',
+    },
     'memory-pending-inject.sh': {
         'event': 'UserPromptSubmit',
         'timeout': 5,
         'desc': 'Phase A: pending queue → next-turn inject',
     },
-    'check-observation-log.sh': {
-        'event': 'Stop',
-        'timeout': 10,
-        'desc': 'Iron Law: append-only obs log gate',
+    'memory-shadow-alert-inject.sh': {
+        'event': 'UserPromptSubmit',
+        'timeout': 5,
+        'desc': 'Phase B5 Tier A item 3: soft inject from shadow alert',
     },
 }
 
@@ -89,7 +101,7 @@ def _load_settings(settings_path: str) -> dict:
 def _save_settings(settings_path: str, data: dict):
     """Write back with pretty format."""
     os.makedirs(os.path.dirname(settings_path), exist_ok=True)
-    with open(settings_path, 'w') as f:
+    with open(settings_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write('\n')
 
@@ -133,6 +145,13 @@ def cmd_add(settings_path: str, hooks_dir: str):
     settings = _load_settings(settings_path)
     settings.setdefault('hooks', {})
 
+    # H3 fix (2026-05-01): create a dedicated PT entry per event (no matcher,
+    # so it always fires) instead of writing into chain[0]. Previously we
+    # appended into the user's first entry, which means if the user's entry[0]
+    # had a matcher (e.g. for PreToolUse semantics), our hooks could end up
+    # scoped to that matcher. Stop / UserPromptSubmit don't take matchers in
+    # current Claude Code spec, so the bug was latent — but a dedicated entry
+    # is safer across Claude Code versions and easier to remove cleanly later.
     added = 0
     skipped = 0
     for hook_name, info in PT_HOOKS.items():
@@ -142,12 +161,18 @@ def cmd_add(settings_path: str, hooks_dir: str):
         if _hook_already_registered(settings, event, cmd):
             skipped += 1
             continue
-        # Append to first entry's hooks list (Stop / UserPromptSubmit 都是单 entry)
         chain = settings['hooks'].setdefault(event, [])
-        if not chain:
-            chain.append({'hooks': []})
-        # 用第一个 entry (matcher 不限定)
-        chain[0].setdefault('hooks', []).append({
+        # Find OUR entry (one we previously created) by sentinel marker.
+        # Fall back to first entry-without-matcher if any, else create new.
+        pt_entry = None
+        for entry in chain:
+            if entry.get('_pt_managed'):
+                pt_entry = entry
+                break
+        if pt_entry is None:
+            pt_entry = {'_pt_managed': True, 'hooks': []}
+            chain.append(pt_entry)
+        pt_entry.setdefault('hooks', []).append({
             'type': 'command',
             'command': cmd,
             'timeout': timeout,
@@ -168,6 +193,7 @@ def cmd_remove(settings_path: str, hooks_dir: str):
 
     removed = 0
     for event, chain in settings.get('hooks', {}).items():
+        new_chain = []
         for entry in chain:
             new_hooks = []
             for h in entry.get('hooks', []):
@@ -176,6 +202,12 @@ def cmd_remove(settings_path: str, hooks_dir: str):
                 else:
                     new_hooks.append(h)
             entry['hooks'] = new_hooks
+            # H3 fix: drop entries we own (`_pt_managed`) once empty; keep
+            # user-owned entries even if empty (user may want to re-fill them).
+            if entry.get('_pt_managed') and not new_hooks:
+                continue
+            new_chain.append(entry)
+        settings['hooks'][event] = new_chain
     _save_settings(settings_path, settings)
     print(f'  removed {removed} hooks')
 

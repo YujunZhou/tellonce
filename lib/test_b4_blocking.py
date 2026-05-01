@@ -17,8 +17,8 @@ import verify_compliance as v
 import path_config
 
 # Step 4 fix (per Phase 8 review I5 / kickoff §3 Step 4):
-# fixture path 改用 path_config 让同学环境也能跑 (之前硬编码 yzhou25 path,
-# doctor.sh 在非 yzhou25 home skip 该 test). prod verify_compliance 已用 path_config.
+# fixture path 走 path_config 以便跨环境跑 (之前硬编码 author-local path,
+# doctor.sh 在其他 home 上 skip 该 test). prod verify_compliance 已用 path_config.
 _B4_RETRY_DIR = path_config.get_b4_retry_dir()
 _B4_ALERT_DIR = path_config.get_b4_alert_dir()
 

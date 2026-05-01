@@ -226,19 +226,24 @@ def test_ensure_dirs_idempotent():
     return True
 
 
-def test_yzhou25_backward_compat_via_real_config():
-    """yzhou25 的 ~/.preference-tracker.config.json 应让 state_dir 指向 example-research-project/state/runtime."""
-    # 不 mock CONFIG_PATH, 用真 yzhou25 config
+def test_real_user_config_honored():
+    """If ~/.preference-tracker.config.json exists with state_dir set, get_state_dir
+    must reflect that value (env > config > default precedence)."""
     _reset_env_and_cache()
     pc._read_config_file.cache_clear()
     real_config = os.path.expanduser('~/.preference-tracker.config.json')
     if not os.path.exists(real_config):
-        # 没 yzhou25 config 跑这 test 没意义 (同学环境)
+        # No user config installed → test is a no-op on fresh installs.
         return True
     try:
+        with open(real_config) as f:
+            cfg = json.load(f)
+        configured = cfg.get('state_dir')
+        if not configured:
+            return True  # config exists but didn't pin state_dir — nothing to verify
         sd = pc.get_state_dir()
-        assert 'example-research-project/state/runtime' in sd, \
-            f'expected backward compat (含 example-research-project), got {sd}'
+        assert sd == configured, \
+            f'real config state_dir not honored: expected {configured!r}, got {sd!r}'
     finally:
         _reset_env_and_cache()
     return True
@@ -259,7 +264,7 @@ def main():
         ('whitelist_paths returns two', test_whitelist_paths_returns_two),
         ('whitelist_user env override', test_whitelist_user_env_override),
         ('ensure_dirs idempotent', test_ensure_dirs_idempotent),
-        ('yzhou25 backward compat via real config', test_yzhou25_backward_compat_via_real_config),
+        ('real user config (if any) honored end-to-end', test_real_user_config_honored),
     ]
     passed = 0
     failed = []

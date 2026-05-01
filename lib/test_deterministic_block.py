@@ -99,7 +99,7 @@ def test_has_active_code_block_with_tmp_path_comment_skipped():
     """代码块内 comment 提 /tmp/ 不算 active write."""
     text = """```python
 # old default was /tmp/foo, now state/runtime/foo
-PATH = '/scratch365/zyj/state/runtime/foo'
+PATH = '/var/state/runtime/foo'
 ```"""
     flagged = db.has_active_code_block_with_tmp_path(text)
     assert not flagged, f'expected False (comment line), got True'

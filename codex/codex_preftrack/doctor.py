@@ -8,6 +8,11 @@ from .mode import load_mode
 from .paths import load_registration
 
 
+# Functional leak detector: if any state file under state_root contains these
+# author-local strings, it usually means a stale config or legacy Codex skill
+# build leaked into a same-host user's installation. The strings themselves are
+# the leak signature, not configuration — keep them here so the detector keeps
+# working even after the rest of the codebase is sanitized.
 PRIVATE_PATTERNS = ("yzhou25", "/scratch365", "/home/user", ".claude")
 
 

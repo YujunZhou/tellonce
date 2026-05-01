@@ -6,14 +6,16 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 # Preference Tracker
 
-## Infrastructure (2026-04-22 — Phase B1/B2/B3 added)
+## Infrastructure (Phase B1/B2/B3)
 
-这个 skill 现在**不止是** Iron Law + Gate Function. 2026-04-22 新装了 3 层基础设施, 以**自动 hook** 形式运行, 不需要 Skill 调用就生效:
+这个 skill 不止是 Iron Law + Gate Function. 装了 3 层基础设施, 以**自动 hook** 形式运行, 不需要显式 Skill 调用就生效.
+
+> **路径占位说明**: 下文出现的 `<skill_dir>` 默认是 `~/.claude/skills/preference-tracker/`，`<project_root>` 是当前项目根，`<state_dir>` 是 `<project_root>/.claude/preference-tracker-state/`。所有路径在运行时由 `lib/path_config.py` 解析（env > `~/.preference-tracker.config.json` > 自动 detect 三层兜底），SKILL.md 不写绝对路径以免污染 Claude 输出。
 
 ### B1 — Deterministic fingerprint retrieval (UserPromptSubmit hook)
 
-每次用户提交 message, `/home/user/zyj/.claude/hooks/memory-retrieve-inject.sh` 会:
-1. 扫 user prompt 对 `/home/user/.claude/skills/preference-tracker/lib/fingerprints.yaml` (18 条 trigger 规则)
+每次用户提交 message, `<project_root>/.claude/hooks/memory-retrieve-inject.sh` 会:
+1. 扫 user prompt 对 `<skill_dir>/lib/fingerprints.yaml` (18 条 trigger 规则)
 2. 匹中的 atomic_id 作 `additionalContext` 注入到我的 context 开头
 3. 格式长这样 — **不是外部 noise, 是 skill infra 的 rule 提示, 必须 respect**:
 
@@ -37,25 +39,26 @@ B1 注入的每条 rule 后面带 `applies_when: ...` 和 `condition: ...` 从 m
 
 ### B3-lite — Log-only compliance tracker (Stop hook)
 
-每轮我 stop 时, `/home/user/zyj/.claude/hooks/memory-verify-compliance.sh` 读 transcript 取最后 assistant text, 往 `/home/user/zyj/example-research-project/skill_observation_log/compliance_log.jsonl` append 一行:
+每轮我 stop 时, `<project_root>/.claude/hooks/memory-verify-compliance.sh` 读 transcript 取最后 assistant text, 往 `<state_dir>/obs_log/compliance_log.jsonl` append 一行:
 - `response_excerpt` (前 400 字)
 - `fp_rules_in_response` (response 里触发了哪些 rule 关键词)
 - `lang_ratio.chinese_ratio` (中英文比例)
 
 **不 blocking** (还不自动 retry). 收 2-3 天数据后, 如果 FP rate 低才开 Phase B4 blocking.
 
-### Infrastructure 文件清单 (2026-04-22)
+### Infrastructure 文件清单
 
-| 角色 | 路径 |
+| 角色 | 路径 (placeholder; runtime 用 path_config 解析) |
 |------|------|
-| Fingerprint 规则库 | `/home/user/.claude/skills/preference-tracker/lib/fingerprints.yaml` |
-| Retrieve handler | `/home/user/.claude/skills/preference-tracker/lib/retrieve_inject.py` |
-| Compliance tracker | `/home/user/.claude/skills/preference-tracker/lib/verify_compliance.py` |
-| UserPromptSubmit hook | `/home/user/zyj/.claude/hooks/memory-retrieve-inject.sh` |
-| Stop hook | `/home/user/zyj/.claude/hooks/memory-verify-compliance.sh` |
-| Compliance log | `/home/user/zyj/example-research-project/skill_observation_log/compliance_log.jsonl` |
-| Hooks 注册 | `/home/user/zyj/.claude/settings.local.json` |
-| Proposal doc | `/home/user/zyj/example-research-project/experiment/simulated_user/SKILL_UPGRADE_PROPOSAL_v3.md` |
+| Fingerprint 规则库 | `<skill_dir>/lib/fingerprints.yaml` |
+| Retrieve handler | `<skill_dir>/lib/retrieve_inject.py` |
+| Compliance tracker | `<skill_dir>/lib/verify_compliance.py` |
+| UserPromptSubmit hook | `<project_root>/.claude/hooks/memory-retrieve-inject.sh` |
+| Stop hook | `<project_root>/.claude/hooks/memory-verify-compliance.sh` |
+| Compliance log | `<state_dir>/obs_log/compliance_log.jsonl` |
+| Hooks 注册 | `<project_root>/.claude/settings.local.json` |
+
+> **要看你机器上真实 path**: 跑 `python3 ~/.claude/skills/preference-tracker/lib/path_config.py` 会打印当前 detect 出来的所有 path. 不要根据这份 SKILL.md 的占位字面量去写 / 创建文件 — 用 path_config 给的 runtime 值.
 
 ### 规则新增 / 更新时要同步动
 
@@ -234,13 +237,15 @@ Examples:
 
 用户正在**跨项目**测试本 skill 的真实行为，作为 "LLM preference compliance" 研究的第一手数据。
 
-**无论你在哪个 project 工作，只要触发了 preference 扫描**（不管是否检测到信号、不管是否被用户确认），都必须**同步 append 一条 JSONL 记录**到：
+**无论你在哪个 project 工作，只要触发了 preference 扫描**（不管是否检测到信号、不管是否被用户确认），都必须**同步 append 一条 JSONL 记录**到 path_config 给的 observations log path：
 
 ```
-/home/user/zyj/example-research-project/skill_observation_log/observations.jsonl
+<state_dir>/obs_log/observations.jsonl
+# 真实 runtime 路径: 跑 python3 ~/.claude/skills/preference-tracker/lib/path_config.py
+# 看 observations_log; 默认 <project_root>/.claude/preference-tracker-state/obs_log/observations.jsonl
 ```
 
-**schema 和写法**见该目录的 `README.md`。
+**schema 和写法**见 path_config 给的 obs_log 目录下的 `README.md` (若存在).
 
 **要记录的情况**：
 1. 扫描后检测到 signal（preference / pitfall / friction）→ 写一条 `detected=true`
@@ -291,7 +296,7 @@ Examples:
 
 ## Memory 文件格式
 
-存储位置：`/home/user/.claude/projects/-scratch365-yzhou25-zyj/memory/`
+存储位置 (path_config-driven): `~/.claude/projects/<cwd_escaped>/memory/`，其中 `<cwd_escaped>` 是当前项目 cwd 把 `/` 换成 `-`. 真实路径跑 `python3 ~/.claude/skills/preference-tracker/lib/path_config.py` 看 `memory_dir` 字段，或读 `<skill_dir>/lib/path_config.py:get_memory_dir()`.
 
 ### Frontmatter 规范
 

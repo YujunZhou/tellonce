@@ -16,7 +16,7 @@ lifecycle_state: confirmed
 memory_kind: procedural
 created: 2026-03-13
 updated: 2026-04-13
-originSessionId: 4e0c5990-2242-4d50-a848-d47c5cd82ede
+originSessionId: seed-from-preference-tracker-skill-v1.0
 ---
 **给用户看的** = 中文：分析、讨论、评分、内部文档、打分报告、debug 输出、task 设计说明、任何用户自己要看要审的内容。
 

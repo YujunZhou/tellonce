@@ -13,46 +13,77 @@
 #   HARD: observation log file must be updated within 120s
 #   SOFT: response text must contain markers for all steps
 
-set -euo pipefail
+set -uo pipefail   # NB: no -e — this hook does plenty of optional jq parses
+                   # whose failure is acceptable. With -e set, any of those
+                   # falling through pipeline-status non-zero would kill the
+                   # whole hook (H8 fix).
+
+# H8 fix: jq is required for parsing the stdin JSON payload. Without it the
+# rest of this script would silently degrade — `jq -r ... 2>/dev/null` returns
+# empty + `set -e` (above) would exit 127. Skip the hook if jq is missing
+# rather than reporting a hook-error that confuses users.
+if ! command -v jq > /dev/null 2>&1; then
+    exit 0
+fi
 
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || echo "")
-
-# C1 fix (Phase 8 code review): scope check + path_config 驱动, 不写死 yzhou25 path/scope
-# Legacy yzhou25 path 仅作 fallback; 同学装包走 path_config detect
-SCRATCH365_LEGACY=false
-if [[ "$CWD" == *example-research-project* ]]; then
-  SCRATCH365_LEGACY=true
-fi
-
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
 
-# Detect OBS_LOG via path_config (single source of truth)
-OBS_LOG=$(python3 -c "
-import sys
-sys.path.insert(0, '${HOME}/.claude/skills/preference-tracker/lib')
+# Detect OBS_LOG via path_config (single source of truth). Use env-channel argv
+# rather than string-interpolated `sys.path.insert(0, '${HOME}...')` to avoid
+# breaking when HOME contains a single quote. (H14 fix.)
+OBS_LOG=$(env PT_LIB="${HOME}/.claude/skills/preference-tracker/lib" \
+              PYTHONIOENCODING=utf-8 \
+              python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["PT_LIB"])
 import path_config
 print(path_config.get_observations_log_path())
-" 2>/dev/null || echo "")
+' 2>/dev/null || echo "")
 
-# Fallback if path_config unavailable
+# Fallback if path_config unavailable: silent skip (no Python / lib not installed).
 if [[ -z "${OBS_LOG}" ]]; then
-  if [[ "${SCRATCH365_LEGACY}" == true ]]; then
-    OBS_LOG="/home/user/zyj/example-research-project/skill_observation_log/observations.jsonl"
-  else
-    # silent skip — no obs log configured (同学装包前没 path_config 时不 spam)
-    exit 0
-  fi
+  exit 0
 fi
 
-# Trace log: TMPDIR if set, else /tmp (per `tool-pit-130` 写 state/runtime/ 不 /tmp;
-# 但 trace log 是 transient debug only, 不属 production 数据, /tmp 兜底 OK)
-TRACE_LOG="${TMPDIR:-/tmp}/hook-trace.log"
-TRACE_ID="inv-$(date +%s.%N)"
-echo "═══════════ $TRACE_ID ═══════════" >> "$TRACE_LOG"
-echo "[timestamp] $(date +%Y-%m-%d\ %H:%M:%S.%N)" >> "$TRACE_LOG"
-echo "[input] $INPUT" >> "$TRACE_LOG"
-_orig_hook_output_file="/tmp/hook-trace-output-$TRACE_ID"
+# Trace log: opt-in via B5_TRACE=1 (default OFF). When opt-in, write to
+# state_dir (per project) instead of /tmp — /tmp is world-readable on shared
+# hosts and INPUT contains transcript_path / cwd / session_id (privacy fix per
+# H11 review). Set via env B5_TRACE_LOG to override the path explicitly.
+if [[ "${B5_TRACE:-0}" == "1" ]]; then
+  if [[ -n "${B5_TRACE_LOG:-}" ]]; then
+    TRACE_LOG="${B5_TRACE_LOG}"
+  else
+    # Default to state_dir (path_config), private to current user / project
+    _PT_STATE_DIR_FOR_TRACE=$(python3 -c '
+import os, sys
+sys.path.insert(0, os.path.expanduser("~/.claude/skills/preference-tracker/lib"))
+try:
+    import path_config
+    print(path_config.get_state_dir())
+except Exception:
+    print("")
+' 2>/dev/null)
+    if [[ -n "${_PT_STATE_DIR_FOR_TRACE}" ]]; then
+      TRACE_LOG="${_PT_STATE_DIR_FOR_TRACE}/hook-trace.log"
+      mkdir -p "${_PT_STATE_DIR_FOR_TRACE}" 2>/dev/null || true
+    else
+      TRACE_LOG="${TMPDIR:-/tmp}/preference-tracker-hook-trace-$$.log"
+    fi
+  fi
+  TRACE_ID="inv-$(date +%s.%N)"
+  echo "═══════════ $TRACE_ID ═══════════" >> "$TRACE_LOG" 2>/dev/null || true
+  echo "[timestamp] $(date +%Y-%m-%d\ %H:%M:%S.%N)" >> "$TRACE_LOG" 2>/dev/null || true
+  echo "[input] $INPUT" >> "$TRACE_LOG" 2>/dev/null || true
+  # Restrict trace log to user-only (best-effort; ignore failure on shared FS)
+  chmod 600 "$TRACE_LOG" 2>/dev/null || true
+else
+  # Tracing disabled by default. Provide a no-op TRACE_LOG so later `>> "$TRACE_LOG"`
+  # stays harmless (writes go to /dev/null).
+  TRACE_LOG="/dev/null"
+  TRACE_ID="inv-$(date +%s.%N)"
+fi
 
 WARNINGS=""
 
@@ -67,7 +98,10 @@ WARNINGS=""
 CURRENT_SESSION=$(echo "$INPUT" | jq -r '.session_id // empty')
 
 if [ -f "$OBS_LOG" ]; then
-  LAST_MOD=$(stat -c "%Y" "$OBS_LOG" 2>/dev/null || echo "0")
+  # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.
+  LAST_MOD=$(stat -c "%Y" "$OBS_LOG" 2>/dev/null \
+             || stat -f %m "$OBS_LOG" 2>/dev/null \
+             || echo "0")
   NOW=$(date +%s)
   AGE=$((NOW - LAST_MOD))
 

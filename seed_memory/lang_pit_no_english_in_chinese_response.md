@@ -9,7 +9,7 @@ confidence: high
 priority_tier: 1
 atomic_id: lang-pit-130
 params:
-  chinese_ratio_threshold: 0.7   # 默认 0.7. 同学装包后中英混杂多可降到 0.5-0.6, 但要先验假阳率
+  chinese_ratio_threshold: 0.7   # 默认 0.7. 中英混杂多可降到 0.5-0.6, 但要先验假阳率
   min_length: 50                 # 默认 50. 太短跳过避免 acknowledgement noise
 supersedes: []
 applies_when: "(a) 中文对话主体, (b) 中文报告 / 中文 handoff / 中文 delta 文档, (c) 任何用户面对的中文输出"
@@ -17,17 +17,14 @@ does_not_apply_when: "(a) 代码标识符 (函数名 / 文件路径 / 变量名 
 compatible_with: "lang-pref-001 (中文/英文场景分流, 本条是中文场景下的纯度规则), comm-pref-006 (不用自造行话, 本条是不用普通英文借词的扩展), lang-pit-002 (in-chat 表格中文), lang-pit-003 (长文档框架中文)"
 created: 2026-04-25
 updated: 2026-04-25
-originSessionId: session-e-2026-04-25
+originSessionId: seed-from-preference-tracker-skill-v1.0
 ---
 
 中文回复必须**纯中文**, 不准随手混入英文借词. 即使是看上去无害的 stub / drift / merge / smoke / fire / compile / pipeline / consolidate / retriever / manifest / cascade 等, 哪怕用户看得懂, 仍不准混入. 因为这些词都有现成中文表达, 混入只是 Claude 偷懒, 并且累积起来让中文文本变得啰嗦难读.
 
-**为什么 (具体事件)**:
+**为什么 (背景)**:
 
-2026-04-25 用户怒了原话:
-> "天天给我整些幺蛾子, 说了好多遍了看不懂稀奇古怪的词, 什么 stub 看不懂, 还有什么 drift 来自, 虽然我看得懂 drift, 但在这种又不是关键词汇的情况下, 不要给我中英文混杂, 还天天混些动词, 还有新鲜名词, 都不能有"
-
-session E 整个对话里, Claude 反复用 stub / drift / merge / smoke / fire / spawn / compile / pipeline / cascade / consolidate / hardened / scrubbed / retrofit 等英文词夹在中文句子里. 用户提示过几次不要混杂, 但 Claude 没有改正, 只是把"明显的代码术语"换中文, 普通英文动词名词照旧混入. 用户最终爆发.
+用户曾在多轮对话里反复要求中文回复时不要混入普通英文动词/名词. Claude 在密集技术对话中倾向于把 "我习惯说英文" 和 "用户能看懂" 当成混入英文的合理化理由 — 这是错的合理化. 用户标准是: **能用中文表达就必须用中文**, 即使个别英文词用户认得, 也不该被作为偷懒的借口. 例外清单短.
 
 **根因 (general rule)**:
 
@@ -59,8 +56,8 @@ Claude 默认把"我习惯说英文"和"用户能看懂"当成混入英文的合
    - sweep → 扫 / 扫一遍
 3. **保留清单** (允许保留英文, 但仍少用):
    - 代码层面: 文件路径, 函数名, 变量名, shell 命令, 配置 key, JSON 字段名
-   - 用户引入: 用户上文用过的英文术语 (H_push, retriever_v3, T01, A2, Sec 3, etc.)
-   - 通用专有名词: Anthropic, Gemma, Sonnet, Opus, JSON, API, GPU, CRC, CPU, NFS, SSD, ssh, git 等
+   - 用户引入: 用户上文用过的英文术语 (用户自定义的 atomic_id 缩写、内部 task 编号等)
+   - 通用专有名词: Anthropic, Gemma, Sonnet, Opus, JSON, API, GPU, CPU, NFS, SSD, ssh, git 等
    - 论文方法术语: 用户在 paper 上下文确实使用且无中文 (cascade verify, force-comply 这类已经是 paper 内部 label)
 4. **混合时也要克制**:
    - 不准 "drift 来自 X" (动词分裂 — drift 当动词夹中文里, 改 "偏移源自 X" 或 "X 引起偏移")

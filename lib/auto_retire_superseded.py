@@ -118,7 +118,7 @@ def main():
     if not dry_run and actions:
         os.makedirs(os.path.dirname(RETIRE_LOG), exist_ok=True)
         try:
-            with open(RETIRE_LOG, 'a') as f:
+            with open(RETIRE_LOG, 'a', encoding='utf-8') as f:
                 ts = datetime.now(timezone.utc).isoformat()
                 for a in actions:
                     a['timestamp'] = ts

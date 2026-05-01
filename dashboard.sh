@@ -41,12 +41,13 @@ python3 "${SKILL_DIR}/lib/analyze_b5_compliance.py" --days "${DAYS}"
 echo ""
 echo "─────────────────────────────────────────"
 echo "Recent shadow alerts (latest 3 rolling cap):"
-SHADOW_ALERT_MD=$(python3 -c "
-import sys
-sys.path.insert(0, '${SKILL_DIR}/lib')
+# H14 fix: env-channel argv to avoid breaking when SKILL_DIR contains '
+SHADOW_ALERT_MD=$(env PT_LIB="${SKILL_DIR}/lib" PYTHONIOENCODING=utf-8 python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["PT_LIB"])
 import path_config
 print(path_config.get_shadow_alert_md_path())
-" 2>/dev/null)
+' 2>/dev/null)
 if [[ -f "${SHADOW_ALERT_MD}" ]]; then
     head -30 "${SHADOW_ALERT_MD}"
 else
@@ -64,12 +65,13 @@ echo "  实跑 archive: python3 ${SKILL_DIR}/lib/auto_retire_superseded.py"
 echo ""
 echo "─────────────────────────────────────────"
 echo "Threshold suggestions (Phase 7 完整版 advisor):"
-LATEST_THRESHOLD_MD=$(python3 -c "
-import sys
-sys.path.insert(0, '${SKILL_DIR}/lib')
+# H14 fix: env-channel argv (single-quote-safe).
+LATEST_THRESHOLD_MD=$(env PT_LIB="${SKILL_DIR}/lib" PYTHONIOENCODING=utf-8 python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["PT_LIB"])
 import threshold_advisor
 print(threshold_advisor.latest_suggestion_path())
-" 2>/dev/null)
+' 2>/dev/null)
 if [[ -n "${LATEST_THRESHOLD_MD}" && -f "${LATEST_THRESHOLD_MD}" ]]; then
     head -20 "${LATEST_THRESHOLD_MD}"
 else

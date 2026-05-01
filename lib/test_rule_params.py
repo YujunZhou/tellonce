@@ -24,7 +24,7 @@ import rule_params
 
 
 def test_T1_real_rule_reads_params():
-    """yzhou25 真规则 lang-pit-130 frontmatter 已加 params, 读到字典."""
+    """seed rule lang-pit-130 frontmatter ships with `params:`; should parse to dict."""
     rule_params._clear_cache()
     p = rule_params.read_rule_params('lang-pit-130')
     assert isinstance(p, dict), '应返字典 got ' + str(type(p))

@@ -38,6 +38,15 @@ if [[ "${ROLLBACK}" == true ]]; then
         echo "❌ 没找到 versioned backup (settings.local.json.v3_pre_pt_*.json)"
         exit 1
     fi
+    # H6 fix (2026-05-01): backup CURRENT settings before overwriting with the
+    # pre-PT snapshot — without this, any hook the user added by hand AFTER the
+    # most recent install is lost forever once we cp.
+    if [[ -f "${SETTINGS}" ]]; then
+        TS=$(date +%Y%m%d-%H%M%S)
+        ROLLBACK_BACKUP="${SETTINGS}.v3_pre_rollback_${TS}.json"
+        cp "${SETTINGS}" "${ROLLBACK_BACKUP}"
+        echo "  备份 current settings 到 ${ROLLBACK_BACKUP} (H6 fix: 防 rollback 永久丢用户手动改动)"
+    fi
     echo "回滚 settings: ${LATEST} → ${SETTINGS}"
     cp "${LATEST}" "${SETTINGS}"
     echo "撤 hooks .sh (per lib/_pt_hooks.txt source-of-truth):"
@@ -112,10 +121,11 @@ run_test "path_config debug print" \
 
 # 2.2 state dirs 可写
 state_writable_test() {
-    python3 - <<EOF
-import sys
-sys.path.insert(0, '${SKILL_DIR}/lib')
-import path_config, os
+    # H14 fix: env-channel SKILL_DIR (avoids breaking when path contains ').
+    env PT_LIB="${SKILL_DIR}/lib" PYTHONIOENCODING=utf-8 python3 - <<'EOF'
+import os, sys
+sys.path.insert(0, os.environ["PT_LIB"])
+import path_config
 for d in [path_config.get_state_dir(), path_config.get_obs_log_dir(), path_config.get_memory_dir()]:
     os.makedirs(d, exist_ok=True)
     test_path = os.path.join(d, '.dr_test')
@@ -129,9 +139,10 @@ run_test "state/obs_log/memory dirs 可写" state_writable_test
 
 # 2.3 chinese_ratio sanity (10 chinese chars + "stub" 4 english = 10/14 ≈ 0.71)
 chinese_ratio_test() {
-    python3 - <<EOF
-import sys
-sys.path.insert(0, '${SKILL_DIR}/lib')
+    # H14 fix: env-channel SKILL_DIR (avoids breaking when path contains ').
+    env PT_LIB="${SKILL_DIR}/lib" PYTHONIOENCODING=utf-8 python3 - <<'EOF'
+import os, sys
+sys.path.insert(0, os.environ["PT_LIB"])
 from deterministic_block import chinese_ratio
 r = chinese_ratio('好好好好好好好好好好 stub')
 assert 0.6 < r < 1.0, f'chinese_ratio sanity failed: {r}'
@@ -194,7 +205,35 @@ EOF
         echo "  smoke FAIL: rc=${RC}, output=${OUTPUT}" >&2
         return 1
     }
-    run_test "smoke: 中文 + inline english → exit 2 + lang-pit-130" smoke_test
+    run_test "smoke: 中文 + inline english → exit 2 + lang-pit-130 (Python entry)" smoke_test
+
+    # H1 fix (2026-05-01): also exercise the .sh wrapper end-to-end. The Python
+    # smoke above misses the C1 stdin double-read bug class — `_INPUT_SC=$(cat)`
+    # in wrapper, then `exec python3` was getting EOF stdin. This wrapper test
+    # specifically validates that the printf-pipe re-feeds stdin to the Python
+    # entry. If this fails but the Python smoke passes, suspect wrapper plumbing.
+    wrapper_smoke_test() {
+        TMP_TRANSCRIPT=$(mktemp)
+        cat > "${TMP_TRANSCRIPT}" <<'EOF'
+{"type":"user","message":{"content":"帮我修一下"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"好的我来修复这个 stub 的问题。我们需要把它 merge 进主分支,然后处理一下相关的依赖关系,完成后通知所有相关的团队成员。"}]}}
+EOF
+        SID="doctor-wrapper-smoke-$$"
+        if [[ -n "${B5_STATE_DIR:-}" ]]; then
+            rm -f "${B5_STATE_DIR}/b5_deterministic_streak/${SID}.json" 2>/dev/null
+        fi
+        STDIN_JSON='{"session_id":"'"${SID}"'","transcript_path":"'"${TMP_TRANSCRIPT}"'"}'
+        # NB: pipe through the actual Stop-hook wrapper, not Python directly.
+        OUTPUT=$(echo "${STDIN_JSON}" | bash "${SKILL_DIR}/hooks/memory-deterministic-block.sh" 2>&1)
+        RC=$?
+        rm -f "${TMP_TRANSCRIPT}"
+        if [[ ${RC} -eq 2 ]] && echo "${OUTPUT}" | grep -q lang-pit-130; then
+            return 0
+        fi
+        echo "  wrapper smoke FAIL: rc=${RC}, output=${OUTPUT}" >&2
+        return 1
+    }
+    run_test "smoke: wrapper end-to-end (H1 fix; catches stdin re-feed regressions)" wrapper_smoke_test
 fi
 
 # ============================================================

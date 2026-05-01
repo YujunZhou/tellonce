@@ -114,7 +114,7 @@ def _log_error(where, exc):
     "exit 0 always" invariant, but operators get a trail when corruption happens."""
     try:
         os.makedirs(os.path.dirname(ERROR_LOG), exist_ok=True)
-        with open(ERROR_LOG, 'a') as f:
+        with open(ERROR_LOG, 'a', encoding='utf-8') as f:
             f.write(json.dumps({
                 'ts': _now().isoformat(),
                 'where': where,
@@ -250,7 +250,7 @@ def promote_from_observations():
     if newly_promoted:
         try:
             os.makedirs(os.path.dirname(QUEUE), exist_ok=True)
-            with open(QUEUE, 'a') as f:
+            with open(QUEUE, 'a', encoding='utf-8') as f:
                 for e in newly_promoted:
                     f.write(json.dumps(e, ensure_ascii=False) + '\n')
         except Exception:
@@ -289,7 +289,7 @@ def promote_from_observations():
 def _write_pending_alert(queue):
     try:
         os.makedirs(os.path.dirname(ALERT), exist_ok=True)
-        with open(ALERT, 'w') as f:
+        with open(ALERT, 'w', encoding='utf-8') as f:
             f.write('# Pending memory alert\n\n')
             f.write(f'**Generated**: {_now().isoformat()}\n')
             f.write(f'**Queue length**: {len(queue)}\n')
@@ -392,7 +392,7 @@ def prune_resolved(force_ids=None):
     if len(keep) != len(queue):
         try:
             tmp = QUEUE + '.tmp'
-            with open(tmp, 'w') as f:
+            with open(tmp, 'w', encoding='utf-8') as f:
                 for e in keep:
                     f.write(json.dumps(e, ensure_ascii=False) + '\n')
             shutil.move(tmp, QUEUE)

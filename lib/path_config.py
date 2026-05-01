@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Central path detection — Phase 4.1 解耦中央 (per `code-pref-287`).
 
-所有 lib `.py` import 这个模块, 不写硬编码常量. 同学装包用 env / config / auto-detect
-三层兜底, yzhou25 自己用 ~/.preference-tracker.config.json 保 backward 兼容.
+所有 lib `.py` import 这个模块, 不写硬编码常量. 装包用 env / config / auto-detect
+三层兜底.
 
 优先级 (高 → 低):
   1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT /
@@ -110,7 +110,7 @@ def get_memory_dir() -> str:
     """memory rules 目录. Claude Code 标准: ~/.claude/projects/<cwd_escaped>/memory.
 
     cwd_escaped = cwd.replace('/', '-')
-    e.g. /home/user/zyj → -scratch365-yzhou25-zyj
+    e.g. /home/alice/projects/foo → -home-alice-projects-foo
     """
     def default():
         cwd = get_project_root()

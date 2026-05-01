@@ -55,6 +55,37 @@ bash ~/.claude/skills/preference-tracker/uninstall.sh
 
 ---
 
+## 隐私 / 数据流向 (装前必读)
+
+**Preference-tracker 会在每次 Stop / UserPromptSubmit 触发以下数据流动**:
+
+1. **Anthropic CLI / API** (默认 ON):
+   - `lib/verify_retry_shadow.py` 在每个 Stop 调 `claude -p` 子进程做合规判官,
+     传 `last_user[:400] + response[:4000]` 给 Anthropic 服务器
+   - 默认走 CLI 订阅 (0 元), 但 prompt 内容仍经 Anthropic
+   - 关闭: `export B5_SHADOW_DISABLED=1`
+
+2. **本地落盘** (默认 chmod 600 — 仅 user 自己可读, H10 fix):
+   - `<state>/runtime/b5_shadow_alerts/b5_shadow_log.jsonl` — 含 evidence + feedback excerpts
+   - `<state>/obs_log/compliance_log.jsonl` — 含 response_excerpt[:400]
+   - `<state>/runtime/b5_shadow_alerts/B5_SHADOW_ALERT.md` — 含 latest 3 violation 全文
+   - `~/.claude/projects/<cwd_escaped>/memory/*.md` — 用户自己加的偏好记录
+
+3. **不上传** 任何数据到 yzhou25 / 其他用户机器, 也不发邮件 / Slack / GitHub.
+
+4. **API key 计费**:
+   - `lib/detect_user_prefer.py` 默认 OFF (PT_PREFER_BACKEND=off, C6 fix). 不调任何
+     LLM, 总返 'urgent'. 想开自适应分类: `export PT_PREFER_BACKEND=cli` (订阅) 或
+     `=sdk` (扣 ANTHROPIC_API_KEY).
+
+5. **如何敏感数据 redact** (建议但不自动):
+   - 现版本不自动扫 prompt 里的 secret. 在跟 Claude 聊 secret 之前自己负责
+     (这本就是 Anthropic 服务条款的一般要求).
+   - 未来版本会加 `B5_REDACT_BEFORE_JUDGE=1` env 自动 mask `sk-ant-` / `password=`
+     等 pattern. 当前 Open issue (作者认为这条不适合默认开因为可能误删合法内容).
+
+---
+
 ## 报问题 / 反馈
 
 内测期间 (2026-04-27 起) 直接邮件 yzhou25@nd.edu, 不需走 issue tracker。

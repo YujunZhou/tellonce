@@ -157,7 +157,9 @@ B5_OBS_LOG_DIR=/custom/obs bash install.sh
 B5_PROJECT_ROOT=/custom/project bash install.sh
 ```
 
-或写 `~/.preference-tracker.config.json` (yzhou25 例子见 `~/.preference-tracker.config.json`).
+或写 `~/.preference-tracker.config.json`（schema:
+`{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"...","whitelist_user":"..."}`，
+任一字段没设走自动 detect）.
 
 ---
 
@@ -165,7 +167,7 @@ B5_PROJECT_ROOT=/custom/project bash install.sh
 
 - macOS: `~/.claude/` 路径相同, bash + python3 通. install.sh 直接 work.
 - Windows: 没测. WSL 可能 work (POSIX 兼容). 不保证 native PowerShell.
-- Linux (CRC / Ubuntu / RHEL): 主测目标, work.
+- Linux (Ubuntu / RHEL / HPC clusters): 主测目标, work.
 
 ---
 

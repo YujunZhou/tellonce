@@ -49,7 +49,7 @@ No CC capability may be removed from the Codex package without an explicit user 
 - Installs into `~/.claude/skills/preference-tracker`, not Codex paths.
 - Registers `.claude/hooks` and `.claude/settings.local.json`, which Codex does not consume.
 - Defaults memory to `~/.claude/projects/<cwd_escaped>/memory`.
-- Existing Codex skill hardcodes yzhou25-local paths.
+- The legacy Codex skill (pre-PR-1) had author-local hardcoded paths in its install scripts; the current Codex variant runs through codex_preftrack.paths so it's portable, and codex_preftrack.doctor explicitly scans state files for those leaked tokens.
 - Doctor uses `/tmp/doctor_test_$$` scratch and proves Claude hook registration, not Codex behavior.
 - Rollback is based on latest-looking settings backup, not an install transaction id.
 - Hook copy/update behavior can leave stale or partial hook files.

@@ -63,12 +63,22 @@ log() {
 }
 
 # Trap ERR — rollback settings 备份, 不删 hooks .sh / state / memory
+# C10 fix (2026-05-01): need to (a) disable set -e inside rollback so a failing
+# `cp` doesn't truncate the function before printing the rollback summary or
+# reaching `exit 2`; (b) clear ERR trap on entry so a second failure inside
+# rollback doesn't recurse.
 rollback() {
+    set +e
+    trap - ERR
     log ""
     log "❌ install 失败, 回滚..."
     if [[ -n "${BACKUP_FILE}" && -f "${BACKUP_FILE}" ]]; then
-        cp "${BACKUP_FILE}" "${SETTINGS}"
-        log "  settings 回滚: ${BACKUP_FILE} → ${SETTINGS}"
+        if cp "${BACKUP_FILE}" "${SETTINGS}"; then
+            log "  settings 回滚: ${BACKUP_FILE} → ${SETTINGS}"
+        else
+            log "  ⚠ settings 回滚失败 (cp 错): ${BACKUP_FILE} → ${SETTINGS}"
+            log "  → 手动恢复: cp \"${BACKUP_FILE}\" \"${SETTINGS}\""
+        fi
     fi
     log "  hooks .sh / state / memory 保留 (留 debug)"
     log "  详细错误见 ${SKILL_DIR}/install.log"
@@ -112,6 +122,24 @@ rmdir "${HOME}/.claude/skills/.write_test" 2>/dev/null || true
 PY_OK=$(python3 -c "import sys; print('OK' if sys.version_info >= (3, 7) else 'OLD')" 2>/dev/null || echo "MISSING")
 if [[ "${PY_OK}" != "OK" ]]; then
     log "❌ Python3 不存在或版本 <3.7. 装 Python 3.7+ 后重试"
+    exit 1
+fi
+
+# 1.2b PyYAML — retrieve_inject + verify_compliance.detect_rules_for_response 用. 没有
+# yaml 这两个 hook 静默退出 (sys.exit(0)), 让 enforcement 失效一半. (H4 fix)
+if ! python3 -c 'import yaml' 2>/dev/null; then
+    log "⚠ PyYAML 不在 system Python 里. fingerprint 检索 + B3 fp_rules_in_response 会 silent disable."
+    log "   修复:"
+    log "     pip install --user pyyaml     (或)"
+    log "     pip3 install --user pyyaml    (或 system 包)"
+    log "     sudo apt install python3-yaml (Ubuntu)"
+    log "   不安装继续也能跑 deterministic 阻断 + shadow judge, 仅丢 fingerprint retrieval."
+fi
+
+# 1.2c jq — check-observation-log.sh 等 hook 用. 没装 hook 会 set -e 顶死. (H8 fix)
+if ! command -v jq > /dev/null 2>&1; then
+    log "❌ jq 不在 PATH. check-observation-log.sh 跟其他 short-circuit 块都依赖 jq."
+    log "   修复: sudo apt install jq (Ubuntu) / brew install jq (macOS)"
     exit 1
 fi
 
@@ -165,11 +193,23 @@ log "  OBS_LOG_DIR: ${OBS_LOG_DIR}"
 log "  MEMORY_DIR: ${MEMORY_DIR}"
 
 # 2.2 versioned backup settings (per `wf-pref-027`)
+# H7 fix (2026-05-01): also GC older backups, keep most recent 5.
+# install.sh + _install_merge_settings.cmd_add 各 cp 一次 = 单次 install 创 2 份.
+# 不 GC 长期 user 重装会有几十份, 占盘 + 老 secret 永远留存.
 if [[ -f "${SETTINGS}" ]]; then
     TS="$(date +%Y%m%d-%H%M%S)"
     BACKUP_FILE="${SETTINGS}.v3_pre_pt_${TS}.json"
     run cp "${SETTINGS}" "${BACKUP_FILE}"
     log "  ✓ versioned backup: ${BACKUP_FILE}"
+    # GC oldest backups beyond the most recent 5
+    OLD_BACKUPS=$(ls -t "${SETTINGS}".v3_pre_pt_*.json 2>/dev/null | tail -n +6 || true)
+    if [[ -n "${OLD_BACKUPS}" ]]; then
+        log "  GC 老 backup (保留最新 5 份):"
+        while IFS= read -r ob; do
+            run rm -f "${ob}"
+            log "    rm ${ob}"
+        done <<< "${OLD_BACKUPS}"
+    fi
 fi
 
 # 2.3 拷 hooks (idempotent: cp -n 不覆盖现有)
@@ -219,8 +259,13 @@ print("  ✓ state subdirs created")
 
 # 2.7 写 ~/.preference-tracker.config.json 锚定 PROJECT_ROOT (I5 fix)
 # hook 跑时 cwd 可能跟 install.sh 跑时不同; config 锚定让 path_config 不依赖每次 cwd.
+#
+# C7 fix (2026-05-01): 改成 OVERWRITE 这次 install 的 path_root / state / obs_log
+# (不是 setdefault). 之前 setdefault 在跨项目重装时让旧 project_root 卡住, 新装
+# 的 hooks 永远写到旧项目的 state dir. 我们假设最近一次 install 反映用户当前
+# project; 老 config 字段 (whitelist_user / memory_dir 等) 保留.
 log ""
-log "  锚定 PROJECT_ROOT 到 ~/.preference-tracker.config.json (I5 fix):"
+log "  锚定 PROJECT_ROOT 到 ~/.preference-tracker.config.json (C7 fix: overwrite, not setdefault):"
 run env \
     B5_PROJECT_ROOT="${PROJECT_ROOT}" \
     B5_STATE_DIR="${STATE_DIR}" \
@@ -232,19 +277,21 @@ config_path = os.path.expanduser("~/.preference-tracker.config.json")
 config = {}
 if os.path.exists(config_path):
     try:
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
     except Exception:
         config = {}
-config.setdefault("project_root", os.environ["B5_PROJECT_ROOT"])
-config.setdefault("state_dir", os.environ["B5_STATE_DIR"])
-config.setdefault("obs_log_dir", os.environ["B5_OBS_LOG_DIR"])
-with open(config_path, "w") as f:
-    json.dump(config, f, indent=2)
+# Overwrite the three install-driven keys; preserve any user-customized keys
+# (whitelist_user / memory_dir / etc) the user wrote by hand.
+config["project_root"] = os.environ["B5_PROJECT_ROOT"]
+config["state_dir"] = os.environ["B5_STATE_DIR"]
+config["obs_log_dir"] = os.environ["B5_OBS_LOG_DIR"]
+with open(config_path, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=2, ensure_ascii=False)
 print("  ✓ config:", config_path)
 '
 
-# 2.6 cp seed memory (如果不存在), sed 替换 yzhou25 私有 session id (M9 fix)
+# 2.6 cp seed memory (如果不存在), sed 替换私有 session id 为通用 seed 标记 (M9 fix)
 log ""
 log "  装 seed memory (如不存在):"
 run mkdir -p "${MEMORY_DIR}"
@@ -259,7 +306,7 @@ if [[ -d "${SKILL_DIR}/seed_memory" ]]; then
             log "  - $(basename "${seed}") 已存在, 跳过 (cp -n)"
             SEED_SKIPPED=$((SEED_SKIPPED + 1))
         else
-            # M9 fix: 替换 yzhou25 私有 originSessionId 为通用 seed 标记
+            # M9 fix: 替换 seed memory 里的私有 originSessionId 为通用 seed 标记
             # M14 fix: 显式 PYTHONIOENCODING=utf-8 防同学终端 LANG 不是 utf-8
             run env PYTHONIOENCODING=utf-8 python3 -c "
 import sys, re

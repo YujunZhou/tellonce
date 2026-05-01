@@ -11,7 +11,10 @@ _INPUT_SC=$(cat)
 _CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // empty' 2>/dev/null)
 _OBS_LOG_FOR_SC=$(python3 -c 'import sys, os; sys.path.insert(0, os.path.expanduser("~/.claude/skills/preference-tracker/lib")); import path_config; print(path_config.get_observations_log_path())' 2>/dev/null)
 if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SID_SC}" ]; then
-  _MTIME_SC=$(stat -c %Y "${_OBS_LOG_FOR_SC}" 2>/dev/null || echo 0)
+  # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.
+  _MTIME_SC=$(stat -c %Y "${_OBS_LOG_FOR_SC}" 2>/dev/null \
+              || stat -f %m "${_OBS_LOG_FOR_SC}" 2>/dev/null \
+              || echo 0)
   _AGE_SC=$(( $(date +%s) - _MTIME_SC ))
   if [ "${_AGE_SC}" -lt 60 ]; then
     _LAST_LINE_SC=$(tail -1 "${_OBS_LOG_FOR_SC}" 2>/dev/null)
@@ -28,5 +31,9 @@ fi
 
 # Promotes pending observations to pending_queue.jsonl; raises advisory alert if
 # queue length crosses threshold. Never blocks — exit 0 always.
-python3 "${HOME}/.claude/skills/preference-tracker/lib/pending_queue_manager.py" promote >/dev/null 2>&1 || true
+# Note: pending_queue_manager.py promote does not read stdin (reads obs log directly),
+# so the cat-then-exec pattern above wouldn't lose data here either way. The re-feed
+# below keeps the pattern symmetric across all four Stop wrappers — if promote ever
+# starts reading stdin, this still works. See C1 fix.
+printf '%s' "${_INPUT_SC}" | python3 "${HOME}/.claude/skills/preference-tracker/lib/pending_queue_manager.py" promote >/dev/null 2>&1 || true
 exit 0

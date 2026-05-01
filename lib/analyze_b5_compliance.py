@@ -171,7 +171,7 @@ def write_summary(metrics, date_str):
 ## Soft injection (Tier A item 3)
 - Alerts written: {metrics['shadow_alerted_count']}
 """
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write(body)
     return path
 
@@ -196,7 +196,7 @@ def check_thresholds(metrics, date_str):
 The following thresholds were tripped today:
 
 """ + '\n'.join(f'- {a}' for a in alerts) + '\n\nReview deterministic whitelist, judge accuracy, or cost cap as appropriate.\n'
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write(body)
     return path
 
@@ -204,12 +204,30 @@ The following thresholds were tripped today:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--days', type=int, default=1)
+    # H12 fix (2026-05-01): dashboard.sh has been passing --json since
+    # introduction (M5 fix), but argparse never declared it → silent failure
+    # on `dashboard.sh --json`. Now machine-parseable via stdout JSON.
+    parser.add_argument('--json', action='store_true',
+                        help='Emit a single JSON object on stdout (no markdown).')
     args = parser.parse_args()
 
     entries = parse_log(days_back=args.days)
     metrics = compute_metrics(entries)
 
     date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+    if args.json:
+        # JSON mode: machine-readable output. Don't write summary / alert files
+        # (those are markdown for humans). Caller can post-process via jq.
+        json_out = {
+            'date': date_str,
+            'days_back': args.days,
+            'metrics': metrics,
+            'cost_cap_usd': B5_DAILY_COST_CAP,
+        }
+        print(json.dumps(json_out, ensure_ascii=False, indent=2, default=str))
+        return
+
     summary_path = write_summary(metrics, date_str)
     alert_path = check_thresholds(metrics, date_str)
 
