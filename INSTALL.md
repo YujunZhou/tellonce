@@ -55,6 +55,46 @@ bash ~/.claude/skills/preference-tracker/install.sh
 
 ---
 
+## Codex 装法 (跟 CC 平行, runtime 都装一次)
+
+```bash
+# 跟 CC 共享同一份代码: ~/.claude/skills/preference-tracker/codex/install.sh
+# 或者直接从 repo 跑
+cd /path/to/your/codex/project
+bash ~/.claude/skills/preference-tracker/codex/install.sh
+```
+
+`codex/install.sh` 三段:
+
+1. **Global runtime** → `~/.codex/skills/preference-tracker/` 装入
+   `codex_preftrack/` (wrapper-driven 强制) + `shared_lib/` (CC 端 lib 镜像) +
+   `hooks/` (5 个 hook 脚本) + `seed_memory/` + `SKILL.md`. 幂等, 重跑安全。
+2. **Hooks 注册** → `~/.codex/hooks.json` 加 `UserPromptSubmit` (3 hook) +
+   `PostToolUse` (deterministic_block) + `SessionStart` (lazy init). 不动 user
+   原有 hook (gws-axi 之类保留).
+3. **Per-project state** → `<project>/.codex/preference-tracker/` 初始化
+   (registration.json + mode.json + install_record.json), 默认 audit_only.
+
+升 blocking 模式: 改 `<project>/.codex/preference-tracker/mode.json` 的 `mode`
+字段为 `"blocking"`. monotone — 以后 install 命令 / wrapper 不会自动降回去。
+
+Codex doctor:
+```bash
+PYTHONPATH=~/.codex/skills/preference-tracker python3 -m codex_preftrack doctor
+```
+
+期望: `state=PASS, private_paths=PASS, wrapper=NOT_USED, hooks=PASS, install=OBSERVE_ONLY`. wrapper=NOT_USED 是默认 (没跑过 `codex_preftrack exec --` 之前都这样, 不算错).
+
+Codex uninstall:
+```bash
+bash ~/.claude/skills/preference-tracker/codex/uninstall.sh                    # 保留 state + hooks + skill dir
+bash ~/.claude/skills/preference-tracker/codex/uninstall.sh --purge-hooks     # 撤 ~/.codex/hooks.json 注册
+bash ~/.claude/skills/preference-tracker/codex/uninstall.sh --purge-skill     # 删 ~/.codex/skills/preference-tracker
+bash ~/.claude/skills/preference-tracker/codex/uninstall.sh --purge-state     # 删本项目 state
+```
+
+---
+
 ## 升级 (从老版本 / 老安装方式切到新的)
 
 如果你之前装过老版本 (注册的是 `<project>/.claude/hooks/...` 这种 project-local 路径), 强烈建议升级 — 老路径有 hostile-repo RCE 风险 (Round-4 C1 fix), 新版只注册 `~/.claude/skills/preference-tracker/hooks/...` 不可被项目覆盖。
