@@ -107,6 +107,41 @@ bash ~/.claude/skills/preference-tracker/uninstall.sh
 
 ---
 
+## Retrieve backend 选择 (Round-6, 可选)
+
+UserPromptSubmit hook 默认走**关键词匹配** retrieve (cheap, instant, 但要你写好 `triggers` 关键词列表). 如果你 memory rule 多 / 懒得写关键词 / 想要语义匹配, 可以切到 **haiku-based retrieve**:
+
+```bash
+# user-global 永久开:
+echo 'export B5_RETRIEVE_BACKEND=haiku' >> ~/.bashrc
+
+# 临时开 (仅本 shell):
+export B5_RETRIEVE_BACKEND=haiku
+```
+
+### Trade-off
+
+| 模式 | 命中率 | 延迟 | 成本 | 维护 |
+|---|---|---|---|---|
+| `keyword` (默认) | 取决于 trigger 写得全不全 | <10ms | 0 | 每条 rule 写 `triggers` |
+| `haiku` | 语义级, 同义词自动覆盖 | 1-2s/prompt | $0 (走 `claude -p` 订阅) | 不用写 trigger |
+
+走 haiku 时调用模型同 shadow judge (默认 `claude-haiku-4-5`), 通过 `claude -p` 子进程, 用订阅 quota (Pro/Max). 没扣 ANTHROPIC_API_KEY 额度。
+
+### 已知限制
+
+- haiku 调用在 nested CC session 里**可能被 stop hook prevent** (返回空 stdout). retrieve_inject 设了 graceful fallback — 调用空 → 退到 keyword retrieve. 你不会因为 backend 切换丢功能, 最差是退化到默认行为
+- 想看 haiku 实际有没 work: `export B5_RETRIEVE_DEBUG=1`, log 写到 `<state>/runtime/retrieve_debug.jsonl`, 包括 latency / stdout 长度 / 解析的 atomic_id 列表
+
+### 其他可调
+
+```bash
+export B5_RETRIEVE_MODEL=claude-haiku-4-5     # 想换模型 (haiku-5 出来后改这条)
+export B5_RETRIEVE_TIMEOUT=12                 # 默认 12s, haiku 慢 (实测 5-22s) 可调高到 30
+```
+
+---
+
 ## 隐私 / 数据流向 (装前必读)
 
 **Preference-tracker 会在每次 Stop / UserPromptSubmit 触发以下数据流动**:
