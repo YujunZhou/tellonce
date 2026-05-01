@@ -205,18 +205,23 @@ def main() -> int:
         return 0
 
     # Blocking mode: emit codex PostToolUse-block JSON + exit 2.
+    # If JSON serialization fails (shouldn't happen, but defensive), don't
+    # exit 2 — codex would log "invalid JSON output" and the user wouldn't
+    # see the reason. Better: fail open (advisory only, exit 0).
+    out = {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": reason,
+        },
+        "decision": "block",
+        "reason": reason,
+    }
     try:
-        out = {
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": reason,
-            },
-            "decision": "block",
-            "reason": reason,
-        }
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
     except Exception:
-        pass
+        sys.stderr.write("[preference-tracker] JSON serialize failed; demoting to advisory\n")
+        sys.stderr.write(reason + "\n")
+        return 0
     sys.stderr.write(reason + "\n")
     return 2
 

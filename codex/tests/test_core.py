@@ -605,6 +605,76 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     rc = cpb.main()
                 self.assertEqual(rc, 0)
 
+    def test_doctor_reports_hooks_status(self):
+        """doctor must report hooks=PASS / NOT_INSTALLED / PARTIAL / FAIL."""
+        from codex_preftrack import install_codex_hooks as ich
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                install(project)
+                # No hooks registered yet
+                report = run_doctor(project)
+                self.assertEqual(report.sections["hooks"], "NOT_INSTALLED")
+                # Register all 5 hooks
+                hooks_json = home / ".codex" / "hooks.json"
+                (home / ".codex").mkdir(exist_ok=True)
+                hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+                hooks_dir.mkdir(parents=True)
+                ich.cmd_add(str(hooks_json), str(hooks_dir))
+                report = run_doctor(project)
+                self.assertEqual(report.sections["hooks"], "PASS")
+                # Drop one hook entry to simulate partial state
+                data = json.loads(hooks_json.read_text())
+                pt_chain = data["hooks"]["UserPromptSubmit"]
+                pt_chain[0]["hooks"] = pt_chain[0]["hooks"][:1]  # keep only 1 of 3
+                hooks_json.write_text(json.dumps(data, indent=2))
+                report = run_doctor(project)
+                self.assertEqual(report.sections["hooks"], "PARTIAL")
+
+    def test_uninstall_sh_smoke_purge_hooks_and_skill(self):
+        """End-to-end: install then uninstall --purge-hooks --purge-skill cleans."""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            repo_root = Path(__file__).resolve().parents[2]
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "PYTHON": os.sys.executable,
+            })
+            # Install
+            ip = subprocess.run(
+                ["bash", str(repo_root / "codex" / "install.sh")],
+                cwd=project, env=env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(ip.returncode, 0, ip.stderr)
+            global_dir = home / ".codex" / "skills" / "preference-tracker"
+            hooks_json = home / ".codex" / "hooks.json"
+            self.assertTrue(global_dir.is_dir())
+            self.assertTrue(hooks_json.is_file())
+            # Uninstall --purge-hooks --purge-skill
+            up = subprocess.run(
+                ["bash", str(repo_root / "codex" / "uninstall.sh"),
+                 "--purge-hooks", "--purge-skill"],
+                cwd=project, env=env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(up.returncode, 0, up.stderr)
+            self.assertFalse(global_dir.is_dir(), "skill dir should be removed")
+            data = json.loads(hooks_json.read_text())
+            self.assertEqual(data.get("hooks", {}), {},
+                "hooks.json should have no PT entries left")
+
     def test_install_sh_smoke_global_layout(self):
         """End-to-end: bash install.sh creates global runtime + hooks.json + state."""
         with tempfile.TemporaryDirectory() as td:

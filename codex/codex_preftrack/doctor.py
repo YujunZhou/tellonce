@@ -106,6 +106,43 @@ def _private_path_status(state_root: Path) -> str:
     return "PASS"
 
 
+def _hooks_status() -> str:
+    """Round-7: report whether codex global hook registration is in place.
+
+    Returns:
+      PASS         — all 5 PT hooks (UPS x3 + PostToolUse + SessionStart) registered
+      PARTIAL      — some PT hooks registered, others missing (broken install)
+      NOT_INSTALLED — no PT hooks in ~/.codex/hooks.json (still OK if user only
+                      wants wrapper-driven enforcement, not blocking)
+      FAIL         — hooks.json corrupt
+    """
+    import json
+    hooks_json = Path.home() / ".codex" / "hooks.json"
+    if not hooks_json.is_file():
+        return "NOT_INSTALLED"
+    try:
+        data = json.loads(hooks_json.read_text(encoding="utf-8"))
+    except Exception:
+        return "FAIL"
+    try:
+        from .install_codex_hooks import PT_HOOKS, _is_pt_command
+    except Exception:
+        return "FAIL"
+    expected_basenames = {bn for lst in PT_HOOKS.values() for bn, _ in lst}
+    found_basenames: set[str] = set()
+    for chain in (data.get("hooks") or {}).values():
+        for entry in chain or []:
+            for h in entry.get("hooks") or []:
+                cmd = h.get("command", "")
+                if _is_pt_command(cmd):
+                    found_basenames.add(cmd.rsplit("/", 1)[-1])
+    if not found_basenames:
+        return "NOT_INSTALLED"
+    if found_basenames == expected_basenames:
+        return "PASS"
+    return "PARTIAL"
+
+
 def run_doctor(project_root: Path) -> DoctorReport:
     """Build a DoctorReport. CX-3/HX-4 fix: doctor no longer appends a
     `doctor_run` event to the ledger — that turned doctor into a self-amplifying
@@ -126,6 +163,7 @@ def run_doctor(project_root: Path) -> DoctorReport:
         "state": "PASS" if state.is_dir() else "FAIL",
         "private_paths": _private_path_status(state) if state.is_dir() else "FAIL",
         "wrapper": "PASS" if (mode.wrapper_seen or wrapper_events) else "NOT_USED",
+        "hooks": _hooks_status(),
         "shadow": "DISABLED",
     }
     install_status = "OBSERVE_ONLY" if all(v != "FAIL" for v in sections.values()) else "FAILED"
@@ -136,6 +174,7 @@ def run_doctor(project_root: Path) -> DoctorReport:
         f"state={sections['state']}, "
         f"private_paths={sections['private_paths']}, "
         f"wrapper={sections['wrapper']}, "
+        f"hooks={sections['hooks']}, "
         f"shadow={sections['shadow']}, "
         f"install={install_status}"
     )

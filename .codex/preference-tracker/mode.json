@@ -1,0 +1,6 @@
+{
+  "mode": "audit_only",
+  "hooks": "disabled",
+  "blocking": false,
+  "wrapper_seen": false
+}
