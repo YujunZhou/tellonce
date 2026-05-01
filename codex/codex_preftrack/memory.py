@@ -37,6 +37,17 @@ def content_hash_for_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _strip_balanced_quotes(value: str) -> str:
+    """Strip a single matched pair of leading/trailing quotes (' or ").
+    Handles values like `"foo"`, `'bar'`. Doesn't strip mismatched / nested.
+    HX-7 fix: prior implementation used `.strip('"')` which removes any
+    number of leading/trailing `"` chars and broke on values like `"a"b"`.
+    """
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
+    return value
+
+
 def parse_frontmatter(text: str) -> tuple[dict, str]:
     if not text.startswith("---\n"):
         raise ValueError("missing frontmatter")
@@ -52,12 +63,13 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
             continue
         if line.startswith("  - ") and current_key:
             data.setdefault(current_key, [])
-            data[current_key].append(line[4:].strip())
+            item = _strip_balanced_quotes(line[4:].strip())
+            data[current_key].append(item)
             continue
         if ":" in line:
             key, value = line.split(":", 1)
             key = key.strip()
-            value = value.strip().strip('"')
+            value = _strip_balanced_quotes(value.strip())
             current_key = key
             if value == "":
                 data[key] = []
@@ -98,7 +110,15 @@ def validate_memory_data(data: dict) -> list[str]:
 
 
 def write_memory_atomic(path: Path, data: dict, body: str) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Atomic write with parent-dir fsync + 0600 perms.
+
+    HX-8 fix: previously fsync'd only the file, leaving the rename's
+    directory entry in page cache; a crash between rename and dirent
+    flush could revert the change. Now also fsyncs the parent dir.
+    """
+    from .ledger import secure_mkdir  # lazy: avoid circular at import
+
+    secure_mkdir(path.parent)
     data = dict(data)
     data["canonical_key"] = canonical_key(data)
     text_without_hash = render_memory({k: v for k, v in data.items() if k != "content_sha256"}, body)
@@ -106,8 +126,25 @@ def write_memory_atomic(path: Path, data: dict, body: str) -> str:
     text = render_memory(data, body)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
     with tmp.open("r+", encoding="utf-8") as f:
         f.flush()
         os.fsync(f.fileno())
     tmp.replace(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    # Persist the rename in the parent directory.
+    try:
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError:
+        pass
     return data["content_sha256"]

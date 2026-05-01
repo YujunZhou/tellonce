@@ -5,5 +5,5 @@ REPO_ROOT="$(cd "${SKILL_DIR}/../.." && pwd)"
 if [[ -d "${SKILL_DIR}/codex_preftrack" ]]; then
   REPO_ROOT="${SKILL_DIR}"
 fi
-PYTHON="${PYTHON:-python}"
+PYTHON="${PYTHON:-python3}"
 PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" "${PYTHON}" -m codex_preftrack doctor "$@"

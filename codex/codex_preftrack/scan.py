@@ -14,12 +14,20 @@ class ScanResult:
 
 
 def classify(message: str) -> str:
+    """Heuristic classifier — kept simple on purpose.
+
+    HX-6 fix: removed single-character "卡" trigger. "卡" appears in
+    "卡尔", "信用卡", "打卡", "卡夫卡", etc. and made friction over-fire
+    on entirely unrelated messages. Replaced with disambiguating
+    multi-character forms.
+    """
     lowered = message.lower()
     if any(token in message for token in ["以后", "以后都", "必须", "不要", "我希望", "我想"]):
         return "preference"
     if any(token in lowered for token in ["again", "don't repeat", "frustrat"]) or "又" in message:
         return "pitfall"
-    if any(token in message for token in ["卡", "麻烦", "太慢", "血压"]):
+    friction_tokens = ["很卡", "好卡", "太卡", "卡顿", "麻烦", "太慢", "血压"]
+    if any(token in message for token in friction_tokens):
         return "friction"
     return "none"
 

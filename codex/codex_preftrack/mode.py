@@ -14,9 +14,12 @@ class Mode:
 
 
 def write_mode(state_root: Path, mode: str = "audit_only", wrapper_seen: bool = False, hooks: str = "disabled") -> Mode:
-    state_root.mkdir(parents=True, exist_ok=True)
+    # Lazy import to break circular dep with ledger (which imports mode for tests).
+    from .ledger import secure_mkdir, secure_write_text
+
+    secure_mkdir(state_root)
     data = Mode(mode=mode, hooks=hooks, blocking=False, wrapper_seen=wrapper_seen)
-    (state_root / "mode.json").write_text(json.dumps(data.__dict__, indent=2) + "\n", encoding="utf-8")
+    secure_write_text(state_root / "mode.json", json.dumps(data.__dict__, indent=2) + "\n", atomic=True)
     return data
 
 

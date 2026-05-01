@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .ledger import secure_mkdir, secure_write_text
+
 
 def preview_migration(state_root: Path, source_paths: list[Path], write_report: bool = False) -> dict:
     items = []
@@ -21,6 +23,6 @@ def preview_migration(state_root: Path, source_paths: list[Path], write_report: 
     report = {"items": items}
     if write_report:
         evidence = state_root / "evidence"
-        evidence.mkdir(parents=True, exist_ok=True)
-        (evidence / "migration_preview.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        secure_mkdir(evidence)
+        secure_write_text(evidence / "migration_preview.json", json.dumps(report, indent=2) + "\n")
     return report

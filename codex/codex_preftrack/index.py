@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .ledger import read_events
+from .ledger import read_events, secure_mkdir, secure_write_text
 from .memory import canonical_key, parse_memory, validate_memory_data
 
 
@@ -42,6 +42,10 @@ def build_active_index(state_root: Path) -> dict:
             )
     out = {"active": active}
     index_dir = state_root / "index"
-    index_dir.mkdir(parents=True, exist_ok=True)
-    (index_dir / "active_memories.json").write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    secure_mkdir(index_dir)
+    secure_write_text(
+        index_dir / "active_memories.json",
+        json.dumps(out, indent=2) + "\n",
+        atomic=True,
+    )
     return out

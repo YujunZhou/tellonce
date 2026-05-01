@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .ledger import secure_write_text
 from .paths import Registration, register_project
 
 
@@ -15,6 +16,6 @@ class InstallRecord:
 def install(project_root: Path) -> InstallRecord:
     registration = register_project(project_root)
     state = registration.state_root
-    (state / "install_record.json").write_text('{"status":"installed","mode":"audit_only"}\n', encoding="utf-8")
-    (state / "managed_runtime.txt").write_text("codex_preftrack runtime\n", encoding="utf-8")
+    secure_write_text(state / "install_record.json", '{"status":"installed"}\n')
+    secure_write_text(state / "managed_runtime.txt", "codex_preftrack runtime\n")
     return InstallRecord(state_root=state, registration=registration)

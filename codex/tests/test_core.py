@@ -155,7 +155,12 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             self.assertFalse(result.created)
             self.assertFalse((state_root / "memories" / "active").exists())
 
-    def test_promote_commit_failure_leaves_no_active_memory(self):
+    def test_promote_commit_failure_active_exists_but_index_skips(self):
+        # CX-7 design (publish review 2026-05-01): rename comes BEFORE the
+        # commit append, so the ledger only records what's already on disk.
+        # If the commit-append fails, the active file IS present on disk
+        # (the rename succeeded), but build_active_index will filter it
+        # out because there's no matching `promotion_committed` event.
         with tempfile.TemporaryDirectory() as td:
             state_root = Path(td) / "state"
             candidate = {
@@ -170,6 +175,7 @@ class CodexPreftrackCoreTests(unittest.TestCase):
                 "confidence": "high",
             }
             import codex_preftrack.promote as promote_mod
+            from codex_preftrack.index import build_active_index
 
             calls = {"n": 0}
             real_append = promote_mod.append_event
@@ -183,7 +189,15 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             with patch.object(promote_mod, "append_event", side_effect=flaky_append):
                 with self.assertRaises(RuntimeError):
                     promote_candidate(state_root, candidate)
-            self.assertFalse((state_root / "memories" / "active" / "wf-pref-003.md").exists())
+            # Active file is present on disk (rename succeeded before the
+            # failed commit append) — this is the CX-7 invariant: ledger
+            # entries only reflect what's already durable.
+            self.assertTrue((state_root / "memories" / "active" / "wf-pref-003.md").exists())
+            # But build_active_index will not surface it because no
+            # promotion_committed event exists for this atomic_id.
+            index = build_active_index(state_root)
+            atomic_ids = {entry["atomic_id"] for entry in index["active"]}
+            self.assertNotIn("wf-pref-003", atomic_ids)
 
     def test_install_doctor_uninstall_keep_data(self):
         with tempfile.TemporaryDirectory() as td:

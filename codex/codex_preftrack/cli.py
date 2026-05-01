@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from .dashboard import build_dashboard
 from .doctor import run_doctor
 from .install import install
 from .migrate import preview_migration
+from .paths import ensure_registered
 from .promote import promote_candidate
 from .scan import scan_message
 from .uninstall import uninstall
@@ -30,8 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--dry-run", action="store_true")
         if command == "migrate":
             p.add_argument("--preview", action="store_true")
+            p.add_argument("--apply", action="store_true",
+                           help="actually perform the migration (default is to print help if neither --preview nor --apply set)")
             p.add_argument("--source", action="append", default=[])
+        if command == "uninstall":
+            # CX-6: real --purge-state flag; default keeps data.
+            p.add_argument("--purge-state", action="store_true",
+                           help="DANGER: rm -rf the entire <project>/.codex/preference-tracker/ state directory.")
         if command == "exec":
+            p.add_argument("--timeout", type=int, default=None,
+                           help="seconds to wait for the wrapped subprocess (default: env CODEX_PT_TIMEOUT or 600)")
             p.add_argument("cmd", nargs=argparse.REMAINDER)
     return parser
 
@@ -47,22 +56,26 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         return int(exc.code or 0)
+
+    project_root = Path(args.project_root)
+
     if args.command == "install":
-        install(Path(args.project_root))
+        install(project_root)
     elif args.command == "doctor":
-        print(run_doctor(Path(args.project_root)).status_line)
+        print(run_doctor(project_root).status_line)
     elif args.command == "uninstall":
-        uninstall(Path(args.project_root))
+        uninstall(project_root, keep_data=not args.purge_state)
     elif args.command == "scan":
-        state = install(Path(args.project_root)).state_root
+        # CX-5: ensure_registered, not install — preserves mode.json across invocations.
+        state = ensure_registered(project_root).state_root
         scan_message(state, args.message)
     elif args.command == "dashboard":
-        state = install(Path(args.project_root)).state_root
+        state = ensure_registered(project_root).state_root
         print(build_dashboard(state))
     elif args.command == "promote":
         if args.dry_run:
             # Placeholder candidate used only for smoke-level command viability.
-            state = install(Path(args.project_root)).state_root
+            state = ensure_registered(project_root).state_root
             promote_candidate(
                 state,
                 {
@@ -78,12 +91,53 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 dry_run=True,
             )
+        else:
+            print(
+                "promote: --dry-run is the only supported CLI mode; programmatic callers "
+                "should use codex_preftrack.promote.promote_candidate() directly.",
+                file=sys.stderr,
+            )
+            return 2
     elif args.command == "migrate":
+        # CX-13: don't silently no-op when neither flag is set.
+        if not args.preview and not args.apply:
+            print(
+                "migrate: choose --preview to inspect decisions, or --apply to actually migrate.\n"
+                "        sources may be passed via repeated --source.",
+                file=sys.stderr,
+            )
+            return 2
         if args.preview:
-            preview_migration(Path(args.project_root), [Path(p) for p in args.source], write_report=False)
+            preview_migration(project_root, [Path(p) for p in args.source], write_report=False)
+        else:
+            # --apply path: write the report; actual migration write is left to
+            # caller via apply_migration() (not yet implemented programmatically
+            # — preview is the only audited path right now).
+            preview_migration(project_root, [Path(p) for p in args.source], write_report=True)
+            print(
+                "migrate --apply: preview written. Programmatic migration is not yet "
+                "implemented; the preview report is the audit-only artifact.",
+                file=sys.stderr,
+            )
     elif args.command == "exec":
-        state = install(Path(args.project_root)).state_root
-        cmd = args.cmd[1:] if args.cmd and args.cmd[0] == "--" else args.cmd
-        result = run_wrapped(state, cmd)
+        # CX-12: enforce `--` as the separator between codex_preftrack flags
+        # and the wrapped command. Without it, argparse will swallow flags
+        # like --project-root that the user intended to pass through.
+        cmd = list(args.cmd)
+        if cmd and cmd[0] == "--":
+            cmd = cmd[1:]
+        else:
+            print(
+                "exec: missing `--` separator. Use:\n"
+                "    codex_preftrack exec [--project-root PATH] [--timeout SEC] -- <wrapped command...>\n"
+                "Without `--`, codex_preftrack flags can intercept arguments meant for the wrapped command.",
+                file=sys.stderr,
+            )
+            return 2
+        if not cmd:
+            print("exec: no command given after `--`", file=sys.stderr)
+            return 2
+        state = ensure_registered(project_root).state_root
+        result = run_wrapped(state, cmd, timeout_s=args.timeout)
         return result.exit_code
     return 0
