@@ -83,20 +83,41 @@ def _versioned_backup(path: str) -> str | None:
 
 
 def _save_hooks_json(path: str, data: dict) -> None:
+    import uuid as _uuid
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(p.suffix + f".tmp.{os.getpid()}")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # pid + uuid8 suffix avoids tmp-file race when concurrent installers run
+    # (mirror codex/codex_preftrack/ledger.py M1 fix).
+    tmp = p.with_suffix(p.suffix + f".tmp.{os.getpid()}.{_uuid.uuid4().hex[:8]}")
     try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
-    tmp.replace(p)
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        tmp.replace(p)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _is_pt_command(cmd: str) -> bool:
-    """Identify any registration string we previously wrote so cleanup is safe."""
-    return "preference-tracker" in cmd and (cmd.endswith(".sh") or "/hooks/" in cmd)
+    """Identify any registration string we previously wrote so cleanup is safe.
+
+    PT hook commands always live under */preference-tracker/hooks/ AND have one
+    of our known basenames. We use path-based identification (rather than a
+    sentinel field on the entry) so hooks.json stays strictly schema-compliant.
+    """
+    if "preference-tracker" not in cmd:
+        return False
+    if "/hooks/" not in cmd:
+        return False
+    basename = cmd.rsplit("/", 1)[-1]
+    known = {basename for lst in PT_HOOKS.values() for basename, _ in lst}
+    return basename in known
 
 
 def cmd_add(hooks_path: str, hooks_dir: str) -> int:
@@ -115,16 +136,18 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
     skipped = 0
     for event, hook_list in PT_HOOKS.items():
         chain = data["hooks"].setdefault(event, [])
-        # Find / create our entry by sentinel marker so we don't merge into the
-        # user's own entries (they may have a matcher that scopes their hooks
-        # differently; we want PT hooks to fire unconditionally for the event).
+        # Find or create the PT-managed entry. We identify it by inspecting the
+        # commands inside (path-based — see _is_pt_command). If no PT-only
+        # entry exists yet, create one with empty matcher (so hook fires for
+        # any tool / scope, mirroring how our hooks behave on CC side).
         pt_entry = None
         for entry in chain:
-            if entry.get("_pt_managed"):
+            cmds = [h.get("command", "") for h in entry.get("hooks", []) or []]
+            if cmds and all(_is_pt_command(c) for c in cmds):
                 pt_entry = entry
                 break
         if pt_entry is None:
-            pt_entry = {"_pt_managed": True, "matcher": "", "hooks": []}
+            pt_entry = {"matcher": "", "hooks": []}
             chain.append(pt_entry)
         existing_cmds = {h.get("command", "") for h in pt_entry.get("hooks", [])}
         for basename, timeout in hook_list:
@@ -144,9 +167,9 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
 
 
 def cmd_remove(hooks_path: str, hooks_dir: str | None = None) -> int:
-    """Remove all PT-managed entries. hooks_dir is optional — we identify PT
-    entries by `_pt_managed: true` sentinel OR by command path containing
-    'preference-tracker'."""
+    """Remove all PT hooks. Identifies them by path (any command under
+    */preference-tracker/hooks/<known-basename>). Drops emptied entries
+    cleanly."""
     backup = _versioned_backup(hooks_path)
     if backup:
         print(f"  versioned backup: {backup}")
@@ -156,10 +179,6 @@ def cmd_remove(hooks_path: str, hooks_dir: str | None = None) -> int:
     for event, chain in list(hooks_block.items()):
         new_chain = []
         for entry in chain:
-            if entry.get("_pt_managed"):
-                removed += len(entry.get("hooks", []))
-                continue
-            # also strip stale PT commands inside non-PT entries
             sub = []
             for h in entry.get("hooks", []) or []:
                 cmd = h.get("command", "")
@@ -167,10 +186,17 @@ def cmd_remove(hooks_path: str, hooks_dir: str | None = None) -> int:
                     removed += 1
                     continue
                 sub.append(h)
+            # Skip backwards-compat: legacy entries had a `_pt_managed: true`
+            # field. Strip them whole if all hooks were PT.
+            if entry.get("_pt_managed") and not sub:
+                continue
             if sub:
-                new_entry = dict(entry)
+                new_entry = {k: v for k, v in entry.items() if k != "_pt_managed"}
                 new_entry["hooks"] = sub
                 new_chain.append(new_entry)
+            elif not entry.get("hooks"):
+                # entry started empty — preserve it (user's empty placeholder)
+                new_chain.append(entry)
         if new_chain:
             hooks_block[event] = new_chain
         else:

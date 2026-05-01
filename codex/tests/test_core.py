@@ -409,32 +409,37 @@ class CodexHookIntegrationTests(unittest.TestCase):
         from codex_preftrack import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             hooks_json = Path(td) / "hooks.json"
-            hooks_dir = Path(td) / "hooks"
-            hooks_dir.mkdir()
+            # _is_pt_command identifies PT hooks by path: must contain
+            # "preference-tracker" + "/hooks/" + a known basename. Mirror the
+            # real layout (~/.codex/skills/preference-tracker/hooks/) for tests.
+            hooks_dir = Path(td) / "preference-tracker" / "hooks"
+            hooks_dir.mkdir(parents=True)
             # First add
             ich.cmd_add(str(hooks_json), str(hooks_dir))
             data = json.loads(hooks_json.read_text())
             # 5 PT hooks: 3 UserPromptSubmit + 1 PostToolUse + 1 SessionStart
-            total = sum(
-                len(entry["hooks"])
-                for entries in data["hooks"].values()
-                for entry in entries
-                if entry.get("_pt_managed")
-            )
-            self.assertEqual(total, 5)
+            def _count_pt(d):
+                n = 0
+                for entries in d.get("hooks", {}).values():
+                    for entry in entries:
+                        for h in entry.get("hooks", []) or []:
+                            if ich._is_pt_command(h.get("command", "")):
+                                n += 1
+                return n
+            self.assertEqual(_count_pt(data), 5)
             self.assertIn("UserPromptSubmit", data["hooks"])
             self.assertIn("PostToolUse", data["hooks"])
             self.assertIn("SessionStart", data["hooks"])
+            # Schema cleanliness: PT entries should NOT contain a sentinel
+            # field codex doesn't know about.
+            for entries in data["hooks"].values():
+                for entry in entries:
+                    self.assertNotIn("_pt_managed", entry,
+                        "PT entries must be schema-clean (no sentinel field)")
             # Re-add: idempotent (no duplicates)
             ich.cmd_add(str(hooks_json), str(hooks_dir))
             data2 = json.loads(hooks_json.read_text())
-            total2 = sum(
-                len(entry["hooks"])
-                for entries in data2["hooks"].values()
-                for entry in entries
-                if entry.get("_pt_managed")
-            )
-            self.assertEqual(total2, 5, "re-add must be idempotent")
+            self.assertEqual(_count_pt(data2), 5, "re-add must be idempotent")
             # Remove cleans them all
             ich.cmd_remove(str(hooks_json))
             data3 = json.loads(hooks_json.read_text())
@@ -445,8 +450,8 @@ class CodexHookIntegrationTests(unittest.TestCase):
         from codex_preftrack import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             hooks_json = Path(td) / "hooks.json"
-            hooks_dir = Path(td) / "hooks"
-            hooks_dir.mkdir()
+            hooks_dir = Path(td) / "preference-tracker" / "hooks"
+            hooks_dir.mkdir(parents=True)
             seed = {
                 "hooks": {
                     "SessionStart": [
@@ -463,12 +468,20 @@ class CodexHookIntegrationTests(unittest.TestCase):
             ich.cmd_add(str(hooks_json), str(hooks_dir))
             data = json.loads(hooks_json.read_text())
             ss = data["hooks"]["SessionStart"]
-            # Should have 2 entries: user's gws-axi + PT-managed
+            # Should have 2 entries: user's gws-axi (pure non-PT) + PT-only
             self.assertEqual(len(ss), 2)
-            user_entry = next(e for e in ss if not e.get("_pt_managed"))
-            pt_entry = next(e for e in ss if e.get("_pt_managed"))
+            user_entry = next(
+                e for e in ss
+                if any(not ich._is_pt_command(h.get("command", ""))
+                       for h in e.get("hooks", []))
+            )
+            pt_entry = next(
+                e for e in ss
+                if e is not user_entry
+            )
             self.assertEqual(user_entry["hooks"][0]["command"], "gws-axi")
             self.assertEqual(len(pt_entry["hooks"]), 1)
+            self.assertTrue(ich._is_pt_command(pt_entry["hooks"][0]["command"]))
             ich.cmd_remove(str(hooks_json))
             data2 = json.loads(hooks_json.read_text())
             # User's gws-axi should still be there

@@ -35,8 +35,12 @@ if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
     export CODEX_PROJECT_ROOT="${CODEX_CWD}"
 fi
 
-# Run the adapter. Forward its exit code so blocking mode actually blocks.
+# Run the adapter. Codex's PostToolUse hook protocol:
+#   - stdout: hookSpecificOutput JSON (consumed by codex)
+#   - stderr: human-readable block reason (shown to user when exit 2)
+# DO NOT redirect stderr to stdout — that would corrupt the JSON channel
+# and codex would print "hook returned invalid post-tool-use JSON output".
 printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SKILL_DIR}" \
-    timeout 15 python3 -m codex_preftrack.codex_posttooluse_block 2>&1
+    timeout 15 python3 -m codex_preftrack.codex_posttooluse_block
 RC=$?
 exit $RC

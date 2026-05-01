@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Codex UserPromptSubmit hook: cross-session pending memory reminders.
 # Mirrors CC's memory-pending-inject.sh.
+#
+# pending_queue_manager.py emits raw text (legacy CC contract); we wrap it in
+# the codex hookSpecificOutput JSON envelope (UserPromptSubmitHookSpecificOutputWire
+# requires hookEventName + additionalContext, additionalProperties: false).
 set +e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,6 +29,20 @@ if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
     export B5_PROJECT_ROOT="${CODEX_CWD}"
 fi
 
-printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SHARED_LIB}" \
-    timeout 15 python3 "${SHARED_LIB}/pending_queue_manager.py" inject 2>/dev/null
+PT_TEXT="$(PYTHONIOENCODING=utf-8 PYTHONPATH="${SHARED_LIB}" \
+    timeout 15 python3 "${SHARED_LIB}/pending_queue_manager.py" inject 2>/dev/null)"
+if [ -n "${PT_TEXT}" ]; then
+    PT_TEXT="${PT_TEXT}" PYTHONIOENCODING=utf-8 python3 -c '
+import json, os
+text = os.environ.get("PT_TEXT","")
+header = "### Pending memory finalize required (carried over from prior session):"
+body = header + "\n" + text
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": body,
+    }
+}, ensure_ascii=False))
+' 2>/dev/null
+fi
 exit 0

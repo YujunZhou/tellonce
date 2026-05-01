@@ -113,8 +113,23 @@ def _log_decision(state_root: Path | None, record: dict) -> None:
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / "posttooluse_log.jsonl"
-        with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        # POSIX: a single line write to an O_APPEND fd is atomic up to PIPE_BUF
+        # (typically 4096 bytes). Our records are well under that, so flock is
+        # belt-and-suspenders here, but it ALSO blocks tmp races between
+        # concurrent codex sessions on the same project.
+        try:
+            import fcntl
+            with log_path.open("a", encoding="utf-8") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError):
+            # No fcntl (Windows) — fall back to bare append; record may
+            # interleave on rare contention but won't corrupt single lines.
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
         try:
             os.chmod(log_path, 0o600)
         except OSError:
