@@ -13,18 +13,47 @@ from .mode import load_mode, write_mode
 from .verify import load_default_whitelist, verify_output
 
 
-# Subprocess env policy: deny-list anything that looks like a credential or
-# session token. CX-4 fix — prior implementation inherited the entire parent
-# env, including ANTHROPIC_API_KEY / DATABASE_URL / *_TOKEN / *_SECRET, and
-# handed them to the wrapped command (which often runs untrusted-ish 3p
-# binaries that may upload telemetry). Allowlist core operational vars and
-# inherit; redact the rest.
+# Subprocess env policy.
+#
+# CX-4 + post-fix-review fix: we want to strip obvious leak vectors
+# (random *_TOKEN/*_SECRET/*PASSWORD* env vars from ambient shell), but
+# the whole point of the wrapper is to run user-chosen binaries — most of
+# which are LLM CLIs (claude / codex / gh) that REQUIRE a credential env
+# to function. A pure deny-list would brick the most common workflow.
+#
+# Resolution: deny by substring → then punch back specific names that the
+# wrapped binary likely needs. Allowlist takes precedence over denylist.
+# Strict mode (CODEX_PT_STRICT_ENV=1) drops the punch-through and goes pure
+# deny-list — for security-sensitive review workflows that don't need to
+# call an LLM CLI from inside the wrapper.
 _ENV_ALLOW_PREFIXES: tuple[str, ...] = (
     "PATH", "HOME", "USER", "LOGNAME", "TERM", "TMPDIR", "TMP", "TEMP",
     "LANG", "LC_", "PWD", "SHELL", "DISPLAY", "XAUTHORITY",
     "PYTHON",  # PYTHONPATH / PYTHONIOENCODING etc
     "CODEX_PREFTRACK_",  # our own opt-in env
+    "XDG_",  # runtime / config / data dirs (e.g. XDG_RUNTIME_DIR for gh / ssh)
 )
+
+# Explicit names that survive the deny pass even though they contain
+# AUTH/TOKEN/KEY substrings — these are the standard credential envs
+# for the LLM CLIs that user_facing_command-passers most commonly pass to
+# `codex_preftrack exec`. If you want to forbid one, set
+# CODEX_PT_STRICT_ENV=1.
+_ENV_ALLOW_NAMES: frozenset[str] = frozenset({
+    # LLM vendors
+    "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+    "OPENAI_API_KEY", "OPENAI_BASE_URL",
+    "GEMINI_API_KEY", "GOOGLE_API_KEY",
+    "DEEPINFRA_API_KEY", "OPENROUTER_API_KEY",
+    "MISTRAL_API_KEY", "GROQ_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",  # Claude Code subscription
+    # Common dev tooling that the wrapped command may invoke
+    "GH_TOKEN", "GITHUB_TOKEN",  # gh / git
+    "SSH_AUTH_SOCK", "SSH_AGENT_PID",  # ssh
+    "GIT_ASKPASS", "GIT_SSH",
+    "GPG_AGENT_INFO", "GNUPGHOME",
+})
+
 _ENV_DENY_SUBSTRINGS: tuple[str, ...] = (
     "TOKEN", "SECRET", "PASSWORD", "PASSWD", "PRIVATE_KEY", "API_KEY",
     "ACCESS_KEY", "AUTH",
@@ -32,23 +61,29 @@ _ENV_DENY_SUBSTRINGS: tuple[str, ...] = (
 
 
 def _filter_env(parent: dict[str, str]) -> dict[str, str]:
-    """Build a child-process env that strips obvious credentials.
+    """Build a child-process env per the policy above.
 
-    Logic: if a var name has any deny substring (TOKEN/SECRET/PASSWORD/...),
-    drop it. Otherwise inherit. Plus a small explicit allowlist to ensure
-    PATH / HOME / locale survive even if the parent env is unusual.
+    Order: start empty → deny-pass (drop anything matching deny substring)
+    → allow-prefix pass (re-add anything starting with PATH/HOME/PYTHON/...)
+    → allow-name pass (re-add specific LLM/dev tool credential vars by name).
+    Strict mode skips the third pass.
     """
+    strict = os.environ.get("CODEX_PT_STRICT_ENV", "").lower() in ("1", "true", "yes")
     out: dict[str, str] = {}
     for k, v in parent.items():
         upper = k.upper()
         if any(deny in upper for deny in _ENV_DENY_SUBSTRINGS):
             continue
         out[k] = v
-    # Explicit allowlist guarantees these keep flowing even if a future
-    # rule were to filter more aggressively.
+    # Allow-prefix pass.
     for k, v in parent.items():
         if any(k.startswith(p) for p in _ENV_ALLOW_PREFIXES):
             out[k] = v
+    # Allow-name pass (skip in strict mode).
+    if not strict:
+        for name in _ENV_ALLOW_NAMES:
+            if name in parent:
+                out[name] = parent[name]
     return out
 
 
@@ -117,7 +152,7 @@ def run_wrapped(
 
     redacted_cmd = _sanitize_cmd_for_log(cmd)
     meta = {"run_id": run_id, "cmd": redacted_cmd, "mode": "wrapper"}
-    secure_write_text(run_dir / "run_meta.json", json.dumps(meta, indent=2) + "\n")
+    secure_write_text(run_dir / "run_meta.json", json.dumps(meta, indent=2) + "\n", atomic=True)
     append_event(
         state_root,
         {"event_type": "wrapper_run_started", "session_id": "codex-current", "payload": meta},
@@ -150,14 +185,14 @@ def run_wrapped(
     # Sanitize before persisting (the central reason all this exists).
     safe_stdout = sanitize(stdout)
     safe_stderr = sanitize(stderr)
-    secure_write_text(run_dir / "original_stdout.txt", safe_stdout)
-    secure_write_text(run_dir / "original_stderr.txt", safe_stderr)
+    secure_write_text(run_dir / "original_stdout.txt", safe_stdout, atomic=True)
+    secure_write_text(run_dir / "original_stderr.txt", safe_stderr, atomic=True)
 
     verdict = verify_output(safe_stdout, whitelist=load_default_whitelist())
     # Sanitize verdict.violations.evidence too — the inline-token regex can
     # capture sk-/ghp_/etc style tokens (CX-14).
     verdict_dict = sanitize(verdict.__dict__)
-    secure_write_text(run_dir / "verdicts.jsonl", json.dumps(verdict_dict) + "\n")
+    secure_write_text(run_dir / "verdicts.jsonl", json.dumps(verdict_dict) + "\n", atomic=True)
 
     append_event(
         state_root,

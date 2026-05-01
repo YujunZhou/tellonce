@@ -1,13 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from .index import build_active_index
 from .ledger import append_event, event_id, secure_mkdir
 from .memory import canonical_key, parse_memory, write_memory_atomic
+
+
+_VALID_ATOMIC_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]{0,127}$")
+
+
+class InvalidAtomicIdError(ValueError):
+    """Raised when a candidate's atomic_id contains characters that could
+    enable path traversal or filename-shell-meta abuse. The id is used
+    directly as a filename (`<atomic_id>.md`) so it must be tightly
+    constrained.
+    """
 
 
 @dataclass(frozen=True)
@@ -59,10 +71,20 @@ def promote_candidate(state_root: Path, candidate: dict, dry_run: bool = False) 
     `promotion_superseded` event so the ledger reflects the displacement.
     """
     key = canonical_key(candidate)
+    atomic_id = candidate["atomic_id"]
+
+    # Reject path-traversal / filename-meta atomic_ids before they reach
+    # the filesystem. atomic_id flows from LLM / user input and is used
+    # directly as a filename, so any `..` / `/` / `\0` etc. would let an
+    # attacker write outside `<state>/memories/active/`.
+    if not isinstance(atomic_id, str) or not _VALID_ATOMIC_ID.match(atomic_id):
+        raise InvalidAtomicIdError(
+            f"atomic_id must match [A-Za-z0-9][A-Za-z0-9_-]{{0,127}}, got {atomic_id!r}"
+        )
+
     if dry_run:
         return PromoteResult(created=False, reason=f"dry_run:{key}")
 
-    atomic_id = candidate["atomic_id"]
     staging_path = state_root / "memories" / "staging" / f"{atomic_id}.intent.md"
     active_path = state_root / "memories" / "active" / f"{atomic_id}.md"
 
@@ -79,11 +101,14 @@ def promote_candidate(state_root: Path, candidate: dict, dry_run: bool = False) 
     )
 
     # Maintain supersedes chain for repeated promotions of the same atomic_id.
+    # Dedupe while preserving order — a chain that loops the same id (re-promote
+    # of the same atomic_id 3+ times) used to grow N entries with the same
+    # value. dict.fromkeys() collapses duplicates without breaking order.
     prior_supersedes, prior_atomic_id = _read_existing_supersedes(active_path)
     new_supersedes = list(candidate.get("supersedes") or [])
-    if prior_atomic_id and prior_atomic_id not in new_supersedes:
-        # Conventional pattern: list previously-active versions in supersedes.
-        new_supersedes = [*prior_supersedes, prior_atomic_id, *(s for s in new_supersedes if s != prior_atomic_id)]
+    if prior_atomic_id:
+        merged = [*prior_supersedes, prior_atomic_id, *new_supersedes]
+        new_supersedes = list(dict.fromkeys(merged))
 
     # We need both the intent_id and the commit_id in source_event_ids before
     # we hash content. Generate the commit_id here, but only emit the event

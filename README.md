@@ -29,7 +29,7 @@ In-session enforcement system: detect & 阻断 LLM agent reply 里反复违反�
 cp -r /path/to/preference-tracker ~/.claude/skills/
 
 # 2. 跑 install.sh 一键装
-cd /path/to/your/project   # 同学的项目根
+cd /path/to/your/project   # 你的项目根
 bash ~/.claude/skills/preference-tracker/install.sh
 ```
 
@@ -64,7 +64,7 @@ export B5_INJECT_DISABLED=1          # 关软注入
 
 # 加专名 whitelist (per-user 增量, 不动全局)
 echo "MyProject" >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
-echo "MyAdvisor" >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
+echo "MyTeammate" >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
 # 不需 reload, 下次 hook 调用自然读
 
 # 影子判官走 SDK 不走 CLI (浪费 API 额度, 默认 False)

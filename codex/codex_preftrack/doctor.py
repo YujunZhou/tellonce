@@ -20,9 +20,16 @@ from .paths import load_registration
 # detected one): non-user `/scratch*` paths, non-user `/users/<other>/`,
 # `/private/var/folders` references that are platform-specific build leaks.
 _GENERIC_LEAK_HEURISTIC: tuple[re.Pattern, ...] = (
-    re.compile(r"/scratch\d*/[a-z]"),
-    re.compile(r"/users/[A-Za-z][A-Za-z0-9_\-]{1,32}/[A-Za-z]"),
+    # `/Users/<name>/...` (macOS) and `/users/<name>/...` (some Linux installs).
+    # Case-insensitive so macOS `/Users/alice/` matches.
+    re.compile(r"/[Uu]sers/[A-Za-z][A-Za-z0-9_\-]{1,32}/[A-Za-z]"),
+    # Hardcoded skill-dir paths under someone else's home — almost always a
+    # leak from a fork-author's install script that shouldn't be in user state.
     re.compile(r"/home/[A-Za-z][A-Za-z0-9_\-]{1,32}/\.claude/skills"),
+    # Note: removed the `/scratch\d*/[a-z]` rule because legitimate HPC users
+    # work out of /scratch/<user>/ and would hit the heuristic on every event.
+    # If a fork wants to detect a specific cluster path leak, set
+    # CODEX_PT_PRIVATE_PATTERNS=/scratch365 explicitly.
 )
 _REGISTRATION_FILES = {"registration.json", "install_record.json"}
 # Skip very large files (likely captured stdout) — they're already sanitized

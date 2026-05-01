@@ -71,7 +71,7 @@ bash ~/.claude/skills/preference-tracker/uninstall.sh
    - `<state>/runtime/b5_shadow_alerts/B5_SHADOW_ALERT.md` — 含 latest 3 violation 全文
    - `~/.claude/projects/<cwd_escaped>/memory/*.md` — 用户自己加的偏好记录
 
-3. **不上传** 任何数据到本仓库作者机器或任何第三方 (除上述 Anthropic CLI/API 通道), 也不发邮件 / Slack / GitHub.
+3. **不上传** 任何数据到第三方 (除上述 Anthropic CLI/API 通道), 也不发邮件 / Slack / GitHub.
 
 4. **API key 计费**:
    - `lib/detect_user_prefer.py` 默认 OFF (PT_PREFER_BACKEND=off, C6 fix). 不调任何
@@ -81,8 +81,8 @@ bash ~/.claude/skills/preference-tracker/uninstall.sh
 5. **如何敏感数据 redact** (建议但不自动):
    - 现版本不自动扫 prompt 里的 secret. 在跟 Claude 聊 secret 之前自己负责
      (这本就是 Anthropic 服务条款的一般要求).
-   - 未来版本会加 `B5_REDACT_BEFORE_JUDGE=1` env 自动 mask `sk-ant-` / `password=`
-     等 pattern. 当前 Open issue (作者认为这条不适合默认开因为可能误删合法内容).
+   - 未来版本可能加 `B5_REDACT_BEFORE_JUDGE=1` env 自动 mask `sk-ant-` / `password=`
+     等 pattern; 当前不默认开是因为正则可能误删合法内容.
 
 ---
 

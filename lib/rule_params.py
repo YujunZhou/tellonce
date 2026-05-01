@@ -8,7 +8,7 @@
 ---
 atomic_id: lang-pit-130
 params:
-  chinese_ratio_threshold: 0.55   # 默认 0.7, 同学项目混杂多可调低
+  chinese_ratio_threshold: 0.55   # 默认 0.7, 混杂多英文借词的项目可调低
   min_length: 80                  # 默认 50
 ---
 ```

@@ -119,9 +119,9 @@ def test_last_user_prompt_explicit_english_request():
 
 
 def test_last_user_prompt_paper_context_bypass():
-    """user 上 prompt 含 'rewrite paper Sec 6 abstract' → bypass."""
+    """user 上 prompt 含 'paper' / 'abstract' / 'rebuttal' 等学术写作 keyword → bypass."""
     transcript_lines = [
-        json.dumps({'type': 'user', 'message': {'content': 'rewrite paper Sec 6 abstract for NeurIPS'}}),
+        json.dumps({'type': 'user', 'message': {'content': 'help draft the abstract for the paper'}}),
     ]
     explicit = db.last_user_prompt_explicit_english_request(transcript_lines)
     assert explicit, f'expected True (paper context bypass), got False'

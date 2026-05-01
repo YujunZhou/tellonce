@@ -78,7 +78,7 @@ export B5_DETERMINISTIC_DISABLED=1
 
 `lang-pref-001` 触发 (chinese_ratio<0.1 + length>200). 在 prompt 里明示就 bypass:
 - "请帮我看这个 log, in english 也行" → bypass (`in english` 关键词)
-- "rewrite paper Sec 6 abstract" → bypass (paper 关键词)
+- "draft the abstract for the paper" → bypass (paper 关键词)
 
 或 hook level:
 ```bash
@@ -108,7 +108,7 @@ params:
 ```
 不需 reload. 下次 hook 调用读 frontmatter.
 
-**完整版 threshold_advisor.py** (待实施): 跑数据建议改阈值, 用户拍板. 见 `docs/superpowers/specs/2026-04-27-preference-tracker-skill-deployment-design.md` §8.
+**完整版 threshold_advisor.py**: 跑数据建议改阈值, 用户拍板. 见 `lib/threshold_advisor.py` 顶端 docstring.
 
 ---
 
@@ -135,7 +135,7 @@ export B5_SHADOW_DISABLED=1
 
 ### Q11: 阻断后 Claude 续写很啰嗦怎么办?
 
-`build_block_reason` 已含禁令 (per `repetition_mitigation_brainstorm.md` 思路 A+C+F+G+D):
+`build_block_reason` 已含禁令:
 - 不道歉 / 不重述 / 不解释规则 / 不铺垫
 - 强制 `[修正]` 前缀
 - 软注入静默语气 (不鼓励本轮前置铺垫)
@@ -146,7 +146,7 @@ export B5_SHADOW_DISABLED=1
 
 ## 跨平台 / 跨用户
 
-### Q12: 同学项目结构跟我不一样, 路径 detect 错怎么办?
+### Q12: 用户项目结构跟我不一样, 路径 detect 错怎么办?
 
 `install.sh` 默认 detect: `<cwd>` 是项目根, hooks 装到 `<cwd>/.claude/hooks/`, state 在 `<cwd>/.claude/preference-tracker-state/runtime/`, memory 在 `~/.claude/projects/<cwd_escaped>/memory/`.
 
@@ -173,7 +173,7 @@ B5_PROJECT_ROOT=/custom/project bash install.sh
 
 ### Q14: Codex / OpenClaw runtime 怎么用?
 
-现版仅 Claude Code 完整支持. Codex / OpenClaw 适配器待 `exp-proj-285` per-runtime judge dispatch 实施 (见 `verify_retry_shadow.py` 顶部 IMPORTANT 段).
+Claude Code 是主线 (本仓库 lib/ + hooks/). Codex 用 wrapper-driven 适配器, 见 `codex/` 子目录 — 安装 `bash codex/install.sh`, 详见 `codex/SKILL.md`.
 
 ---
 

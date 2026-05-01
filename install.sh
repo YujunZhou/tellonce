@@ -181,7 +181,7 @@ log "  ✓ 现 settings 合法"
 log ""
 log "[2/5] 安装: 改 settings + 拷 hooks + 创 state"
 
-# 2.1 detect cwd / paths (M14 fix: PYTHONIOENCODING=utf-8 防同学 LANG 不是 utf-8 时 stdout 崩)
+# 2.1 detect cwd / paths (M14 fix: PYTHONIOENCODING=utf-8 防用户 LANG 不是 utf-8 时 stdout 崩)
 CWD_ESCAPED="$(PYTHONIOENCODING=utf-8 python3 -c "import sys; print(sys.argv[1].replace('/', '-'))" "${PROJECT_ROOT}")"
 MEMORY_DIR="${HOME}/.claude/projects/${CWD_ESCAPED}/memory"
 STATE_DIR="${STATE_DIR_OVERRIDE:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}}"
@@ -307,7 +307,7 @@ if [[ -d "${SKILL_DIR}/seed_memory" ]]; then
             SEED_SKIPPED=$((SEED_SKIPPED + 1))
         else
             # M9 fix: 替换 seed memory 里的私有 originSessionId 为通用 seed 标记
-            # M14 fix: 显式 PYTHONIOENCODING=utf-8 防同学终端 LANG 不是 utf-8
+            # M14 fix: 显式 PYTHONIOENCODING=utf-8 防用户终端 LANG 不是 utf-8
             run env PYTHONIOENCODING=utf-8 python3 -c "
 import sys, re
 src, dst = sys.argv[1], sys.argv[2]

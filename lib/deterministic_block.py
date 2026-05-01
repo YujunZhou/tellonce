@@ -202,9 +202,13 @@ _EXPLICIT_ENGLISH_KW = re.compile(
     r'\b(in english|reply in english|english only|translate to english|please .{0,20}english|use english|write in english|英文|please.{0,20}english|英语|in en\b)',
     re.IGNORECASE,
 )
-# Paper context bypass keywords
+# Paper / academic-context bypass keywords. Used when the user is producing
+# English-written deliverables (paper drafts, reviewer responses, etc.) so
+# the lang-pref-001 "all-English long reply" rule doesn't fire on legitimate
+# academic writing. Generic terms only — fork-specific conference / section
+# tokens belong in the user-extension whitelist file.
 _PAPER_CTX_KW = re.compile(
-    r'\b(paper|appendix|rebuttal|camera-?ready|NeurIPS|ICLR|ACL|AAAI|reviewer|abstract|section [3-9]|sec [3-9]|figure caption|table caption)\b',
+    r'\b(paper|appendix|rebuttal|camera-?ready|reviewer|abstract|figure caption|table caption|manuscript|preprint)\b',
     re.IGNORECASE,
 )
 

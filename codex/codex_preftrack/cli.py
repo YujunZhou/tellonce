@@ -39,7 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--purge-state", action="store_true",
                            help="DANGER: rm -rf the entire <project>/.codex/preference-tracker/ state directory.")
         if command == "exec":
-            p.add_argument("--timeout", type=int, default=None,
+            def _positive_int(s: str) -> int:
+                v = int(s)
+                if v <= 0:
+                    raise argparse.ArgumentTypeError("--timeout must be > 0")
+                return v
+            p.add_argument("--timeout", type=_positive_int, default=None,
                            help="seconds to wait for the wrapped subprocess (default: env CODEX_PT_TIMEOUT or 600)")
             p.add_argument("cmd", nargs=argparse.REMAINDER)
     return parser
@@ -107,13 +112,15 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        # W6 fix: preview_migration's first arg is `state_root` (it writes
+        # `<state_root>/evidence/migration_preview.json` when write_report).
+        # --preview is read-only — don't register or touch state_root at all.
+        # --apply needs a real state_root → register lazily.
         if args.preview:
-            preview_migration(project_root, [Path(p) for p in args.source], write_report=False)
+            preview_migration(Path("/"), [Path(p) for p in args.source], write_report=False)
         else:
-            # --apply path: write the report; actual migration write is left to
-            # caller via apply_migration() (not yet implemented programmatically
-            # — preview is the only audited path right now).
-            preview_migration(project_root, [Path(p) for p in args.source], write_report=True)
+            state_root = ensure_registered(project_root).state_root
+            preview_migration(state_root, [Path(p) for p in args.source], write_report=True)
             print(
                 "migrate --apply: preview written. Programmatic migration is not yet "
                 "implemented; the preview report is the audit-only artifact.",

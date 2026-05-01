@@ -13,7 +13,7 @@ params:
   min_length: 50                 # 默认 50. 太短跳过避免 acknowledgement noise
 supersedes: []
 applies_when: "(a) 中文对话主体, (b) 中文报告 / 中文 handoff / 中文 delta 文档, (c) 任何用户面对的中文输出"
-does_not_apply_when: "(a) 代码标识符 (函数名 / 文件路径 / 变量名 / shell 命令), (b) 用户自己引入的缩写 (H_push, T01, A2, Sec 3 等), (c) 业内通用且无中文等价的专有名词 (Anthropic, Gemma, Sonnet, JSON, API, GPU), (d) 用户授权的英文交付物 (论文正文 / 给外人看的 README)"
+does_not_apply_when: "(a) 代码标识符 (函数名 / 文件路径 / 变量名 / shell 命令), (b) 用户自己引入的缩写 (例如 task 编号 / 内部 atomic_id), (c) 业内通用且无中文等价的专有名词 (Anthropic, Gemma, Sonnet, JSON, API, GPU), (d) 用户授权的英文交付物 (给外人看的文档)"
 compatible_with: "lang-pref-001 (中文/英文场景分流, 本条是中文场景下的纯度规则), comm-pref-006 (不用自造行话, 本条是不用普通英文借词的扩展), lang-pit-002 (in-chat 表格中文), lang-pit-003 (长文档框架中文)"
 created: 2026-04-25
 updated: 2026-04-25
@@ -56,9 +56,9 @@ Claude 默认把"我习惯说英文"和"用户能看懂"当成混入英文的合
    - sweep → 扫 / 扫一遍
 3. **保留清单** (允许保留英文, 但仍少用):
    - 代码层面: 文件路径, 函数名, 变量名, shell 命令, 配置 key, JSON 字段名
-   - 用户引入: 用户上文用过的英文术语 (用户自定义的 atomic_id 缩写、内部 task 编号等)
+   - 用户引入: 用户上文用过的英文术语 (例如 task 编号 / 内部 atomic_id 缩写)
    - 通用专有名词: Anthropic, Gemma, Sonnet, Opus, JSON, API, GPU, CPU, NFS, SSD, ssh, git 等
-   - 论文方法术语: 用户在 paper 上下文确实使用且无中文 (cascade verify, force-comply 这类已经是 paper 内部 label)
+   - 用户上下文已建立的领域术语: 在你的工作 context 里反复出现且无简洁中文等价的 label
 4. **混合时也要克制**:
    - 不准 "drift 来自 X" (动词分裂 — drift 当动词夹中文里, 改 "偏移源自 X" 或 "X 引起偏移")
    - 不准 "fire 触发" (并列冗余)

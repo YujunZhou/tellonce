@@ -101,17 +101,23 @@ def register_project(project_root: Path, allow_unsafe: bool = False) -> Registra
 def load_registration(project_root: Path) -> Registration:
     """Locate or create the project's registration.
 
-    CX-10 fix: the fallback "create on miss" path used `allow_unsafe=True`,
-    which silently bypassed the safe-root check that install rejects. Now
-    creation honors the same safety policy as install — if neither location
-    holds a registration AND the root is unsafe (HOME / `/` / `/tmp`),
-    raise rather than auto-create.
+    CX-10 + post-review fix: the fallback "create on miss" path used to be
+    `allow_unsafe=True` (silently bypassed safety) — that was wrong. We then
+    flipped it to `allow_unsafe=False`, which broke legacy installs whose
+    project_root happens to be HOME or under /tmp (e.g. someone who already
+    ran the package against `~`). Now we forward the same `allow_unsafe`
+    policy that the caller asked for: load is permissive (so we can find
+    legacy installs), but create-on-miss inherits the original caller's
+    safety preference. The test fixture path that uses
+    `CODEX_PREFTRACK_ALLOW_TEMP=1` continues to work; cli.py paths that
+    don't set that env still get strict semantics on first install.
     """
     import json as _json
 
-    # Load is permissive: we may need to read a registration for a project
-    # whose root happens to equal HOME (legacy install). But CREATE goes
-    # through the strict path.
+    # If the user explicitly opted into unsafe roots (via env), let load and
+    # create both honor that. Otherwise: load is lax (find legacy state),
+    # create is strict (don't silently provision under HOME/`/`/`/tmp`).
+    env_allow = os.environ.get("CODEX_PREFTRACK_ALLOW_TEMP") == "1"
     root = resolve_project_root(project_root, allow_unsafe=True)
     state = default_state_root(root)
     path = state / "registration.json"
@@ -120,8 +126,9 @@ def load_registration(project_root: Path) -> Registration:
         path = fallback / "registration.json"
         state = fallback
     if not path.is_file():
-        # Auto-register, but use strict policy (allow_unsafe=False).
-        return register_project(root, allow_unsafe=False)
+        # No prior install — create. Use env_allow so test mode and
+        # explicit-opt-in users can register against /tmp / HOME.
+        return register_project(root, allow_unsafe=env_allow)
     data = _json.loads(path.read_text(encoding="utf-8"))
     return Registration(
         project_root=Path(data.get("project_root", str(root))),

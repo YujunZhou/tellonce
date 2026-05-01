@@ -61,8 +61,10 @@ SECRET_PATTERNS = [
     (re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"), "[REDACTED_SLACK_TOKEN]"),
     # Stripe
     (re.compile(r"\b(?:sk|rk|pk)_live_[A-Za-z0-9]{16,}"), "[REDACTED_STRIPE_KEY]"),
-    # Google API key
-    (re.compile(r"\bAIza[A-Za-z0-9_\-]{35}\b"), "[REDACTED_GOOGLE_API_KEY]"),
+    # Google API key (39-char total: AIza + 35 chars). Use lookahead instead
+    # of \b at the end because the underscore-friendly char class makes \b
+    # fail when the key is followed by another \w char.
+    (re.compile(r"\bAIza[A-Za-z0-9_\-]{35}(?![A-Za-z0-9_\-])"), "[REDACTED_GOOGLE_API_KEY]"),
     # HuggingFace
     (re.compile(r"\bhf_[A-Za-z0-9]{30,}"), "[REDACTED_HF_TOKEN]"),
     # AWS Access Key ID (AKIA / ASIA / temporary creds)
@@ -287,6 +289,8 @@ def repair_tail(state_root: Path) -> RepairResult:
     lines = data.splitlines(keepends=True)
     good = []
     corrupt = []
+    needs_rewrite = False  # set when last-line was valid-but-newline-less,
+                           # so we still rewrite even with no corrupt lines.
     for i, raw in enumerate(lines):
         text = raw.decode("utf-8", errors="replace")
         if not text.endswith("\n") and i == len(lines) - 1:
@@ -294,7 +298,12 @@ def repair_tail(state_root: Path) -> RepairResult:
             try:
                 json.loads(text)
                 # Valid JSON, just missing the trailing newline. Keep but add \n.
+                # Crucial: the missing newline means the next append_event would
+                # write its line directly concatenated to this one, producing a
+                # `}{` boundary that read_events would treat as one corrupt
+                # line forever. Rewrite to fix.
                 good.append((text + "\n").encode("utf-8"))
+                needs_rewrite = True
             except json.JSONDecodeError:
                 corrupt.append(text)
             break
@@ -303,21 +312,22 @@ def repair_tail(state_root: Path) -> RepairResult:
             good.append(raw)
         except json.JSONDecodeError:
             corrupt.append(text)
-    if not corrupt:
+    if not corrupt and not needs_rewrite:
         return RepairResult(False)
 
-    # Quarantine bad lines.
-    evidence = state_root / "evidence"
-    evidence.mkdir(parents=True, exist_ok=True)
-    quarantine_path = evidence / "events_tail_quarantine.txt"
-    # Append (don't overwrite — preserve history of corruption events).
-    with quarantine_path.open("a", encoding="utf-8") as f:
-        f.write(f"\n# repair_tail at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
-        f.write("".join(corrupt))
-    try:
-        os.chmod(quarantine_path, 0o600)
-    except OSError:
-        pass
+    # Quarantine bad lines (only if we actually had any).
+    if corrupt:
+        evidence = state_root / "evidence"
+        evidence.mkdir(parents=True, exist_ok=True)
+        quarantine_path = evidence / "events_tail_quarantine.txt"
+        # Append (don't overwrite — preserve history of corruption events).
+        with quarantine_path.open("a", encoding="utf-8") as f:
+            f.write(f"\n# repair_tail at {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+            f.write("".join(corrupt))
+        try:
+            os.chmod(quarantine_path, 0o600)
+        except OSError:
+            pass
 
     # Atomically rewrite events.jsonl to contain only good lines.
     tmp = path.with_suffix(path.suffix + ".tmp")
