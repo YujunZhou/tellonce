@@ -212,30 +212,34 @@ if [[ -f "${SETTINGS}" ]]; then
     fi
 fi
 
-# 2.3 拷 hooks (idempotent: cp -n 不覆盖现有)
-run mkdir -p "${HOOKS_DIR}"
-for hook in "${SKILL_DIR}"/hooks/*.sh; do
-    if [[ ! -f "${hook}" ]]; then
-        continue
-    fi
-    name="$(basename "${hook}")"
-    target="${HOOKS_DIR}/${name}"
-    if [[ -f "${target}" ]]; then
-        log "  - ${name} 已存在, 跳过 (cp -n)"
-    else
-        run cp "${hook}" "${target}"
-        run chmod +x "${target}"
-        log "  ✓ ${name}"
-    fi
-done
+# 2.3 注册 skill hooks 路径直接 (codex review C1 fix, 2026-05-01)
+# 老设计: cp 到 ${PROJECT_ROOT}/.claude/hooks/, 注册 project-local 路径.
+# 漏洞: hostile repo 预放同名 hook .sh, install 看到已存在就 "cp -n 跳过",
+#       然后注册了攻击者代码到 settings.local.json, 之后每次 Stop hook 跑攻击者脚本.
+# 修: 直接注册 ${SKILL_DIR}/hooks/*.sh — skill dir 在 ~/.claude/, 不受项目内
+#     文件影响. 同时保留 ${HOOKS_DIR} 不再写入, 避免破坏 manual customization.
+run chmod +x "${SKILL_DIR}"/hooks/*.sh 2>/dev/null || true
+HOOKS_REGISTER_DIR="${SKILL_DIR}/hooks"
+log "  hooks 注册路径: ${HOOKS_REGISTER_DIR} (skill dir, 不可被项目覆盖)"
 
 # 2.4 Python merge settings (additive, 已注册 hook skip)
 log ""
 log "  注册 hooks 到 settings.local.json:"
 run python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
     --settings "${SETTINGS}" \
-    --hooks-dir "${HOOKS_DIR}" \
+    --hooks-dir "${HOOKS_REGISTER_DIR}" \
     --add
+
+# 2.4b 老安装清理: 之前注册了 ${PROJECT_ROOT}/.claude/hooks/ path 的把它们撤掉
+# (避免 settings.local.json 同时挂老 project-local 路径 + 新 skill-dir 路径).
+if [[ -d "${HOOKS_DIR}" ]] && ls "${HOOKS_DIR}"/memory-*.sh > /dev/null 2>&1; then
+    log "  检测到老安装的 project-local hooks (${HOOKS_DIR}), 撤注册:"
+    run python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
+        --settings "${SETTINGS}" \
+        --hooks-dir "${HOOKS_DIR}" \
+        --remove || true
+    log "    (project-local .sh 文件保留在 ${HOOKS_DIR}, 你可手动 rm)"
+fi
 
 # 2.5 创 state subdirs (idempotent)
 # C-NEW-1 fix (Phase 8 review v2): path 走 env 通道, 不 interpolate 进 Python source.

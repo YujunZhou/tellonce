@@ -35,6 +35,7 @@ import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config  # Phase 4.1 解耦
+import redaction  # codex review H2 fix (2026-05-01): redact secrets before disk
 
 LOG_PATH = path_config.get_compliance_log_path()
 # B4_TEST_OBS_OVERRIDE: lets test_b4_blocking.py inject a fixture obs file (I2 from code review)
@@ -391,6 +392,9 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
             'miss_risk_notes': 'real signal may have been present but missed by Claude',
         },
     }
+    # H2 fix: sanitize before serialize. obs entries embed response_excerpt
+    # (user-pasted content), miss_risk_notes etc. that may contain secrets.
+    entry = redaction.sanitize(entry)
     line = json.dumps(entry, ensure_ascii=False) + '\n'
 
     obs_log_path = os.path.abspath(obs_log_path)
@@ -576,8 +580,10 @@ def main():
     # because entries embed response_excerpt[:400] (real user content).
     try:
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+        # H2 fix: sanitize compliance log entries (response_excerpt[:400] embeds
+        # user-pasted content that may contain API keys / SSH keys / DB URIs).
         with open(LOG_PATH, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            f.write(json.dumps(redaction.sanitize(entry), ensure_ascii=False) + '\n')
         path_config.chmod_or_warn(LOG_PATH, 0o600)
     except Exception:
         pass

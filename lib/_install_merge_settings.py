@@ -118,14 +118,22 @@ def _hook_already_registered(settings: dict, event: str, command_path: str) -> b
 def cmd_add(settings_path: str, hooks_dir: str):
     """Add PT hooks to settings.local.json (idempotent).
 
-    I3 fix (Phase 8 review): sanity-check hooks_dir 在 settings parent 下 +
-    每个 hook .sh 文件存在. 不存在打 warning 不 exit (允许 install.sh 先 cp 再
-    注册的工序), 但裸用此 script 时给用户明显信号.
+    Codex review C1 (2026-05-01): hooks_dir 现在指 ~/.claude/skills/preference-tracker/hooks/
+    (skill dir), 不再走 project-local copy. 因此 sanity-check 改成允许两种合法 layout:
+      (a) hooks_dir 在 ~/.claude/skills/preference-tracker/ 下 (新设计)
+      (b) hooks_dir 在 settings parent 下 (老设计, 给 --remove 兼容)
+    其它路径打 warning 防误用.
     """
-    expected_parent = os.path.dirname(os.path.abspath(settings_path))
-    if os.path.dirname(os.path.abspath(hooks_dir)) != expected_parent:
+    home = os.path.expanduser('~')
+    skill_hooks = os.path.realpath(os.path.join(home, '.claude/skills/preference-tracker/hooks'))
+    settings_parent = os.path.realpath(os.path.dirname(os.path.abspath(settings_path)))
+    hd_real = os.path.realpath(os.path.abspath(hooks_dir))
+    in_skill = (hd_real == skill_hooks) or hd_real.startswith(skill_hooks + os.sep)
+    in_settings_parent = os.path.dirname(hd_real) == settings_parent
+    if not (in_skill or in_settings_parent):
         print(
-            f'⚠ hooks_dir ({hooks_dir}) 不在 settings parent ({expected_parent}) 下',
+            f'⚠ hooks_dir ({hooks_dir}) 既不在 skill dir ({skill_hooks}) 下也不在 '
+            f'settings parent ({settings_parent}) 下',
             file=sys.stderr,
         )
         print('  注册可成功但 hooks 跑不起来. 用 install.sh 自动处理路径.', file=sys.stderr)

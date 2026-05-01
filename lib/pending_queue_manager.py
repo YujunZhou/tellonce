@@ -18,12 +18,15 @@ Defensive: any failure → exit 0 silently (never block hooks).
 v21 incident: 5 pending entries lost when session crashed (root cause unknown).
 This gate guarantees pending entries survive any crash via the queue file.
 """
+import contextlib
+import fcntl
 import json
 import os
 import re
 import sys
 import glob
 import shutil
+import uuid
 from datetime import datetime, timezone, timedelta
 
 import sys as _sys
@@ -45,6 +48,69 @@ PROMOTE_AGE_MIN = 60          # pending obs older than this → eligible for pro
 SCAN_TAIL_LINES = 200         # how many obs lines to consider per promote pass
 ALERT_LEN_THRESHOLD = 3       # queue length triggering PENDING_ALERT (advisory)
 INJECT_TOPN_CAP = 12          # M4 — cap inject text to top N entries (newest first); overflow shows count
+
+
+# Codex review M2 fix (2026-05-01): the queue is read-modify-written by both
+# promote and prune. Two Claude sessions on the same project running these
+# concurrently can clobber one another (prune writes to a fixed `.tmp` and
+# replaces, missing entries that promote just appended). Wrap both with a
+# shared flock so RMW completes atomically across processes.
+@contextlib.contextmanager
+def _queue_lock():
+    """Cross-process exclusive lock on the pending queue file.
+
+    Best-effort: if the lock cannot be acquired (filesystem doesn't support
+    flock — e.g. some NFS configs), fall through without lock so we don't
+    silently drop functionality. Logs the fallback once.
+    """
+    lock_dir = os.path.dirname(QUEUE)
+    try:
+        os.makedirs(lock_dir, exist_ok=True)
+    except Exception:
+        pass
+    lock_path = QUEUE + '.lock'
+    fh = None
+    try:
+        fh = open(lock_path, 'a+')
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except (OSError, ValueError):
+            # flock unsupported; proceed unlocked
+            try:
+                fh.close()
+            except Exception:
+                pass
+            fh = None
+        yield
+    finally:
+        if fh is not None:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                fh.close()
+            except Exception:
+                pass
+
+
+def _atomic_replace_queue(keep):
+    """Rewrite QUEUE atomically. Caller must hold _queue_lock()."""
+    pid = os.getpid()
+    tmp = f'{QUEUE}.tmp.{pid}.{uuid.uuid4().hex[:8]}'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            for e in keep:
+                f.write(json.dumps(e, ensure_ascii=False) + '\n')
+            f.flush()
+            os.fsync(f.fileno())
+        shutil.move(tmp, QUEUE)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +257,14 @@ def promote_from_observations():
     Returns dict {scanned, candidates, newly_promoted, queue_len_after,
                   skipped_already_in_memory}.
     """
+    # M2 fix: promote takes the queue lock for the read+append window so a
+    # concurrent prune can't rewrite QUEUE between our _read_jsonl(QUEUE) and
+    # the open(QUEUE, 'a') below — that's the path that loses promoted entries.
+    with _queue_lock():
+        return _promote_locked()
+
+
+def _promote_locked():
     obs = _read_jsonl_tail(OBS_LOG, SCAN_TAIL_LINES)
     # I2 (review fix) — short-circuit before _atomic_ids_in_memory if no candidates.
     # Most Stop events have zero pending obs in the tail; this avoids the 191-file
@@ -371,7 +445,15 @@ def prune_resolved(force_ids=None):
     M3 (review fix): if `force_ids` is given (a set/list of queue_entry_id values),
     those entries are dropped unconditionally regardless of memory presence —
     use for entries with `<unknown>` or non-canonical proposed_atomic_id that the
-    user has decided to NOOP/discard."""
+    user has decided to NOOP/discard.
+
+    M2 fix (codex review): take queue lock so concurrent promote can't append
+    after our _read_jsonl(QUEUE) and lose entries when we rewrite."""
+    with _queue_lock():
+        return _prune_locked(force_ids)
+
+
+def _prune_locked(force_ids=None):
     queue = _read_jsonl(QUEUE)
     if not queue:
         return {'before': 0, 'after': 0, 'pruned': 0, 'forced': 0}
@@ -391,13 +473,9 @@ def prune_resolved(force_ids=None):
         keep.append(e)
     if len(keep) != len(queue):
         try:
-            tmp = QUEUE + '.tmp'
-            with open(tmp, 'w', encoding='utf-8') as f:
-                for e in keep:
-                    f.write(json.dumps(e, ensure_ascii=False) + '\n')
-            shutil.move(tmp, QUEUE)
-        except Exception as e:
-            _log_error('prune_resolved.write', e)
+            _atomic_replace_queue(keep)
+        except Exception as ex:
+            _log_error('prune_resolved.write', ex)
     # Also clean up alert file if dropped below threshold
     if len(keep) < ALERT_LEN_THRESHOLD:
         try:

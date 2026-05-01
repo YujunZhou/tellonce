@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -157,27 +158,74 @@ def run_wrapped(
     )
 
     child_env = _filter_env(os.environ.copy())
+    # Codex review H1 fix (2026-05-01): tee child stdout/stderr to user's terminal
+    # AND capture for sanitize+persist. Old code used capture_output=True which
+    # silently swallowed everything — `codex_preftrack exec -- pytest` produced
+    # 0 bytes on the user's terminal. Streaming tee preserves the wrapper's
+    # transparent-passthrough contract so wrapped commands look native.
+    import threading as _threading
+    stdout = ""
+    stderr = ""
+    rc = 0
+    proc = None
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            capture_output=True,
-            timeout=timeout_s,
-            check=False,
             env=child_env,
         )
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-        rc = proc.returncode
-    except subprocess.TimeoutExpired as exc:
-        # Don't dump full str(exc) — it includes the entire cmd argv.
-        stdout = (exc.stdout if isinstance(exc.stdout, str) else "") or ""
-        partial_err = exc.stderr if isinstance(exc.stderr, str) else ""
-        stderr = f"[wrapper] subprocess timed out after {timeout_s}s\n{partial_err or ''}"
-        rc = 3
+
+        def _tee(src, sink_stream, buf_list):
+            try:
+                for line in iter(src.readline, ""):
+                    if not line:
+                        break
+                    buf_list.append(line)
+                    try:
+                        sink_stream.write(line)
+                        sink_stream.flush()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    src.close()
+                except Exception:
+                    pass
+
+        out_chunks: list = []
+        err_chunks: list = []
+        t_out = _threading.Thread(target=_tee, args=(proc.stdout, sys.stdout, out_chunks), daemon=True)
+        t_err = _threading.Thread(target=_tee, args=(proc.stderr, sys.stderr, err_chunks), daemon=True)
+        t_out.start()
+        t_err.start()
+        try:
+            rc = proc.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                pass
+            t_out.join(timeout=2)
+            t_err.join(timeout=2)
+            stdout = "".join(out_chunks)
+            stderr = "".join(err_chunks) + f"\n[wrapper] subprocess timed out after {timeout_s}s\n"
+            rc = 3
+        else:
+            t_out.join(timeout=5)
+            t_err.join(timeout=5)
+            stdout = "".join(out_chunks)
+            stderr = "".join(err_chunks)
     except FileNotFoundError as exc:
+        msg = f"[wrapper] command not found: {exc.filename!r}\n"
+        try:
+            sys.stderr.write(msg)
+        except Exception:
+            pass
         stdout = ""
-        stderr = f"[wrapper] command not found: {exc.filename!r}"
+        stderr = msg
         rc = 3
 
     # Sanitize before persisting (the central reason all this exists).

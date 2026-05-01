@@ -151,13 +151,26 @@ def secure_write_text(path: Path, data: str, *, atomic: bool = False) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     if atomic:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(data, encoding="utf-8")
-        _chmod_or_warn(tmp, 0o600)
-        with tmp.open("r+", encoding="utf-8") as f:
-            f.flush()
-            os.fsync(f.fileno())
-        tmp.replace(path)
+        # Codex review M1 fix (2026-05-01): per-pid + uuid suffix so concurrent
+        # writers (e.g. two `codex_preftrack exec` instances flushing mode.json
+        # simultaneously) don't truncate each other's tmp file before the rename.
+        # Old behavior used a fixed `.tmp` suffix → race window where P1 writes
+        # data, P2 truncates + writes data2, P1 renames truncated→target.
+        import uuid as _uuid
+        tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}.{_uuid.uuid4().hex[:8]}")
+        try:
+            tmp.write_text(data, encoding="utf-8")
+            _chmod_or_warn(tmp, 0o600)
+            with tmp.open("r+", encoding="utf-8") as f:
+                f.flush()
+                os.fsync(f.fileno())
+            tmp.replace(path)
+        except Exception:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise
         # Persist the rename in the parent directory.
         try:
             dir_fd = os.open(str(path.parent), os.O_RDONLY)
@@ -344,14 +357,23 @@ def repair_tail(state_root: Path) -> RepairResult:
         _chmod_or_warn(quarantine_path, 0o600)
 
     # Atomically rewrite events.jsonl to contain only good lines.
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("wb") as f:
-        for raw in good:
-            f.write(raw)
-        f.flush()
-        os.fsync(f.fileno())
-    _chmod_or_warn(tmp, 0o600)
-    tmp.replace(path)
+    # M1 fix: per-pid+uuid suffix to dodge concurrent-writer races.
+    import uuid as _uuid
+    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}.{_uuid.uuid4().hex[:8]}")
+    try:
+        with tmp.open("wb") as f:
+            for raw in good:
+                f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
+        _chmod_or_warn(tmp, 0o600)
+        tmp.replace(path)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     try:
         dir_fd = os.open(str(path.parent), os.O_RDONLY)
         try:

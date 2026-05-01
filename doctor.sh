@@ -160,9 +160,11 @@ echo ""
 echo "[3/4] Hook 注册 + CLI:"
 
 if [[ -f "${SETTINGS}" ]]; then
+    # Codex review C1 fix (2026-05-01): hooks now register skill-dir paths.
+    # Verify against ${SKILL_DIR}/hooks/, not project-local ${HOOKS_DIR}/.
     run_test "hooks 注册在 settings.local.json" \
         python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
-            --settings "${SETTINGS}" --hooks-dir "${HOOKS_DIR}" --verify
+            --settings "${SETTINGS}" --hooks-dir "${SKILL_DIR}/hooks" --verify
 else
     echo "  ⚠ settings.local.json 不存在 (install 先?)"
     FAIL=$((FAIL + 1))

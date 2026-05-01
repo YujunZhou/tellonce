@@ -42,6 +42,7 @@ from datetime import datetime, timezone, timedelta
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 import path_config  # Phase 4.1 解耦中央
+import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
 MEMORY_DIR = path_config.get_memory_dir()
@@ -209,11 +210,15 @@ def _is_rate_limited(rule_id, hours=24):
 
 def _append_shadow_log(entry):
     """Append entry dict to b5_shadow_log.jsonl. Restrict to user-only readable
-    (H10 fix: shadow log contains evidence/feedback excerpts of user content)."""
+    (H10 fix: shadow log contains evidence/feedback excerpts of user content).
+
+    H2 fix: sanitize entry before serialize — judge evidence/feedback can quote
+    user content that contains API keys / SSH keys / DB URIs.
+    """
     os.makedirs(os.path.dirname(SHADOW_LOG), exist_ok=True)
     try:
         with open(SHADOW_LOG, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            f.write(json.dumps(redaction.sanitize(entry), ensure_ascii=False) + '\n')
         path_config.chmod_or_warn(SHADOW_LOG, 0o600)
     except Exception:
         pass
@@ -240,11 +245,11 @@ def _update_alert_md(violation_alerts):
                     f'**Rolling cap**: {ALERT_ROLLING_CAP} latest violations across all turns (older auto-archived to b5_shadow_log.jsonl).\n']
         for i, a in enumerate(alerts, 1):
             sections.append(f'## Violation {i}')
-            sections.append(f'- **Rule**: {a.get("rule_id", "<unknown>")} ({a.get("rule_desc", "")})')
+            sections.append(f'- **Rule**: {a.get("rule_id", "<unknown>")} ({redaction.redact(a.get("rule_desc", ""))})')
             sections.append(f'- **Last triggered**: {a.get("timestamp", "")}')
             sections.append(f'- **Confidence**: {a.get("judge_confidence", "?")}')
-            sections.append(f'- **Evidence**: {a.get("evidence", "")[:200]}')
-            sections.append(f'- **Feedback**: {a.get("feedback", "")[:200]}')
+            sections.append(f'- **Evidence**: {redaction.redact(a.get("evidence", ""))[:200]}')
+            sections.append(f'- **Feedback**: {redaction.redact(a.get("feedback", ""))[:200]}')
             sections.append('')
         body = '\n'.join(sections) + '\n'
     os.makedirs(os.path.dirname(SHADOW_ALERT_MD), exist_ok=True)
@@ -576,7 +581,7 @@ def main():
     try:
         os.makedirs(os.path.dirname(COMPLIANCE_LOG), exist_ok=True)
         with open(COMPLIANCE_LOG, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+            f.write(json.dumps(redaction.sanitize(log_entry), ensure_ascii=False) + '\n')
         path_config.chmod_or_warn(COMPLIANCE_LOG, 0o600)
     except Exception:
         pass

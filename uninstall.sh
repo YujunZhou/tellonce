@@ -79,13 +79,20 @@ echo "Preference-Tracker uninstall"
 echo "  PROJECT: ${PROJECT_ROOT}"
 echo ""
 
-# 1. 撤 hooks 注册
+# 1. 撤 hooks 注册 — 撤两套路径以涵盖新老安装
+# (新安装注册 ${SKILL_DIR}/hooks/, 老安装注册 ${HOOKS_DIR}=${PROJECT_ROOT}/.claude/hooks/)
 if [[ -f "${SETTINGS}" ]]; then
     echo "[1/5] 撤 hooks 从 settings.local.json:"
+    # 新设计 (skill-dir 路径) 撤
+    python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
+        --settings "${SETTINGS}" \
+        --hooks-dir "${SKILL_DIR}/hooks" \
+        --remove || true
+    # 老安装 (project-local 路径) 撤
     python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
         --settings "${SETTINGS}" \
         --hooks-dir "${HOOKS_DIR}" \
-        --remove
+        --remove || true
     # M8 fix: 提示备份文件位置, 让用户知道回滚锚点
     LATEST_BACKUP=$(ls -t "${SETTINGS}".v3_pre_pt_*.json 2>/dev/null | head -1)
     if [[ -n "${LATEST_BACKUP}" ]]; then
