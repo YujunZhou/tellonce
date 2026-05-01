@@ -28,3 +28,4 @@ runtime/
 # Install-time runtime artifacts (per-project state, obs_log, hooks).
 # When install.sh runs inside repo root for testing, it writes here.
 .claude/
+.codex/
