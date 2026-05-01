@@ -80,6 +80,26 @@ If you haven't scanned for signals and recorded the result, your response is inc
 
 ---
 
+## Progress Document Maintenance
+
+When updating long-lived progress/state files such as `PROGRESS.md`, keep them as **current state + operations dashboards**, not session transcripts.
+
+Keep in the current file:
+- Active status that future work depends on: current results, blockers, running processes, pending decisions, active infrastructure, and next actions.
+- Project sections that are still part of the current structure unless the user explicitly removes or retires them.
+- Current project plans and concrete details needed for continuation.
+
+Move to an archive file:
+- Historical session logs, stale runs, replaced plans, deprecated routes, old answered questions, and debug narratives.
+- Strike-through or "was replaced by" entries; rewrite the current file to the current fact and preserve old context in archive.
+- Paused or out-of-scope branches that are no longer needed for immediate continuation.
+
+Do not encode temporary project-specific exclusions, benchmark names, or current experimental choices into durable preference text. Those belong in the project progress file itself. The durable rule is the maintenance policy: current file stays current and actionable; old narrative moves to archive.
+
+After cleanup, grep the progress file for stale route names, old debug terms, and strike-through markers before committing.
+
+---
+
 ## Gate Function
 
 ```
