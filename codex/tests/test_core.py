@@ -605,6 +605,25 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     rc = cpb.main()
                 self.assertEqual(rc, 0)
 
+    def test_secure_mkdir_rejects_non_directory_ancestor(self):
+        """Round-7 robustness: when ~/.codex is a 0-byte regular file (a real
+        case observed in production), secure_mkdir must give an actionable
+        error before mkdir bombs with a generic FileExistsError."""
+        from codex_preftrack.ledger import secure_mkdir, NonDirectoryPathError
+        with tempfile.TemporaryDirectory() as td:
+            blocker = Path(td) / "ima_file"
+            blocker.write_text("not-a-dir")
+            with self.assertRaises(NonDirectoryPathError) as cm:
+                secure_mkdir(blocker / "sub" / "dir")
+            msg = str(cm.exception)
+            self.assertIn("regular file", msg)
+            self.assertIn("mv", msg, "error must suggest the fix")
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "ima_file"
+            target.write_text("blocker")
+            with self.assertRaises(NonDirectoryPathError):
+                secure_mkdir(target)
+
     def test_doctor_reports_hooks_status(self):
         """doctor must report hooks=PASS / NOT_INSTALLED / PARTIAL / FAIL."""
         from codex_preftrack import install_codex_hooks as ich

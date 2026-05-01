@@ -185,8 +185,46 @@ def secure_write_text(path: Path, data: str, *, atomic: bool = False) -> None:
     _chmod_or_warn(path, 0o600)
 
 
+class NonDirectoryPathError(OSError):
+    """An ancestor of the target path exists but is not a directory.
+
+    This is what bites users when `~/.codex` (or any parent) was created as
+    a 0-byte regular file by a sibling tool — POSIX mkdir would otherwise
+    raise a generic FileExistsError without naming the offending component.
+    """
+
+
 def secure_mkdir(path: Path) -> None:
-    """mkdir -p `path` with mode 0o700 (user-only). Warn on chmod failure."""
+    """mkdir -p `path` with mode 0o700 (user-only). Warn on chmod failure.
+
+    Round-7 robustness fix (verified on user's machine, 2026-05-01):
+    walk the ancestors first and raise NonDirectoryPathError with a clear
+    actionable message if any component is an existing non-directory.
+    Without this, install.sh dies with a confusing
+    `[Errno 17] File exists: '/home/...'` deep inside Path.mkdir traceback.
+    """
+    # Pre-flight: detect non-directory collisions on any ancestor.
+    p = path
+    parents_to_check: list[Path] = []
+    while p and not p.exists():
+        parents_to_check.append(p)
+        if p.parent == p:
+            break
+        p = p.parent
+    # `p` is now the deepest existing ancestor.
+    if p.exists() and not p.is_dir():
+        raise NonDirectoryPathError(
+            f"cannot create {path}: ancestor {p} exists and is a regular "
+            f"file (not a directory). Likely cause: another tool wrote a "
+            f"file at that path. Fix: `mv {p} {p}.backup-$(date +%Y%m%d)` "
+            f"then re-run install."
+        )
+    if path.exists() and not path.is_dir():
+        raise NonDirectoryPathError(
+            f"cannot create {path}: it exists and is a regular file (not a "
+            f"directory). Fix: `mv {path} {path}.backup-$(date +%Y%m%d)` "
+            f"then re-run install."
+        )
     path.mkdir(parents=True, exist_ok=True)
     _chmod_or_warn(path, 0o700)
 
