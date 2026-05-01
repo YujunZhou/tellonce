@@ -24,3 +24,7 @@ Thumbs.db
 # 但若有人手动放, 防一下
 state/
 runtime/
+
+# Install-time runtime artifacts (per-project state, obs_log, hooks).
+# When install.sh runs inside repo root for testing, it writes here.
+.claude/
