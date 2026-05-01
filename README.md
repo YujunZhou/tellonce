@@ -1,10 +1,19 @@
-# Preference-Tracker — Claude Code skill
+# Preference-Tracker
 
-In-session enforcement system: detect & 阻断 Claude reply 里反复违反的 user preferences. Tier A 三层 (deterministic regex hard-block + shadow LLM judge + soft injection) + Tier B (auto-retire + monitoring + per-user whitelist).
+In-session enforcement system: detect & 阻断 LLM agent reply 里反复违反的 user preferences. 当前提供两个平台实现:
 
-**Status**: v1.0 (2026-04-27, ship to 同学内测)
-**测试**: 38+ unit + 12 chaos + 1 smoke (装包模拟另一 user)
+| 平台 | 路径 | 装包 | 机制 |
+|---|---|---|---|
+| **Claude Code** | repo 根 (本目录) | `bash install.sh` | Stop hook 链, 5-hook UserPromptSubmit + 5-hook Stop, deterministic 硬阻断 + LLM 影子判官 + 软注入 |
+| **Codex** | `codex/` 子目录 | `bash codex/install.sh` | Wrapper-driven (`codex_preftrack exec`), 项目本地 ledger (`.codex/preference-tracker/events.jsonl`), audit-only / wrapper / hooks_experimental 三档 |
+
+两端共享同一份 user preference memory + 设计哲学 (Iron Law / Gate Function / scan→record→confirm), 但底层机制按平台 runtime surface 适配 — Codex 没 Stop hook, 改走 wrapper 路径. 详见 [`codex/docs/CC_PARITY_MATRIX.md`](codex/docs/CC_PARITY_MATRIX.md).
+
+**Status**: CC v1.0 (2026-04-27 ship 同学内测) + Codex v1 core (2026-04-29)
+**测试**: CC 38+ unit + 12 chaos + 1 smoke; Codex 23 core unit
 **Paper**: arXiv (NeurIPS 2026 submission, paper Sec 6 dogfood port)
+
+下文说 Claude Code 版. Codex 版见 [`codex/docs/README.md`](codex/docs/README.md).
 
 ---
 
