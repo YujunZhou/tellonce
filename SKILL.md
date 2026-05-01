@@ -115,6 +115,7 @@ If you catch yourself thinking any of these, STOP and do the scan:
 - "There's obviously nothing here"
 - "I'm in the middle of something complex"
 - "This message is too short to contain signals"
+- "NOOP / UPDATE doesn't need confirmation_text" → 错; detected=true 路径必填 (见 `## 确认策略 §⚠关键` 4-row 模板)
 
 ---
 
@@ -544,6 +545,25 @@ DIFF=$((FILE_COUNT - INDEX_COUNT))
 - 之后写入静默执行
 - 仅在 SUPERSEDE（替代旧记忆）时通知用户
 - 用户随时可以说"恢复确认"来重新开启
+
+### ⚠ 关键: detected=true 时 confirmation_text 永远不能空 (含 NOOP/UPDATE)
+
+**Stop hook 硬检查**: `detection.detected=true AND action.confirmation_text 空 → 阻塞 stop`. 这条独立于 conflict_resolution (NOOP / UPDATE / SUPERSEDE / NEW) — 即使决定不写新文件 (NOOP) 或只更新现有文件 (UPDATE), `confirmation_text` 字段必须填非空字符串告诉用户你扫到了什么.
+
+**易踩陷阱**: 误把 "NOOP = 不写新 memory" 等价于 "silent = 不需 confirm". 这是错的. NOOP 表示**memory 层不写**, 但 user-facing **CONFIRM 层仍要走**.
+
+**每个 conflict_resolution 的 confirmation_text 模板**:
+
+| Resolution | 模板 (填到 action.confirmation_text + 同步说给 user) |
+|------------|------------------------------------------------------|
+| **NEW**    | `记录偏好 [<atomic_id>]: <一句话内容>. 有误请说.` |
+| **UPDATE** | `更新已有偏好 [<atomic_id>]: 加入 <增量内容>. 原 rule 保留.` |
+| **SUPERSEDE** | `检测到与 [<旧 atomic_id>] 冲突, 新建 [<新 atomic_id>] 替代. 原文件标 superseded_by.` |
+| **NOOP**   | `检测到偏好 "<内容>" — 已有 [<已存在 atomic_id>] 已 cover 此偏好, 不重写新文件.` |
+
+**例外**: 仅当用户明示**全局静默模式**且本次 detected=false 时, confirmation_text 可空. 任何 detected=true 路径都必须填.
+
+**模板里的 `<atomic_id>` 怎么填**: 必须是 conflict-resolution algorithm 找到的真实 ID (grep `memory/MEMORY.md` 索引或 `memory/*.md` 文件). 如果 hook 触发了 NOOP/UPDATE 模板提示但你已经记不起当时匹配的 atomic_id, **重新跑 grep memory** 而不是猜 — 猜出错的 ID 会误导 user 以为某条规则存在.
 
 ---
 

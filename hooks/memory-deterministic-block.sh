@@ -20,7 +20,15 @@ if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SI
     if [ "${_LAST_SID_SC}" = "${_CUR_SID_SC}" ]; then
       _LAST_DETECTED_SC=$(echo "${_LAST_LINE_SC}" | jq -r '.detection.detected // empty' 2>/dev/null)
       if [ "${_LAST_DETECTED_SC}" = "false" ]; then
-        exit 0
+        # User-prefer gate: only skip when user prefers URGENT (per v23 day-1 refinement)
+        _TRANSCRIPT_SC=$(echo "${_INPUT_SC}" | jq -r '.transcript_path // empty' 2>/dev/null)
+        _PREFER_SC="u"
+        if [ -n "${_TRANSCRIPT_SC}" ] && [ -f "${_TRANSCRIPT_SC}" ]; then
+          _PREFER_SC=$(timeout 5 python3 "${HOME}/.claude/skills/preference-tracker/lib/detect_user_prefer.py" "${_TRANSCRIPT_SC}" 2>/dev/null || echo u)
+        fi
+        if [ "${_PREFER_SC}" = "u" ]; then
+          exit 0
+        fi
       fi
     fi
   fi

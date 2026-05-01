@@ -13,6 +13,7 @@ install.log
 # Versioned 备份 (per `wf-pref-027` — 本地保留, 仓库不收)
 *.pre_*.bak
 *.v3_pre_pt_*.json
+*.bak_*
 
 # OS
 .DS_Store
