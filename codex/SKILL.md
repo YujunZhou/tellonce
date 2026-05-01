@@ -5,7 +5,13 @@ description: Use when handling any user message; records and enforces user prefe
 
 # Preference Tracker for Codex
 
-This skill preserves the Claude Code preference-tracker behavior using Codex-native mechanisms (Codex doesn't have Stop / UserPromptSubmit hooks, so enforcement is wrapper-driven instead of hook-driven).
+Codex actually exposes the same hook system as Claude Code (`PreToolUse /
+PostToolUse / SessionStart / UserPromptSubmit / PermissionRequest`). The
+codex variant of preference-tracker installs into `~/.codex/skills/preference-tracker/`
++ `~/.codex/hooks.json` and uses native hooks for retrieval + enforcement.
+The wrapper path (`codex_preftrack exec --`) is still the way to enforce
+on the FINAL agent text response (codex doesn't fire a Stop hook for that;
+PostToolUse only sees tool inputs/outputs).
 
 ## Core rules (every turn)
 
@@ -14,15 +20,13 @@ This skill preserves the Claude Code preference-tracker behavior using Codex-nat
 - **Record** durable evidence through `codex_preftrack scan` when installed.
 - **Wrap** any subprocess that produces user-facing output via `codex_preftrack exec -- <cmd>` so its stdout is verified and audited.
 
-## Mode state machine
-
 ```
-audit_only  ──first wrapper run──▶  wrapper  ──(future, when blocking shipped)──▶  blocking
+audit_only  ──first wrapper run──▶  wrapper  ──opt-in──▶  blocking
 ```
 
-- `audit_only`: scan + record only, no enforcement intervention. This is the default after install.
-- `wrapper`: at least one `codex_preftrack exec` run has completed. Future logic may use this state to require wrapper coverage.
-- `blocking`: not yet implemented — reserved for future B4-style refusal gate.
+- `audit_only`: scan + record + advisory stderr; PostToolUse hook never blocks. Default after install.
+- `wrapper`: at least one `codex_preftrack exec` run has completed; same advisory behavior as audit_only.
+- `blocking`: PostToolUse hook returns exit 2 + `decision:block` JSON when violations detected. **Opt-in only** — set by editing `<state_root>/mode.json` (write_mode enforces monotonicity: never downgrade).
 
 The state lives in `<state_root>/mode.json`. `register_project` only writes the default mode on first install; later CLI invocations preserve any wrapper-mode upgrade.
 
@@ -75,6 +79,26 @@ Codex's `verify_output` flags inline English tokens in mostly-Chinese responses 
 ## Setup
 
 ```bash
-bash install.sh   # from the project root
-bash doctor.sh    # verify
+# From the project root. Installs:
+#   1. ~/.codex/skills/preference-tracker/ — codex_preftrack/ + shared_lib/ (CC lib copy)
+#                                            + hooks/ + seed_memory/ + SKILL.md
+#   2. ~/.codex/hooks.json — registers UserPromptSubmit (3) + PostToolUse + SessionStart
+#   3. <project>/.codex/preference-tracker/ — per-project state (audit_only mode by default)
+bash install.sh
+
+# Verify (state + hooks status + private-path leak scan):
+PYTHONPATH=~/.codex/skills/preference-tracker python3 -m codex_preftrack doctor
 ```
+
+### Hook flow
+
+| Hook event | Script | Purpose |
+|---|---|---|
+| UserPromptSubmit | `userpromptsubmit-retrieve-inject.sh` | match user prompt against fingerprints + memory rules, inject `additionalContext` |
+| UserPromptSubmit | `userpromptsubmit-pending-inject.sh` | warn about pending memory entries from prior session crashes |
+| UserPromptSubmit | `userpromptsubmit-shadow-alert-inject.sh` | inject "last turn violated rule X" reminder so this turn fixes it |
+| PostToolUse | `posttooluse-deterministic-block.sh` | regex/fingerprint scan agent's tool input (Write content / Edit / Bash); audit_only logs, blocking mode exits 2 + decision:block |
+| SessionStart | `sessionstart-init.sh` | lazy-init project state on first codex SessionStart in a fresh project |
+
+### Mode state machine
+
