@@ -402,5 +402,236 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             self.assertIn(report.sections["wrapper"], {"PASS", "DEGRADED"})
 
 
+class CodexHookIntegrationTests(unittest.TestCase):
+    """Round-7: codex hook integration (install_codex_hooks + PostToolUse adapter)."""
+
+    def test_install_codex_hooks_add_remove_idempotent(self):
+        from codex_preftrack import install_codex_hooks as ich
+        with tempfile.TemporaryDirectory() as td:
+            hooks_json = Path(td) / "hooks.json"
+            hooks_dir = Path(td) / "hooks"
+            hooks_dir.mkdir()
+            # First add
+            ich.cmd_add(str(hooks_json), str(hooks_dir))
+            data = json.loads(hooks_json.read_text())
+            # 5 PT hooks: 3 UserPromptSubmit + 1 PostToolUse + 1 SessionStart
+            total = sum(
+                len(entry["hooks"])
+                for entries in data["hooks"].values()
+                for entry in entries
+                if entry.get("_pt_managed")
+            )
+            self.assertEqual(total, 5)
+            self.assertIn("UserPromptSubmit", data["hooks"])
+            self.assertIn("PostToolUse", data["hooks"])
+            self.assertIn("SessionStart", data["hooks"])
+            # Re-add: idempotent (no duplicates)
+            ich.cmd_add(str(hooks_json), str(hooks_dir))
+            data2 = json.loads(hooks_json.read_text())
+            total2 = sum(
+                len(entry["hooks"])
+                for entries in data2["hooks"].values()
+                for entry in entries
+                if entry.get("_pt_managed")
+            )
+            self.assertEqual(total2, 5, "re-add must be idempotent")
+            # Remove cleans them all
+            ich.cmd_remove(str(hooks_json))
+            data3 = json.loads(hooks_json.read_text())
+            self.assertNotIn("hooks", data3)
+
+    def test_install_codex_hooks_preserves_user_entries(self):
+        """User's own non-PT hook entries must survive --add and --remove."""
+        from codex_preftrack import install_codex_hooks as ich
+        with tempfile.TemporaryDirectory() as td:
+            hooks_json = Path(td) / "hooks.json"
+            hooks_dir = Path(td) / "hooks"
+            hooks_dir.mkdir()
+            seed = {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "",
+                            "hooks": [
+                                {"type": "command", "command": "gws-axi", "timeout": 10}
+                            ],
+                        }
+                    ]
+                }
+            }
+            hooks_json.write_text(json.dumps(seed, indent=2))
+            ich.cmd_add(str(hooks_json), str(hooks_dir))
+            data = json.loads(hooks_json.read_text())
+            ss = data["hooks"]["SessionStart"]
+            # Should have 2 entries: user's gws-axi + PT-managed
+            self.assertEqual(len(ss), 2)
+            user_entry = next(e for e in ss if not e.get("_pt_managed"))
+            pt_entry = next(e for e in ss if e.get("_pt_managed"))
+            self.assertEqual(user_entry["hooks"][0]["command"], "gws-axi")
+            self.assertEqual(len(pt_entry["hooks"]), 1)
+            ich.cmd_remove(str(hooks_json))
+            data2 = json.loads(hooks_json.read_text())
+            # User's gws-axi should still be there
+            self.assertEqual(
+                data2["hooks"]["SessionStart"][0]["hooks"][0]["command"], "gws-axi"
+            )
+
+    def test_posttooluse_adapter_extract_agent_text(self):
+        from codex_preftrack import codex_posttooluse_block as cpb
+        # Write tool style
+        self.assertEqual(
+            cpb._extract_agent_text({"tool_input": {"content": "hello"}}),
+            "hello",
+        )
+        # Edit tool style
+        self.assertEqual(
+            cpb._extract_agent_text(
+                {"tool_input": {"old_string": "a", "new_string": "b"}}
+            ),
+            "b",
+        )
+        # Bash command style
+        self.assertEqual(
+            cpb._extract_agent_text({"tool_input": {"command": "ls -la"}}),
+            "ls -la",
+        )
+        # Empty / missing
+        self.assertEqual(cpb._extract_agent_text({}), "")
+        self.assertEqual(cpb._extract_agent_text({"tool_input": {}}), "")
+
+    def test_posttooluse_adapter_audit_only_logs_but_doesnt_block(self):
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                install(project)
+                # default mode is audit_only
+                payload = {
+                    "tool_name": "Write",
+                    "tool_input": {"content": "我们今天要把 stub 占位代码处理完, 然后 merge 进主分支, 整个流程跑一遍, 这一段必须够长."},
+                    "cwd": str(project),
+                    "session_id": "audit-test",
+                }
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))):
+                    rc = cpb.main()
+                self.assertEqual(rc, 0, "audit_only must never block (rc=0)")
+                log = (
+                    project / ".codex" / "preference-tracker" / "runtime"
+                    / "posttooluse_log.jsonl"
+                )
+                self.assertTrue(log.is_file(), "must write log entry")
+                lines = log.read_text(encoding="utf-8").strip().split("\n")
+                last = json.loads(lines[-1])
+                self.assertEqual(last["mode"], "audit_only")
+                self.assertIn("lang-pit-130", last["violations"])
+
+    def test_posttooluse_adapter_blocking_mode_returns_2_on_violation(self):
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                install(project)
+                # Force blocking mode for the test
+                mode_path = project / ".codex" / "preference-tracker" / "mode.json"
+                m = json.loads(mode_path.read_text())
+                m["mode"] = "blocking"
+                mode_path.write_text(json.dumps(m, indent=2))
+                # 高中文比例 + 几个英文借词以触发 lang-pit-130
+                payload = {
+                    "tool_name": "Write",
+                    "tool_input": {"content": "我们今天要把这个 stub 占位代码全部处理干净, 然后 merge 进入主分支, 整个测试流程跑过一遍特别重要, 我们要保证中文比例足够高才能触发偏好规则的检查机制."},
+                    "cwd": str(project),
+                    "session_id": "block-test",
+                }
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))):
+                    rc = cpb.main()
+                self.assertEqual(
+                    rc, 2,
+                    "blocking + violation must return rc=2 to signal block",
+                )
+
+    def test_posttooluse_adapter_clean_input_returns_0(self):
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                install(project)
+                mode_path = project / ".codex" / "preference-tracker" / "mode.json"
+                m = json.loads(mode_path.read_text())
+                m["mode"] = "blocking"
+                mode_path.write_text(json.dumps(m, indent=2))
+                # All-English clean input — no rule fires (no chinese-mixed-english)
+                payload = {
+                    "tool_name": "Edit",
+                    "tool_input": {"old_string": "foo", "new_string": "this is a perfectly clean edit with no rule violations whatsoever in english only"},
+                    "cwd": str(project),
+                    "session_id": "clean-test",
+                }
+                with patch("sys.stdin", io.StringIO(json.dumps(payload))):
+                    rc = cpb.main()
+                self.assertEqual(rc, 0)
+
+    def test_install_sh_smoke_global_layout(self):
+        """End-to-end: bash install.sh creates global runtime + hooks.json + state."""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            repo_root = Path(__file__).resolve().parents[2]
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "PYTHON": os.sys.executable,
+            })
+            proc = subprocess.run(
+                ["bash", str(repo_root / "codex" / "install.sh")],
+                cwd=project, env=env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            global_dir = home / ".codex" / "skills" / "preference-tracker"
+            self.assertTrue((global_dir / "codex_preftrack").is_dir())
+            self.assertTrue((global_dir / "shared_lib").is_dir())
+            self.assertTrue((global_dir / "hooks").is_dir())
+            self.assertTrue((global_dir / "shared_lib" / "retrieve_inject.py").is_file())
+            self.assertTrue((global_dir / "shared_lib" / "deterministic_block.py").is_file())
+            self.assertTrue(
+                (global_dir / "hooks" / "posttooluse-deterministic-block.sh").is_file()
+            )
+            hooks_json = home / ".codex" / "hooks.json"
+            self.assertTrue(hooks_json.is_file())
+            data = json.loads(hooks_json.read_text())
+            self.assertIn("UserPromptSubmit", data["hooks"])
+            self.assertIn("PostToolUse", data["hooks"])
+            self.assertIn("SessionStart", data["hooks"])
+            # Per-project state init also ran
+            self.assertTrue(
+                (project / ".codex" / "preference-tracker" / "registration.json").is_file()
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
