@@ -17,6 +17,10 @@ import os
 import re
 import sys
 from datetime import datetime, timezone, timedelta
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None
 
 import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,10 +29,82 @@ import path_config  # Phase 4.1 解耦
 
 SHADOW_ALERT_MD = path_config.get_shadow_alert_md_path()
 SHADOW_LOG = path_config.get_shadow_log_path()
+CONSUMED_ALERTS = os.path.join(os.path.dirname(SHADOW_LOG), 'b5_shadow_alerts_consumed.json')
+CONSUMED_ALERTS_LOCK = os.path.join(os.path.dirname(SHADOW_LOG), 'b5_shadow_alerts_consumed.lock')
 
 B5_INJECT_DISABLED = os.environ.get('B5_INJECT_DISABLED', '').lower() in ('1', 'true', 'yes')
 TTL_HOURS = float(os.environ.get('B5_TTL_HOURS', '24'))
 ALERT_ROLLING_CAP = int(os.environ.get('B5_ALERT_ROLLING_CAP', '3'))
+
+
+def _alert_key(alert):
+    """Stable key for one logged alert entry."""
+    return '|'.join([
+        str(alert.get('timestamp', '')),
+        str(alert.get('rule_id', '')),
+        str(alert.get('feedback', '')),
+    ])
+
+
+def _read_consumed_alert_keys():
+    """Read alerts already injected into UserPromptSubmit once."""
+    if not os.path.exists(CONSUMED_ALERTS):
+        return set()
+    try:
+        with open(CONSUMED_ALERTS, errors='ignore') as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return {str(x) for x in data}
+    except Exception:
+        pass
+    return set()
+
+
+def _write_consumed_alert_keys(keys):
+    """Persist consumed alert keys with a small bounded file."""
+    try:
+        os.makedirs(os.path.dirname(CONSUMED_ALERTS), exist_ok=True)
+        ordered = sorted(keys)[-1000:]
+        tmp = f'{CONSUMED_ALERTS}.tmp.{os.getpid()}'
+        with open(tmp, 'w') as f:
+            json.dump(ordered, f, ensure_ascii=False)
+            f.write('\n')
+            f.flush()
+            os.fsync(f.fileno())
+        path_config.chmod_or_warn(tmp, 0o600, critical=True)
+        os.replace(tmp, CONSUMED_ALERTS)
+        path_config.chmod_or_warn(CONSUMED_ALERTS, 0o600, critical=True)
+    except Exception:
+        try:
+            if 'tmp' in locals() and os.path.exists(tmp):
+                os.unlink(tmp)
+        except Exception:
+            pass
+
+
+def _mark_alerts_consumed(alerts):
+    if not alerts:
+        return
+    keys = _read_consumed_alert_keys()
+    keys.update(_alert_key(a) for a in alerts)
+    _write_consumed_alert_keys(keys)
+
+
+def _claim_recent_alerted_violations(hours=24):
+    """Return recent alerts and atomically mark them consumed for this project."""
+    try:
+        os.makedirs(os.path.dirname(CONSUMED_ALERTS_LOCK), exist_ok=True)
+        with open(CONSUMED_ALERTS_LOCK, 'a+') as lock:
+            path_config.chmod_or_warn(CONSUMED_ALERTS_LOCK, 0o600, critical=False)
+            if fcntl is not None:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            alerts = _read_recent_alerted_violations(hours=hours)
+            _mark_alerts_consumed(alerts)
+            if fcntl is not None:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            return alerts
+    except Exception:
+        return []
 
 
 def _read_recent_alerted_violations(hours=24):
@@ -37,6 +113,7 @@ def _read_recent_alerted_violations(hours=24):
         return []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     out = []
+    consumed = _read_consumed_alert_keys()
     try:
         with open(SHADOW_LOG, errors='ignore') as f:
             for line in f:
@@ -52,6 +129,8 @@ def _read_recent_alerted_violations(hours=24):
                 except Exception:
                     continue
                 if ts >= cutoff:
+                    if _alert_key(o) in consumed:
+                        continue
                     out.append(o)
     except Exception:
         pass
@@ -104,7 +183,7 @@ def main():
     if B5_INJECT_DISABLED:
         sys.exit(0)
 
-    alerts = _read_recent_alerted_violations(hours=TTL_HOURS)
+    alerts = _claim_recent_alerted_violations(hours=TTL_HOURS)
     context = build_inject_context(alerts)
     if not context:
         sys.exit(0)
