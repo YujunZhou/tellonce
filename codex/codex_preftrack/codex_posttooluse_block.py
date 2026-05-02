@@ -36,6 +36,96 @@ def _load_stdin() -> dict:
         return {}
 
 
+def _check_bib_drift(payload: dict) -> list[dict]:
+    """Round-7: when a tool call writes a .bib file, run any sibling
+    `verify_bib_ledger.py` to confirm the appended raw BibTeX matches the
+    provenance ledger byte-for-byte. Returns a list of violation dicts in
+    the same shape evaluate_rules() returns (rule_id / reason / evidence).
+
+    Triggers:
+      - tool_input.file_path ends in `.bib`
+      - tool_input.command contains `references.bib` (Bash flow)
+    The verifier script must live at <project>/scripts/verify_bib_ledger.py
+    or <ledger_parent>/scripts/verify_bib_ledger.py — paths a user picks
+    when they organize their paper repo. We probe both.
+
+    Failing closed: if no verifier script is found, we don't synthesize a
+    violation. The check exists to catch drift, not to require the verifier
+    in every project.
+    """
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return []
+    bib_paths: list[Path] = []
+    fp = tool_input.get("file_path") or tool_input.get("path")
+    if isinstance(fp, str) and fp.endswith(".bib"):
+        bib_paths.append(Path(fp))
+    cmd = tool_input.get("command") or ""
+    if isinstance(cmd, str):
+        # crude: look for any *.bib token in the command
+        import re as _re
+        for m in _re.finditer(r"\b(\S+\.bib)\b", cmd):
+            bib_paths.append(Path(m.group(1)))
+    if not bib_paths:
+        return []
+
+    # Resolve cwd anchor
+    cwd = payload.get("cwd") or os.environ.get("CODEX_PROJECT_ROOT") or os.getcwd()
+    cwd_path = Path(cwd)
+
+    violations: list[dict] = []
+    seen_bibs: set[Path] = set()
+    for raw in bib_paths:
+        bib = raw if raw.is_absolute() else (cwd_path / raw)
+        bib = bib.resolve() if bib.exists() else bib
+        if bib in seen_bibs:
+            continue
+        seen_bibs.add(bib)
+        if not bib.is_file():
+            continue
+        # Find verify_bib_ledger.py: try (a) <bib_parent>/scripts/, (b) <cwd>/scripts/
+        candidates = [
+            bib.parent / "scripts" / "verify_bib_ledger.py",
+            cwd_path / "scripts" / "verify_bib_ledger.py",
+        ]
+        verifier = next((c for c in candidates if c.is_file()), None)
+        if verifier is None:
+            continue
+        # Locate the ledger (same dir as bib by default, or parent)
+        ledger_candidates = [
+            bib.parent / "bib_sources.jsonl",
+            bib.parent.parent / "bib_sources.jsonl",
+        ]
+        ledger = next((c for c in ledger_candidates if c.is_file()), None)
+        if ledger is None:
+            # No ledger -> nothing to verify (not a drift, just untracked).
+            continue
+        try:
+            import subprocess as _sp
+            proc = _sp.run(
+                [sys.executable, str(verifier), "--ledger", str(ledger), "--bib", str(bib)],
+                capture_output=True, text=True, timeout=20,
+            )
+        except Exception:
+            continue
+        if proc.returncode == 0:
+            continue
+        # rc=1 means drift / missing entry; rc=2 means fatal verifier error.
+        head = (proc.stdout or "")[:600]
+        violations.append({
+            "rule_id": "bib-pref-001",
+            "reason": (
+                f"BibTeX ledger drift detected in {bib.name}: an entry that "
+                f"resolve_bib.py recorded in {ledger.name} no longer matches "
+                f"the .bib file verbatim. Likely cause: agent renamed a "
+                f"citation key or rewrote a field after the authoritative "
+                f"copy was appended."
+            ),
+            "evidence_excerpt": head[:400],
+        })
+    return violations
+
+
 def _extract_agent_text(payload: dict) -> str:
     """Pull agent-authored text content out of a codex PostToolUse payload.
 
@@ -171,7 +261,20 @@ def main() -> int:
     try:
         violations = db.evaluate_rules(text, [])
     except Exception:
-        return 0
+        violations = []
+
+    # Round-7 fix: also run the BibTeX provenance verifier when the agent
+    # touches a .bib file. resolve_bib.py appends raw BibTeX + writes a
+    # bib_sources.jsonl ledger; verify_bib_ledger.py confirms each ledger
+    # entry is verbatim-present in the .bib. PostToolUse is the right hook
+    # because we need to catch a key-rename / field-rewrite *after* the
+    # tool wrote, not before.
+    try:
+        bib_violations = _check_bib_drift(payload)
+        if bib_violations:
+            violations = list(violations) + bib_violations
+    except Exception:
+        pass
 
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

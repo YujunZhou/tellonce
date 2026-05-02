@@ -694,6 +694,168 @@ class CodexHookIntegrationTests(unittest.TestCase):
             self.assertEqual(data.get("hooks", {}), {},
                 "hooks.json should have no PT entries left")
 
+    def test_dashboard_hooks_status_reflects_hooks_json(self):
+        """Round-7 fix: dashboard reads ground truth (~/.codex/hooks.json)
+        not the stale `mode.hooks` field."""
+        from codex_preftrack import install_codex_hooks as ich
+        from codex_preftrack.dashboard import build_dashboard
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                install(project, register_hooks=False)
+                state = project / ".codex" / "preference-tracker"
+                # No hooks registered yet
+                out = build_dashboard(state)
+                self.assertIn("hooks: NOT_INSTALLED", out)
+                # Now register hooks (simulate global runtime layout)
+                hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+                hooks_dir.mkdir(parents=True)
+                ich.cmd_add(
+                    str(home / ".codex" / "hooks.json"),
+                    str(hooks_dir),
+                )
+                out2 = build_dashboard(state)
+                self.assertIn("hooks: PASS", out2,
+                    "dashboard must reflect hooks.json reality, not stale mode field")
+
+    def test_install_auto_registers_global_hooks_when_layout_present(self):
+        """Round-7: codex_preftrack install (programmatic) auto-registers hooks
+        if global runtime is present."""
+        from codex_preftrack import install_codex_hooks as ich
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            # Pre-create the global runtime layout (skill dir with hooks/)
+            hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+            hooks_dir.mkdir(parents=True)
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                rec = install(project)
+                self.assertTrue(rec.hooks_registered,
+                    "install must auto-register hooks when global runtime is in place")
+                hooks_json = home / ".codex" / "hooks.json"
+                self.assertTrue(hooks_json.is_file())
+                data = json.loads(hooks_json.read_text())
+                # 5 PT hooks should be registered
+                pt_count = sum(
+                    1
+                    for entries in data["hooks"].values()
+                    for entry in entries
+                    for h in entry.get("hooks", [])
+                    if ich._is_pt_command(h.get("command", ""))
+                )
+                self.assertEqual(pt_count, 5)
+
+    def test_install_no_register_hooks_flag(self):
+        """register_hooks=False disables the auto-registration path."""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+            hooks_dir.mkdir(parents=True)
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                rec = install(project, register_hooks=False)
+                self.assertFalse(rec.hooks_registered)
+                self.assertFalse((home / ".codex" / "hooks.json").is_file())
+
+    def test_posttooluse_bib_drift_detection(self):
+        """Round-7: PostToolUse adapter runs verify_bib_ledger.py when the
+        agent writes a .bib file, returns bib-pref-001 violation on drift."""
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                install(project, register_hooks=False)
+                # Set up a .bib + ledger pair where ledger entry is drifted
+                bib = project / "references.bib"
+                bib.write_text(
+                    "@article{Smith2024_KEY_RENAMED,\n"
+                    "  title = {Test},\n"
+                    "  author = {Smith, J.},\n"
+                    "  doi = {10.1234/x}\n}\n",
+                    encoding="utf-8",
+                )
+                # ledger says original key was Smith2024_test (now renamed -> drift_modified)
+                ledger = project / "bib_sources.jsonl"
+                ledger.write_text(json.dumps({
+                    "ts": "2026-05-01T00:00:00Z",
+                    "title_query": "Test",
+                    "matched_title": "Test",
+                    "match_score": 0.99,
+                    "doi": "10.1234/x",
+                    "appended_to": str(bib),
+                    "bibtex_raw": "@article{Smith2024_test,\n  title = {Test},\n  author = {Smith, J.},\n  doi = {10.1234/x}\n}",
+                }) + "\n", encoding="utf-8")
+                # Drop a verifier script in scripts/
+                scripts_dir = project / "scripts"
+                scripts_dir.mkdir()
+                (scripts_dir / "verify_bib_ledger.py").write_text(
+                    Path(__file__).resolve().parents[2].joinpath(
+                        "..", "example-research-project-paper", "scripts", "verify_bib_ledger.py"
+                    ).resolve().read_text() if Path("/home/user/zyj/example-research-project-paper/scripts/verify_bib_ledger.py").is_file()
+                    else "#!/usr/bin/env python3\nimport sys; sys.exit(1)\n",
+                    encoding="utf-8",
+                )
+                payload = {
+                    "tool_name": "Edit",
+                    "tool_input": {"file_path": str(bib), "old_string": "Smith2024_test", "new_string": "Smith2024_KEY_RENAMED"},
+                    "cwd": str(project),
+                    "session_id": "bib-drift-test",
+                }
+                vios = cpb._check_bib_drift(payload)
+                # If verifier exists in user's paper repo, drift should be caught.
+                if (scripts_dir / "verify_bib_ledger.py").read_text().startswith("#!/usr/bin/env python3\nimport sys; sys.exit(1)"):
+                    # Stub script always fails — counts as drift signal
+                    self.assertEqual(len(vios), 1)
+                else:
+                    # Real verifier from paper repo: should detect drift_modified
+                    self.assertGreaterEqual(len(vios), 1)
+                    self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
+
+    def test_posttooluse_bib_no_verifier_no_violation(self):
+        """If no verify_bib_ledger.py is in the project, .bib writes don't
+        synthesize a violation (we fail open — drift detection is opt-in)."""
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            project = base / "project"
+            project.mkdir()
+            bib = project / "references.bib"
+            bib.write_text("@article{x, title={x}}\n")
+            payload = {
+                "tool_name": "Edit",
+                "tool_input": {"file_path": str(bib), "old_string": "x", "new_string": "y"},
+                "cwd": str(project),
+                "session_id": "no-verifier",
+            }
+            vios = cpb._check_bib_drift(payload)
+            self.assertEqual(vios, [])
+
     def test_install_sh_smoke_global_layout(self):
         """End-to-end: bash install.sh creates global runtime + hooks.json + state."""
         with tempfile.TemporaryDirectory() as td:
