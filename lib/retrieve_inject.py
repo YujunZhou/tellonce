@@ -39,26 +39,87 @@ MEMORY_DIR = path_config.get_memory_dir()
 MAX_SHOW = 10
 PROMPT_TRUNCATE = 4000
 
+
+# Round-10c (2026-05-02): persist retrieve defaults in
+# ~/.preference-tracker.config.json so the user doesn't have to remember
+# `export B5_RETRIEVE_*` for every shell. Precedence per setting:
+#   1. process env (B5_RETRIEVE_*)        — highest
+#   2. ~/.preference-tracker.config.json   — persistent default
+#   3. built-in default                    — lowest
+# Plus: if config has retrieve_env_file, we read that .env file (KEY=VALUE)
+# and inject DEEPINFRA_API_KEY / OPENROUTER_API_KEY / etc. into os.environ
+# so the API backend can find them without `source .env` in every shell.
+_USER_CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
+
+
+def _load_user_config() -> dict:
+    if not os.path.exists(_USER_CONFIG_PATH):
+        return {}
+    try:
+        with open(_USER_CONFIG_PATH, encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _config_setting(env_key: str, config_key: str, cfg: dict, default: str = '') -> str:
+    val = os.environ.get(env_key)
+    if val:
+        return val
+    cv = cfg.get(config_key)
+    if isinstance(cv, str) and cv:
+        return cv
+    return default
+
+
+def _autoload_env_file_from_config(cfg: dict) -> None:
+    """If config sets retrieve_env_file, parse simple KEY=VALUE lines from
+    that file and inject ANY *_API_KEY entries into os.environ — but never
+    overwrite an env var the user already has set. Idempotent + best-effort.
+    """
+    env_file = cfg.get('retrieve_env_file')
+    if not isinstance(env_file, str) or not os.path.isfile(env_file):
+        return
+    try:
+        with open(env_file, encoding='utf-8') as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, _, v = line.partition('=')
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if not k or not v:
+                    continue
+                if k in os.environ:
+                    continue  # respect existing env
+                os.environ[k] = v
+    except OSError:
+        pass
+
+
+_USER_CONFIG = _load_user_config()
+_autoload_env_file_from_config(_USER_CONFIG)
+
 # Round-10: backend default flipped to 'cli' (small-model semantic match).
 # Round-10b: 'api' backend added for OpenAI-compatible HTTP endpoints
 # (DeepInfra / OpenRouter / etc.) — fastest path because no CLI cold-start
 # and no nested-hook collision. Recommended for paper experiment runs.
-RETRIEVE_BACKEND = os.environ.get('B5_RETRIEVE_BACKEND', 'cli').lower()
-# Backwards compat: accept 'haiku' as alias for 'cli' (existing users
-# may still have B5_RETRIEVE_BACKEND=haiku exported).
+# Round-10c: settings can come from ~/.preference-tracker.config.json so
+# the user doesn't have to `export B5_RETRIEVE_*` in every shell.
+RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _USER_CONFIG, 'cli').lower()
+# Backwards compat: 'haiku' alias 'cli'.
 if RETRIEVE_BACKEND == 'haiku':
     RETRIEVE_BACKEND = 'cli'
-RETRIEVE_CLI = os.environ.get('B5_RETRIEVE_CLI', 'claude').lower()
+RETRIEVE_CLI = _config_setting('B5_RETRIEVE_CLI', 'retrieve_cli', _USER_CONFIG, 'claude').lower()
 _DEFAULT_MODEL_BY_CLI = {
     'claude': 'claude-haiku-4-5',
     'codex': 'gpt-5.4-mini',
 }
 # API backend selectors
-RETRIEVE_API_PROVIDER = os.environ.get('B5_RETRIEVE_API_PROVIDER', 'openrouter').lower()
+RETRIEVE_API_PROVIDER = _config_setting('B5_RETRIEVE_API_PROVIDER', 'retrieve_api_provider', _USER_CONFIG, 'openrouter').lower()
 _DEFAULT_MODEL_BY_API = {
-    # User confirmed DeepSeek V4 flash for experiment runs. If the model
-    # name doesn't resolve on the chosen provider, override via
-    # B5_RETRIEVE_MODEL env.
     'openrouter': 'deepseek/deepseek-v4-flash',
     'deepinfra': 'deepseek-ai/DeepSeek-V4-Flash',
 }
@@ -66,8 +127,8 @@ if RETRIEVE_BACKEND == 'api':
     _backend_default_model = _DEFAULT_MODEL_BY_API.get(RETRIEVE_API_PROVIDER, '')
 else:
     _backend_default_model = _DEFAULT_MODEL_BY_CLI.get(RETRIEVE_CLI, 'claude-haiku-4-5')
-RETRIEVE_MODEL = os.environ.get('B5_RETRIEVE_MODEL') or _backend_default_model
-RETRIEVE_TIMEOUT_S = int(os.environ.get('B5_RETRIEVE_TIMEOUT', '12'))
+RETRIEVE_MODEL = _config_setting('B5_RETRIEVE_MODEL', 'retrieve_model', _USER_CONFIG, _backend_default_model)
+RETRIEVE_TIMEOUT_S = int(_config_setting('B5_RETRIEVE_TIMEOUT', 'retrieve_timeout_s', _USER_CONFIG, '12'))
 RETRIEVE_HAIKU_PROMPT_BUDGET = 2000  # truncate user prompt
 RETRIEVE_HAIKU_RULE_LIMIT = 40       # max rules to show backend
 
