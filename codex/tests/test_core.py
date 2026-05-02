@@ -837,6 +837,76 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     self.assertGreaterEqual(len(vios), 1)
                     self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
 
+    def test_install_sh_creates_shell_wrapper(self):
+        """Round-9 fix: install.sh must drop a shell wrapper at
+        ~/.local/bin/codex_preftrack so users don't need PYTHONPATH."""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            repo_root = Path(__file__).resolve().parents[2]
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "PYTHON": os.sys.executable,
+            })
+            proc = subprocess.run(
+                ["bash", str(repo_root / "codex" / "install.sh")],
+                cwd=project, env=env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            wrapper = home / ".local" / "bin" / "codex_preftrack"
+            self.assertTrue(wrapper.is_file(), "wrapper must exist")
+            self.assertTrue(os.access(str(wrapper), os.X_OK),
+                "wrapper must be executable")
+            content = wrapper.read_text()
+            self.assertIn("PYTHONPATH=", content)
+            self.assertIn("codex_preftrack", content)
+            # Wrapper must work bare (no PYTHONPATH from caller).
+            env_clean = {
+                "HOME": str(home),
+                "PATH": env.get("PATH", "/usr/bin"),
+                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+            }
+            run = subprocess.run(
+                [str(wrapper), "doctor", "--project-root", str(project)],
+                env=env_clean, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("Preference Tracker status", run.stdout)
+
+    def test_uninstall_sh_removes_shell_wrapper_with_purge_skill(self):
+        """Round-9: uninstall --purge-skill must also remove the wrapper."""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            repo_root = Path(__file__).resolve().parents[2]
+            env = os.environ.copy()
+            env.update({
+                "HOME": str(home),
+                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "PYTHON": os.sys.executable,
+            })
+            subprocess.run(
+                ["bash", str(repo_root / "codex" / "install.sh")],
+                cwd=project, env=env, text=True, capture_output=True, check=True,
+            )
+            wrapper = home / ".local" / "bin" / "codex_preftrack"
+            self.assertTrue(wrapper.is_file())
+            subprocess.run(
+                ["bash", str(repo_root / "codex" / "uninstall.sh"),
+                 "--purge-skill"],
+                cwd=project, env=env, text=True, capture_output=True, check=True,
+            )
+            self.assertFalse(wrapper.is_file(),
+                "purge-skill must remove wrapper")
+
     def test_install_codex_hooks_verify_catches_wrong_event(self):
         """Round-8 P1-1 (Medium): cmd_verify must rc=1 when a hook is
         registered to the wrong event, not just when missing. Symmetric

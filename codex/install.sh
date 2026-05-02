@@ -185,6 +185,33 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
 
     echo "  ✓ codex_preftrack/ + shared_lib/ + hooks/ + seed_memory/ + SKILL.md"
 
+    # 1e2. Install a shell wrapper at ~/.local/bin/codex_preftrack so
+    # `codex_preftrack ...` works from any shell (no PYTHONPATH needed).
+    # Round-9 codex-review fix #1 (UX gap, 2026-05-02): without this
+    # wrapper, users had to remember `PYTHONPATH=~/.codex/skills/preference-tracker
+    # python3 -m codex_preftrack ...` for every CLI invocation.
+    BIN_DIR="${HOME}/.local/bin"
+    mkdir -p "${BIN_DIR}"
+    WRAPPER="${BIN_DIR}/codex_preftrack"
+    cat > "${WRAPPER}" <<WRAPPER_EOF
+#!/usr/bin/env bash
+# codex_preftrack — shell wrapper installed by codex/install.sh.
+# Locks in PYTHONPATH so the codex_preftrack package is importable from
+# any shell. Edit-aware: re-running install.sh overwrites this file.
+exec env PYTHONPATH="${GLOBAL_DIR}\${PYTHONPATH:+:\$PYTHONPATH}" \
+    "${PYTHON}" -m codex_preftrack "\$@"
+WRAPPER_EOF
+    chmod +x "${WRAPPER}"
+    echo "  ✓ shell wrapper: ${WRAPPER}"
+    case ":${PATH}:" in
+        *":${BIN_DIR}:"*) ;;
+        *)
+            echo "  ⚠ ${BIN_DIR} not in PATH. Add to your shell rc:"
+            echo "      export PATH=\"${BIN_DIR}:\$PATH\""
+            echo "    Until then call as: ${WRAPPER} <args>"
+            ;;
+    esac
+
     # 1f. register hooks in ~/.codex/hooks.json
     if [[ "${NO_HOOKS}" != true ]]; then
         echo "[2/3] register hooks → ${HOOKS_JSON}"

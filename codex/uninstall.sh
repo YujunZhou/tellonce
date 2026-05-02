@@ -55,7 +55,7 @@ else
     echo "(skipping hook registration removal — pass --purge-hooks to drop ~/.codex/hooks.json entries)"
 fi
 
-# 3. Optionally remove global skill dir
+# 3. Optionally remove global skill dir + shell wrapper
 if [[ "${PURGE_SKILL}" == true ]]; then
     if [[ -d "${GLOBAL_DIR}" ]]; then
         RESOLVED_GLOBAL="$(cd "${GLOBAL_DIR}" && pwd -P)"
@@ -65,6 +65,15 @@ if [[ "${PURGE_SKILL}" == true ]]; then
         fi
         echo "Removing global skill dir ${GLOBAL_DIR}"
         rm -rf "${GLOBAL_DIR}"
+    fi
+    # Round-9: also remove the shell wrapper installed at ~/.local/bin/codex_preftrack
+    WRAPPER="${HOME}/.local/bin/codex_preftrack"
+    if [[ -f "${WRAPPER}" ]]; then
+        # Defensive: only delete if the file looks like ours
+        if grep -q "codex_preftrack — shell wrapper installed by codex/install.sh" "${WRAPPER}" 2>/dev/null; then
+            rm -f "${WRAPPER}"
+            echo "Removing shell wrapper ${WRAPPER}"
+        fi
     fi
 fi
 
