@@ -163,12 +163,25 @@ fingerprints:
 
   comm-pref-006:
     desc: "Never use system-internal invented jargon in user-facing replies"
-    # Heuristic: function-shaped tokens like `run_one_V3` / `do_X_v2` —
-    # internal versioned identifiers that mean nothing to a non-developer
-    # reader. Tune per-project by adding tokens to the user whitelist.
-    triggers_pattern: '\b[a-z]+_[a-z_]+_[Vv]\d+\b'
+    # Round-10 tightening (2026-05-02): the previous regex
+    #   \b[a-z]+_[a-z_]+_[Vv]\d+\b
+    # over-matched. Any project script named like
+    # `start_all62_condition_run_v1.sh` or `verify_bib_ledger_v2.py` would
+    # trigger on EVERY codex/CC turn that mentioned the file, polluting the
+    # session with a useless reminder. The rule is about how the model
+    # WRITES replies, not about what the user types in. Switch to keyword
+    # triggers that only fire when the discussion is actually about
+    # user-facing language.
+    triggers:
+      - "user-facing"
+      - "解释给用户"
+      - "给用户看的"
+      - "给用户回"
+      - "show user"
+      - "explain to user"
+      - "回复用户"
     enforcement: deterministic
-    priority: high
+    priority: normal
     action: "user-facing 里函数名 / class 名必须翻译成描述"
 
   comm-pit-003:
