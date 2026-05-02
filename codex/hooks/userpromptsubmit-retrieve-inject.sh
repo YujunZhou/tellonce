@@ -5,8 +5,18 @@
 # Codex hook stdin: JSON with `prompt`, `cwd`, `session_id`, `transcript_path`.
 # Output: JSON with hookSpecificOutput.additionalContext.
 #
+# Round-10 (2026-05-02): default backend is now 'cli' (small-model semantic
+# match). Codex picks codex CLI + gpt-5.4-mini by default; user can override
+# via B5_RETRIEVE_BACKEND/B5_RETRIEVE_CLI/B5_RETRIEVE_MODEL.
+#
 # Defensive: any failure -> exit 0 silently (never block codex turns).
 set +e
+
+# Recursion guard: if we're inside a nested codex exec spawned by
+# retrieve_inject itself, exit immediately so we don't loop.
+if [ "${B5_RETRIEVE_RECURSION_GUARD}" = "1" ]; then
+    exit 0
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="${SCRIPT_DIR}/.."
@@ -15,6 +25,11 @@ SHARED_LIB="${SKILL_DIR}/shared_lib"
 if [[ ! -f "${SHARED_LIB}/retrieve_inject.py" ]]; then
     exit 0
 fi
+
+# Per-runtime defaults: codex hook runs in codex sessions, so route the
+# retrieve CLI through codex + gpt-5.4-mini. User can override via env.
+export B5_RETRIEVE_CLI="${B5_RETRIEVE_CLI:-codex}"
+export B5_RETRIEVE_MODEL="${B5_RETRIEVE_MODEL:-gpt-5.4-mini}"
 
 # Capture stdin once so we can route to PYTHONPATH-augmented subprocess.
 PT_STDIN="$(cat)"

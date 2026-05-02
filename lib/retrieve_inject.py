@@ -1,19 +1,33 @@
 #!/usr/bin/env python3
-"""Preference-tracker memory retrieve + inject (Phase B1 + Round-6 haiku backend).
+"""Preference-tracker memory retrieve + inject (Phase B1 + Round-6/10 cli backend).
 
 Reads UserPromptSubmit JSON from stdin, picks relevant atomic_ids based on
 B5_RETRIEVE_BACKEND env var:
-  - 'keyword' (default): match user prompt against fingerprints.yaml triggers
-    + regex patterns. Cheap, instant, but misses semantically-similar prompts
-    that don't share trigger keywords.
-  - 'haiku': ask `claude -p --model claude-haiku-4-5` semantically which rules
-    apply. Costs 1-2s latency per UserPromptSubmit, but no need to maintain
-    trigger keyword lists. Uses Claude CLI subscription (0 marginal cost).
+  - 'cli' (default since Round-10): semantic match via a small model (claude
+    haiku for CC, gpt-5.4-mini for codex). Costs 1-2s latency per
+    UserPromptSubmit but uses the same subscription auth path as the
+    runtime, no API key needed and no trigger-keyword maintenance.
+  - 'keyword': legacy fingerprints.yaml literal/regex matcher. Cheap and
+    instant but only as good as the trigger lists in fingerprints.yaml.
+
+CLI dispatch is governed by B5_RETRIEVE_CLI:
+  - 'claude' (default, CC runtime): `claude -p --model <model>`
+  - 'codex'  (codex runtime): `codex exec --ephemeral ... -m <model>`
+
+Default model is derived from B5_RETRIEVE_CLI when B5_RETRIEVE_MODEL is unset:
+  claude → claude-haiku-4-5, codex → gpt-5.4-mini.
+
+Recursion guard: when retrieve_inject invokes the CLI, it sets
+B5_RETRIEVE_RECURSION_GUARD=1 in the child env. The hook scripts in
+~/.claude/skills/preference-tracker/hooks/memory-retrieve-inject.sh and
+~/.codex/skills/preference-tracker/hooks/userpromptsubmit-retrieve-inject.sh
+honor this flag and exit 0 immediately, so a nested CLI session doesn't
+re-trigger the retrieve hook and loop.
 
 Emits JSON with hookSpecificOutput.additionalContext naming the matched atomic_ids.
 Non-destructive: any failure → exit 0 silently (no block).
 """
-import json, sys, re, os, glob, subprocess, time
+import json, sys, re, os, glob, subprocess, tempfile, time
 
 import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,12 +39,28 @@ MEMORY_DIR = path_config.get_memory_dir()
 MAX_SHOW = 10
 PROMPT_TRUNCATE = 4000
 
-# Round-6: backend selector. Default 'keyword' preserves v1 behavior.
-RETRIEVE_BACKEND = os.environ.get('B5_RETRIEVE_BACKEND', 'keyword').lower()
-RETRIEVE_MODEL = os.environ.get('B5_RETRIEVE_MODEL', 'claude-haiku-4-5')
+# Round-10: backend default flipped to 'cli' (small-model semantic match).
+RETRIEVE_BACKEND = os.environ.get('B5_RETRIEVE_BACKEND', 'cli').lower()
+# Backwards compat: accept 'haiku' as alias for 'cli' (existing users
+# may still have B5_RETRIEVE_BACKEND=haiku exported).
+if RETRIEVE_BACKEND == 'haiku':
+    RETRIEVE_BACKEND = 'cli'
+RETRIEVE_CLI = os.environ.get('B5_RETRIEVE_CLI', 'claude').lower()
+_DEFAULT_MODEL_BY_CLI = {
+    'claude': 'claude-haiku-4-5',
+    'codex': 'gpt-5.4-mini',
+}
+RETRIEVE_MODEL = os.environ.get('B5_RETRIEVE_MODEL') or _DEFAULT_MODEL_BY_CLI.get(
+    RETRIEVE_CLI, 'claude-haiku-4-5'
+)
 RETRIEVE_TIMEOUT_S = int(os.environ.get('B5_RETRIEVE_TIMEOUT', '12'))
 RETRIEVE_HAIKU_PROMPT_BUDGET = 2000  # truncate user prompt
-RETRIEVE_HAIKU_RULE_LIMIT = 40       # max rules to show haiku
+RETRIEVE_HAIKU_RULE_LIMIT = 40       # max rules to show CLI
+
+# Recursion guard: when retrieve_inject calls the CLI, it sets this env.
+# Hook scripts check it and exit 0 immediately so a nested session doesn't
+# re-fire retrieve and loop.
+RETRIEVE_RECURSION_GUARD = os.environ.get('B5_RETRIEVE_RECURSION_GUARD') == '1'
 
 
 _RULE_INDEX = None
@@ -84,14 +114,52 @@ def _write_debug(record):
         pass
 
 
-def _retrieve_via_haiku(user_prompt, fps_dict, memory_idx):
-    """Round-6 backend: ask claude -p --model haiku which rules apply.
+def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
+    """Build (cmd_argv, output_file_path_or_None) for the configured CLI.
 
-    Returns list of dicts shaped like keyword backend's `hits` so the rest of
-    main() can reuse the same rendering. Returns [] on any failure (caller
-    falls back to keyword backend).
+    Round-10: dispatches by B5_RETRIEVE_CLI:
+      - 'claude': prompt is positional arg, output on stdout
+      - 'codex':  prompt via stdin, output written to --output-last-message file
+    Returns (None, None) on unknown CLI.
+    """
+    if RETRIEVE_CLI == 'claude':
+        return (
+            ['claude', '-p', prompt, '--model', RETRIEVE_MODEL, '--output-format', 'text'],
+            None,
+        )
+    if RETRIEVE_CLI == 'codex':
+        # codex exec reads prompt from stdin, writes last assistant text to a
+        # file via --output-last-message. --ephemeral + --ignore-user-config +
+        # --ignore-rules + read-only sandbox keep this nested call cheap and
+        # side-effect-free.
+        out_fd, out_path = tempfile.mkstemp(prefix='pt_retrieve_', suffix='.txt')
+        os.close(out_fd)
+        return (
+            ['codex', 'exec', '--ephemeral', '--ignore-user-config',
+             '--ignore-rules', '--skip-git-repo-check',
+             '--sandbox', 'read-only',
+             '-m', RETRIEVE_MODEL,
+             '-c', 'model_reasoning_effort="low"',
+             '--output-last-message', out_path],
+            out_path,
+        )
+    return ([], None)
+
+
+def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
+    """Round-10 backend: small-model semantic retrieval via either
+    `claude -p` (CC, default) or `codex exec` (codex), selected by
+    B5_RETRIEVE_CLI. Returns hit list shaped like keyword backend.
+
+    Recursion guard: when we spawn the CLI we set
+    B5_RETRIEVE_RECURSION_GUARD=1 in the child env so the nested session's
+    UPS hook short-circuits, avoiding an infinite loop.
     """
     if not user_prompt:
+        return []
+    if RETRIEVE_RECURSION_GUARD:
+        # Nested CLI session — don't re-fire retrieval, return empty so
+        # caller falls back to keyword.
         return []
     rules_for_prompt = []
     seen_ids = set()
@@ -142,26 +210,53 @@ def _retrieve_via_haiku(user_prompt, fps_dict, memory_idx):
     debug = os.environ.get('B5_RETRIEVE_DEBUG') == '1'
     debug_record = {
         'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        'backend': 'haiku',
+        'backend': 'cli',
+        'cli': RETRIEVE_CLI,
         'model': RETRIEVE_MODEL,
         'rules_count': len(rules_for_prompt),
         'prompt_truncated_len': len(prompt_text),
     }
+
+    cmd, out_path = _build_cli_invocation(prompt)
+    if not cmd:
+        debug_record['err'] = f'unknown B5_RETRIEVE_CLI={RETRIEVE_CLI!r}'
+        _write_debug(debug_record) if debug else None
+        return []
+
+    # Recursion guard: child CLI sessions must NOT re-fire retrieve hook.
+    child_env = dict(os.environ)
+    child_env['B5_RETRIEVE_RECURSION_GUARD'] = '1'
+
     out = ''
-    err = None
     try:
         t0 = time.time()
-        proc = subprocess.run(
-            ['claude', '-p', prompt, '--model', RETRIEVE_MODEL, '--output-format', 'text'],
-            capture_output=True, text=True, timeout=RETRIEVE_TIMEOUT_S,
-        )
+        if RETRIEVE_CLI == 'codex':
+            # codex reads prompt from stdin
+            proc = subprocess.run(
+                cmd, input=prompt,
+                capture_output=True, text=True,
+                timeout=RETRIEVE_TIMEOUT_S, env=child_env,
+            )
+        else:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True, text=True,
+                timeout=RETRIEVE_TIMEOUT_S, env=child_env,
+            )
         debug_record['latency_ms'] = round((time.time() - t0) * 1000, 1)
         debug_record['rc'] = proc.returncode
         if proc.returncode != 0:
             debug_record['err'] = f'rc={proc.returncode} stderr={(proc.stderr or "")[:200]}'
             _write_debug(debug_record) if debug else None
             return []
-        out = proc.stdout or ''
+        # claude: stdout = response. codex: read out_path file.
+        if out_path and os.path.isfile(out_path):
+            try:
+                out = open(out_path, encoding='utf-8', errors='replace').read()
+            except OSError:
+                out = proc.stdout or ''
+        else:
+            out = proc.stdout or ''
         debug_record['stdout_len'] = len(out)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         debug_record['err'] = f'{type(e).__name__}: {str(e)[:200]}'
@@ -171,6 +266,12 @@ def _retrieve_via_haiku(user_prompt, fps_dict, memory_idx):
         debug_record['err'] = f'{type(e).__name__}: {str(e)[:200]}'
         _write_debug(debug_record) if debug else None
         return []
+    finally:
+        if out_path:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
 
     m = re.search(r'\[[^\[\]]*\]', out, re.DOTALL)
     if not m:
@@ -270,12 +371,11 @@ def main():
 
     fps = (fp_data or {}).get('fingerprints', {}) or {}
 
-    # Round-6: backend selector
-    if RETRIEVE_BACKEND == 'haiku':
+    # Round-10: cli backend default. Falls back to keyword on any failure
+    # (CLI missing / timeout / parse error / nested-recursion guard).
+    if RETRIEVE_BACKEND == 'cli':
         memory_idx = _build_index()
-        hits = _retrieve_via_haiku(prompt, fps, memory_idx)
-        # Defensive fallback: if haiku call failed (CLI missing / timeout /
-        # parse error), fall back to keyword so user still gets some retrieval.
+        hits = _retrieve_via_cli(prompt, fps, memory_idx)
         if not hits:
             hits = _retrieve_via_keyword(prompt, fps)
     else:
