@@ -43,6 +43,7 @@ LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 import path_config  # Phase 4.1 解耦中央
 import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
+import deterministic_block  # local guard for language-related shadow false positives
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
 MEMORY_DIR = path_config.get_memory_dir()
@@ -410,6 +411,40 @@ def _judge_call(rules, last_user, response):
     return _judge_call_cli(rules, last_user, response)
 
 
+def _last_user_allows_english(last_user):
+    """Return True when the last user prompt explicitly asks for English output.
+
+    Keep this in sync with deterministic_block's lang-pref-001 bypass so the
+    shadow judge cannot be stricter than the hard-block layer.
+    """
+    if not last_user:
+        return False
+    return bool(
+        deterministic_block._EXPLICIT_ENGLISH_KW.search(last_user)
+        or deterministic_block._PAPER_CTX_KW.search(last_user)
+    )
+
+
+def _shadow_suppression_reason(verdict, last_user, response):
+    """Local false-positive guard after LLM judge verdicts.
+
+    The judge is useful for semantic misses, but it can over-alert on
+    lang-pref-001 when a Chinese user-facing response contains some technical
+    English. lang-pref-001 should mean "reply is effectively English", while
+    mixed Chinese/technical terms belong to lang-pit-130 and its whitelist.
+    """
+    rid = verdict.get('rule_id', '')
+    if rid != 'lang-pref-001':
+        return ''
+    if _last_user_allows_english(last_user):
+        return 'last_user_requested_english_or_paper_context'
+    cr = deterministic_block.chinese_ratio(response)
+    threshold = deterministic_block._CHINESE_RATIO_PREF_001()
+    if cr >= threshold:
+        return f'response_not_mostly_english: chinese_ratio={cr:.3f} >= {threshold:.3f}'
+    return ''
+
+
 def _just_blocked_by_deterministic(within_sec=5):
     """I1 fix: check if deterministic_block just fired within `within_sec` seconds.
 
@@ -504,13 +539,26 @@ def evaluate(stdin_data):
     # Pre-collect violation rule_ids 给主 compliance log 用 (M2 fix per Phase 8 review):
     # 主 entry 写 shadow_violation_rule_ids list, 让 analyze_b5_compliance.py 直接做 per-rule
     # 分桶, 不需读 b5_shadow_log.jsonl 双 source.
-    violations = [v for v in verdicts
-                  if v.get('applicable', True) and not v.get('compliant', True)]
+    raw_violations = [v for v in verdicts
+                      if v.get('applicable', True) and not v.get('compliant', True)]
+    violations = []
+    suppressed = []
+    for v in raw_violations:
+        reason = _shadow_suppression_reason(v, last_user, response)
+        if reason:
+            suppressed.append({
+                'rule_id': v.get('rule_id'),
+                'reason': reason,
+            })
+        else:
+            violations.append(v)
 
     log_entry['b5_check'] = {
         'shadow_judge_status': 'violation' if violations else 'compliant',
         'shadow_violation_count': len(violations),
         'shadow_violation_rule_ids': [v.get('rule_id') for v in violations if v.get('rule_id')],
+        'shadow_suppressed_rule_ids': [s.get('rule_id') for s in suppressed if s.get('rule_id')],
+        'shadow_suppression_reasons': suppressed,
         'shadow_judge_latency_ms': round(latency_ms, 2),
         'shadow_judge_cost_usd': round(cost_usd, 6),
         'shadow_judge_model': ('mock' if B5_TEST_MOCK_VERDICT
