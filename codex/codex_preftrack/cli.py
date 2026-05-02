@@ -34,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--apply", action="store_true",
                            help="actually perform the migration (default is to print help if neither --preview nor --apply set)")
             p.add_argument("--source", action="append", default=[])
+        if command == "install":
+            # Round-7 codex-review P1-3 fix: forward --no-hooks down so the
+            # CLI install does not write ~/.codex/hooks.json. Default
+            # remains register_hooks=True (matches install.sh phase 3
+            # expectation when bash phase 2 already ran).
+            p.add_argument("--no-hooks", action="store_true",
+                           help="skip auto-registering hooks in ~/.codex/hooks.json (state init only)")
         if command == "uninstall":
             # CX-6: real --purge-state flag; default keeps data.
             p.add_argument("--purge-state", action="store_true",
@@ -65,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     project_root = Path(args.project_root)
 
     if args.command == "install":
-        install(project_root)
+        install(project_root, register_hooks=not getattr(args, "no_hooks", False))
     elif args.command == "doctor":
         print(run_doctor(project_root).status_line)
     elif args.command == "uninstall":

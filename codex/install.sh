@@ -59,6 +59,39 @@ HOOKS_JSON="${HOME}/.codex/hooks.json"
 # ============================================================
 if [[ "${SKIP_GLOBAL}" != true ]]; then
     echo "[1/3] global runtime → ${GLOBAL_DIR}"
+    # Round-7 codex-review P2-8 fix: walk ancestors before mkdir -p so a
+    # 0-byte regular file at any component (commonly ~/.codex when another
+    # tool created it as a file) gets a clear actionable error instead of
+    # bash's generic "File exists" or mkdir's "Not a directory" message.
+    _check_dir_path() {
+        local p="$1"
+        # Build ancestor chain from / down to $p; first existing non-dir wins.
+        local current="${p}"
+        local chain=()
+        while [[ -n "${current}" && "${current}" != "/" && ! -e "${current}" ]]; do
+            chain=("${current}" "${chain[@]}")
+            current="$(dirname "${current}")"
+        done
+        # `current` is the deepest existing ancestor.
+        if [[ -e "${current}" && ! -d "${current}" ]]; then
+            echo "❌ cannot create ${p}:"
+            echo "   ancestor ${current} exists but is a regular file (not a directory)."
+            echo "   Likely cause: another tool wrote a file at that path."
+            echo "   Fix: mv \"${current}\" \"${current}.backup-\$(date +%Y%m%d)\""
+            echo "        then re-run install."
+            return 1
+        fi
+        if [[ -e "${p}" && ! -d "${p}" ]]; then
+            echo "❌ cannot create ${p}: it exists and is a regular file (not a directory)."
+            echo "   Fix: mv \"${p}\" \"${p}.backup-\$(date +%Y%m%d)\""
+            echo "        then re-run install."
+            return 1
+        fi
+        return 0
+    }
+    if ! _check_dir_path "${GLOBAL_DIR}"; then
+        exit 1
+    fi
     mkdir -p "${GLOBAL_DIR}"
 
     # Detect self-install (standalone skill folder == GLOBAL_DIR). Skip the
@@ -171,11 +204,18 @@ fi
 # ============================================================
 if [[ "${SKIP_PROJECT}" != true ]]; then
     echo "[3/3] per-project state init → $(pwd)/.codex/preference-tracker/"
+    # Round-7 codex-review P1-3 fix: forward --no-hooks down so phase 3 does
+    # not silently re-register hooks the user already opted out of via the
+    # bash --no-hooks flag.
+    PHASE3_ARGS=(${PASSTHRU[@]+"${PASSTHRU[@]}"})
+    if [[ "${NO_HOOKS}" == true ]]; then
+        PHASE3_ARGS+=("--no-hooks")
+    fi
     if [[ -d "${GLOBAL_DIR}/codex_preftrack" ]]; then
-        PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m codex_preftrack install ${PASSTHRU[@]+"${PASSTHRU[@]}"}
+        PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m codex_preftrack install ${PHASE3_ARGS[@]+"${PHASE3_ARGS[@]}"}
     else
         # Fall back to in-tree code (works for repo dev / no global install).
-        PYTHONPATH="${REPO_ROOT}/codex" "${PYTHON}" -m codex_preftrack install ${PASSTHRU[@]+"${PASSTHRU[@]}"}
+        PYTHONPATH="${REPO_ROOT}/codex" "${PYTHON}" -m codex_preftrack install ${PHASE3_ARGS[@]+"${PHASE3_ARGS[@]}"}
     fi
     echo "  ✓ state initialized"
 else

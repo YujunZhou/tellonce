@@ -210,6 +210,17 @@ fingerprints:
     enforcement: deterministic
     priority: high
 
+  bib-pref-001:
+    desc: "BibTeX 必须从权威 DOI 源原样复制; 禁止改 citation key 或字段"
+    triggers:
+      - "references.bib"
+      - ".bib"
+      - "bibtex"
+      - "citation key"
+    enforcement: deterministic
+    priority: high
+    action: "Use resolve_bib.py --append-to to append raw DOI BibTeX (writes provenance to bib_sources.jsonl). Never rename a key or rewrite a field after append — the codex PostToolUse drift check will fire bib-pref-001."
+
 # Notes for forks:
 #   - The rules above are kept generic. To add project-specific rules
 #     (your own task IDs, internal jargon, paper section names, etc.),

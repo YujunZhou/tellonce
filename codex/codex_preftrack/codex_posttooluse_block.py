@@ -37,21 +37,22 @@ def _load_stdin() -> dict:
 
 
 def _check_bib_drift(payload: dict) -> list[dict]:
-    """Round-7: when a tool call writes a .bib file, run any sibling
-    `verify_bib_ledger.py` to confirm the appended raw BibTeX matches the
-    provenance ledger byte-for-byte. Returns a list of violation dicts in
-    the same shape evaluate_rules() returns (rule_id / reason / evidence).
+    """When a tool call writes a .bib file, verify each ledger entry is
+    verbatim-present in the .bib file. Returns a list of violation dicts
+    in the same shape evaluate_rules() returns.
+
+    Round-7 codex-review P0-1 fix (Critical, 2026-05-02): we DO NOT spawn
+    `<project>/scripts/verify_bib_ledger.py` anymore — that ran user-
+    controlled Python code on every .bib write. Now we use the in-bundle
+    `bib_verifier` module which reads the .bib + ledger as DATA only.
 
     Triggers:
-      - tool_input.file_path ends in `.bib`
-      - tool_input.command contains `references.bib` (Bash flow)
-    The verifier script must live at <project>/scripts/verify_bib_ledger.py
-    or <ledger_parent>/scripts/verify_bib_ledger.py — paths a user picks
-    when they organize their paper repo. We probe both.
+      - tool_input.file_path / tool_input.path ends in `.bib`
+      - tool_input.command contains a `*.bib` token (Bash flow)
 
-    Failing closed: if no verifier script is found, we don't synthesize a
-    violation. The check exists to catch drift, not to require the verifier
-    in every project.
+    Fail-open: if no ledger file is found beside the .bib, we synthesize
+    no violation (the drift check is opt-in by virtue of having a
+    bib_sources.jsonl ledger created by resolve_bib.py).
     """
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
@@ -62,16 +63,22 @@ def _check_bib_drift(payload: dict) -> list[dict]:
         bib_paths.append(Path(fp))
     cmd = tool_input.get("command") or ""
     if isinstance(cmd, str):
-        # crude: look for any *.bib token in the command
         import re as _re
-        for m in _re.finditer(r"\b(\S+\.bib)\b", cmd):
+        for m in _re.finditer(r"(\S+\.bib)\b", cmd):
             bib_paths.append(Path(m.group(1)))
     if not bib_paths:
         return []
 
-    # Resolve cwd anchor
     cwd = payload.get("cwd") or os.environ.get("CODEX_PROJECT_ROOT") or os.getcwd()
     cwd_path = Path(cwd)
+
+    # Lazy import of the in-bundle verifier (kept lazy so the rest of the
+    # adapter still loads even if bib_verifier import fails for some weird
+    # reason — fail-open is the contract).
+    try:
+        from .bib_verifier import check_drift, has_blocking_drift
+    except Exception:
+        return []
 
     violations: list[dict] = []
     seen_bibs: set[Path] = set()
@@ -83,47 +90,48 @@ def _check_bib_drift(payload: dict) -> list[dict]:
         seen_bibs.add(bib)
         if not bib.is_file():
             continue
-        # Find verify_bib_ledger.py: try (a) <bib_parent>/scripts/, (b) <cwd>/scripts/
-        candidates = [
-            bib.parent / "scripts" / "verify_bib_ledger.py",
-            cwd_path / "scripts" / "verify_bib_ledger.py",
-        ]
-        verifier = next((c for c in candidates if c.is_file()), None)
-        if verifier is None:
-            continue
-        # Locate the ledger (same dir as bib by default, or parent)
         ledger_candidates = [
             bib.parent / "bib_sources.jsonl",
             bib.parent.parent / "bib_sources.jsonl",
         ]
         ledger = next((c for c in ledger_candidates if c.is_file()), None)
         if ledger is None:
-            # No ledger -> nothing to verify (not a drift, just untracked).
             continue
+        # Round-7 codex-review P1-5 fix: surface bib_verifier failures
+        # explicitly so users know drift-check was skipped (instead of a
+        # silent continue). bib_verifier itself is in-bundle pure-python
+        # — no subprocess/timeout — so this catch is for unexpected I/O
+        # errors only.
         try:
-            import subprocess as _sp
-            proc = _sp.run(
-                [sys.executable, str(verifier), "--ledger", str(ledger), "--bib", str(bib)],
-                capture_output=True, text=True, timeout=20,
-            )
-        except Exception:
-            continue
-        if proc.returncode == 0:
-            continue
-        if proc.returncode != 1:
-            # rc=2 (or anything else) is a fatal verifier error — verifier
-            # itself broke, not agent-caused drift. Don't synthesize a
-            # bib-pref-001 violation; just log to stderr and move on.
+            drift_records, summary = check_drift(bib, ledger)
+        except (OSError, ValueError, TypeError) as e:
             try:
                 sys.stderr.write(
-                    f"[preference-tracker] verify_bib_ledger.py exited with "
-                    f"rc={proc.returncode} (fatal); skipping drift check for "
-                    f"{bib.name}.\n"
+                    f"[preference-tracker] bib_verifier I/O error on "
+                    f"{bib.name}: {type(e).__name__}: {e}; drift check skipped\n"
                 )
             except Exception:
                 pass
             continue
-        head = (proc.stdout or "")[:600]
+        except Exception as e:
+            try:
+                sys.stderr.write(
+                    f"[preference-tracker] bib_verifier unexpected error on "
+                    f"{bib.name}: {type(e).__name__}: {e}; drift check skipped\n"
+                )
+            except Exception:
+                pass
+            continue
+        if not has_blocking_drift(summary):
+            continue
+        # Build a short readable evidence excerpt from the first few drift records.
+        head_lines = []
+        for r in drift_records[:5]:
+            head_lines.append(
+                f"[{r['status']}] {r.get('title','?')[:60]} (DOI: {r.get('doi','?')}): "
+                f"{r.get('reason','?')}"
+            )
+        head = "\n".join(head_lines)
         violations.append({
             "rule_id": "bib-pref-001",
             "reason": (
@@ -265,28 +273,32 @@ def main() -> int:
         return 0
 
     text = _extract_agent_text(payload)
-    if not text or len(text) < 30:
-        # Small inputs are usually metadata or short shell commands; skip to
-        # avoid noise.
-        return 0
 
-    try:
-        violations = db.evaluate_rules(text, [])
-    except Exception:
-        violations = []
-
-    # Round-7 fix: also run the BibTeX provenance verifier when the agent
-    # touches a .bib file. resolve_bib.py appends raw BibTeX + writes a
-    # bib_sources.jsonl ledger; verify_bib_ledger.py confirms each ledger
-    # entry is verbatim-present in the .bib. PostToolUse is the right hook
-    # because we need to catch a key-rename / field-rewrite *after* the
-    # tool wrote, not before.
+    # Round-7 codex-review P0-2 fix (High, 2026-05-02): bib drift check must
+    # run FIRST, before the short-text guard. A common .bib edit is just
+    # renaming a citation key (`x` -> `y`): new_string is <30 chars and the
+    # old short-text guard returned 0, completely bypassing drift detection.
+    # Order now: bib check -> short-text guard -> deterministic regex.
+    bib_violations: list[dict] = []
     try:
         bib_violations = _check_bib_drift(payload)
-        if bib_violations:
-            violations = list(violations) + bib_violations
     except Exception:
         pass
+
+    if not text or len(text) < 30:
+        # Skip the deterministic regex pass on short inputs (noise), but
+        # keep bib_violations from above — those are length-independent.
+        if bib_violations:
+            violations = bib_violations
+        else:
+            return 0
+    else:
+        try:
+            violations = db.evaluate_rules(text, [])
+        except Exception:
+            violations = []
+        if bib_violations:
+            violations = list(violations) + bib_violations
 
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

@@ -837,6 +837,137 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     self.assertGreaterEqual(len(vios), 1)
                     self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
 
+    def test_posttooluse_bib_check_does_not_exec_project_script(self):
+        """Round-7 P0-1 (Critical): drift check uses in-bundle bib_verifier;
+        a hostile scripts/verify_bib_ledger.py in the project tree must NOT
+        be exec'd. We prove this by dropping a script that would set a
+        sentinel file if executed and confirming the sentinel never appears."""
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "project"
+            project.mkdir()
+            bib = project / "refs.bib"
+            bib.write_text("@article{x}\n", encoding="utf-8")
+            ledger = project / "bib_sources.jsonl"
+            ledger.write_text(json.dumps({
+                "bibtex_raw": "@article{x}",
+                "appended_to": str(bib),
+                "doi": "1",
+                "matched_title": "x",
+            }) + "\n", encoding="utf-8")
+            scripts = project / "scripts"
+            scripts.mkdir()
+            sentinel = project / "PWNED.txt"
+            # Hostile verifier: would write a sentinel and exit 1 (drift).
+            (scripts / "verify_bib_ledger.py").write_text(
+                f"#!/usr/bin/env python3\n"
+                f"open(r'{sentinel}', 'w').write('exec-from-cwd')\n"
+                f"import sys\nsys.exit(1)\n",
+                encoding="utf-8",
+            )
+            payload = {
+                "tool_input": {"file_path": str(bib)},
+                "cwd": str(project),
+                "session_id": "no-exec",
+            }
+            cpb._check_bib_drift(payload)
+            self.assertFalse(sentinel.exists(),
+                "PostToolUse must NOT execute project-supplied scripts")
+
+    def test_posttooluse_bib_drift_runs_on_short_text_edit(self):
+        """Round-7 P0-2 (High): a short citation-key rename (new_string < 30
+        chars) must still trigger bib drift detection. Old code returned
+        early on short text and never got to _check_bib_drift."""
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "project"
+            project.mkdir()
+            bib = project / "refs.bib"
+            # bib content has the renamed key (drift)
+            bib.write_text(
+                "@article{Smith2024_renamed,\n  title = {T}\n}\n",
+                encoding="utf-8",
+            )
+            ledger = project / "bib_sources.jsonl"
+            # ledger has the original key
+            ledger.write_text(json.dumps({
+                "bibtex_raw": "@article{Smith2024_orig,\n  title = {T}\n}",
+                "appended_to": str(bib),
+                "doi": "1",
+                "matched_title": "T",
+            }) + "\n", encoding="utf-8")
+            payload = {
+                "tool_name": "Edit",
+                "tool_input": {
+                    "file_path": str(bib),
+                    "old_string": "Smith2024_orig",
+                    "new_string": "Smith2024_renamed",  # under 30 chars
+                },
+                "cwd": str(project),
+                "session_id": "short-edit",
+            }
+            vios = cpb._check_bib_drift(payload)
+            self.assertEqual(len(vios), 1)
+            self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
+
+    def test_cli_install_no_hooks_flag(self):
+        """Round-7 P1-3 (High): codex_preftrack install --no-hooks must NOT
+        write ~/.codex/hooks.json."""
+        from codex_preftrack.cli import main
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            project = Path(td) / "project"
+            home.mkdir()
+            project.mkdir()
+            # Pre-create hooks dir so the install would normally find it
+            (home / ".codex" / "skills" / "preference-tracker" / "hooks").mkdir(parents=True)
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                rc = main(["install", "--project-root", str(project), "--no-hooks"])
+            self.assertEqual(rc, 0)
+            hooks_json = home / ".codex" / "hooks.json"
+            self.assertFalse(hooks_json.is_file(),
+                "install --no-hooks must not write ~/.codex/hooks.json")
+
+    def test_doctor_hooks_partial_when_event_mismatch(self):
+        """Round-7 P1-6 (Medium): doctor must mark a hook registered to the
+        WRONG event as PARTIAL, not silently report PASS just because the
+        basename appears somewhere."""
+        from codex_preftrack import install_codex_hooks as ich
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            home = base / "home"
+            project = base / "project"
+            home.mkdir()
+            project.mkdir()
+            with patch.dict(
+                os.environ,
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+            ):
+                install(project, register_hooks=False)
+                # Build a hooks.json with PostToolUse hook misregistered under
+                # UserPromptSubmit (still under preference-tracker/hooks/ path).
+                hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+                hooks_dir.mkdir(parents=True)
+                hooks_json = home / ".codex" / "hooks.json"
+                # First do a normal --add to get the right baseline,
+                # then mutate one entry to the wrong event.
+                ich.cmd_add(str(hooks_json), str(hooks_dir))
+                data = json.loads(hooks_json.read_text())
+                # Move posttooluse-deterministic-block.sh from PostToolUse to UserPromptSubmit
+                ptu = data["hooks"]["PostToolUse"]
+                ups = data["hooks"]["UserPromptSubmit"]
+                bad_hook = ptu[0]["hooks"][0]
+                ups[0]["hooks"].append(bad_hook)
+                # Drop the PostToolUse entirely (simulates reg under wrong event)
+                del data["hooks"]["PostToolUse"]
+                hooks_json.write_text(json.dumps(data, indent=2))
+                report = run_doctor(project)
+                self.assertEqual(report.sections["hooks"], "PARTIAL",
+                    "doctor must catch event mismatch")
+
     def test_posttooluse_bib_drift_fatal_rc2_does_not_synthesize_violation(self):
         """If verify_bib_ledger.py fatally errors (rc=2), don't fake a
         bib-pref-001 violation — log to stderr and skip."""

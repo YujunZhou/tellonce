@@ -109,12 +109,17 @@ def _private_path_status(state_root: Path) -> str:
 def _hooks_status() -> str:
     """Round-7: report whether codex global hook registration is in place.
 
+    Round-7 codex-review P1-6 fix (Medium, 2026-05-02): compare (event,
+    basename) pairs, not basenames alone. Otherwise a hook registered to
+    the WRONG event (e.g. posttooluse-deterministic-block.sh under
+    UserPromptSubmit) would still report PASS, masking a broken install.
+
     Returns:
-      PASS         — all 5 PT hooks (UPS x3 + PostToolUse + SessionStart) registered
-      PARTIAL      — some PT hooks registered, others missing (broken install)
-      NOT_INSTALLED — no PT hooks in ~/.codex/hooks.json (still OK if user only
-                      wants wrapper-driven enforcement, not blocking)
-      FAIL         — hooks.json corrupt
+      PASS          — every (event, basename) pair from PT_HOOKS is present
+                      and registered to the correct event
+      PARTIAL       — some pairs missing OR a basename registered to wrong event
+      NOT_INSTALLED — no PT hooks at all
+      FAIL          — hooks.json corrupt
     """
     import json
     hooks_json = Path.home() / ".codex" / "hooks.json"
@@ -128,17 +133,25 @@ def _hooks_status() -> str:
         from .install_codex_hooks import PT_HOOKS, _is_pt_command
     except Exception:
         return "FAIL"
-    expected_basenames = {bn for lst in PT_HOOKS.values() for bn, _ in lst}
-    found_basenames: set[str] = set()
-    for chain in (data.get("hooks") or {}).values():
+    expected_pairs = {
+        (event, basename)
+        for event, lst in PT_HOOKS.items()
+        for basename, _ in lst
+    }
+    found_pairs: set[tuple[str, str]] = set()
+    found_any = False
+    for event, chain in (data.get("hooks") or {}).items():
         for entry in chain or []:
             for h in entry.get("hooks") or []:
                 cmd = h.get("command", "")
-                if _is_pt_command(cmd):
-                    found_basenames.add(cmd.rsplit("/", 1)[-1])
-    if not found_basenames:
+                if not _is_pt_command(cmd):
+                    continue
+                found_any = True
+                basename = cmd.rsplit("/", 1)[-1]
+                found_pairs.add((event, basename))
+    if not found_any:
         return "NOT_INSTALLED"
-    if found_basenames == expected_basenames:
+    if found_pairs == expected_pairs:
         return "PASS"
     return "PARTIAL"
 
