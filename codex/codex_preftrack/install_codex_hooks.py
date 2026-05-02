@@ -211,28 +211,47 @@ def cmd_remove(hooks_path: str, hooks_dir: str | None = None) -> int:
 
 
 def cmd_verify(hooks_path: str, hooks_dir: str) -> int:
+    """Round-8 codex-review P1-1 fix (Medium, 2026-05-02): verify (event,
+    command) pair, not just command-path presence. Otherwise a hook
+    misregistered to the wrong event (e.g. PostToolUse hook under
+    UserPromptSubmit) would print a green check and rc=0, masking a
+    broken install. Now we distinguish:
+      ✓                — registered to the correct event
+      ✗ (missing)      — not registered at all
+      ⚠ (wrong event)  — registered, but to a different event than expected
+    Returns 1 if any hook is missing OR registered to the wrong event.
+    """
     hooks_dir_p = Path(hooks_dir).expanduser().resolve()
-    expected = {
-        str(hooks_dir_p / basename): event
+    expected_pairs = {
+        (event, str(hooks_dir_p / basename)): basename
         for event, lst in PT_HOOKS.items()
         for basename, _ in lst
     }
-    data = _load_hooks_json(hooks_path)
-    found_cmds: set[str] = set()
-    for event, chain in (data.get("hooks") or {}).items():
+    # Map command -> set of events it's registered under.
+    cmd_to_events: dict[str, set[str]] = {}
+    for event, chain in (data := _load_hooks_json(hooks_path)).get("hooks", {}).items():
         for entry in chain:
             for h in entry.get("hooks", []) or []:
                 cmd = h.get("command", "")
-                if cmd in expected:
-                    found_cmds.add(cmd)
-    missing = [c for c in expected if c not in found_cmds]
+                if not cmd:
+                    continue
+                cmd_to_events.setdefault(cmd, set()).add(event)
     print(f"  Codex preference-tracker hooks 注册情况:")
     print(f"    hooks.json: {hooks_path}")
     print(f"    hooks dir:  {hooks_dir_p}")
-    for cmd, event in expected.items():
-        status = "✓" if cmd in found_cmds else "✗"
-        print(f"    {status} {os.path.basename(cmd)} → {event}")
-    return 0 if not missing else 1
+    bad = 0
+    for (expected_event, cmd), basename in expected_pairs.items():
+        events_seen = cmd_to_events.get(cmd, set())
+        if expected_event in events_seen:
+            print(f"    ✓ {basename} → {expected_event}")
+        elif events_seen:
+            wrong = ", ".join(sorted(events_seen))
+            print(f"    ⚠ {basename} registered to {wrong}, expected {expected_event}")
+            bad += 1
+        else:
+            print(f"    ✗ {basename} → {expected_event} (missing)")
+            bad += 1
+    return 0 if bad == 0 else 1
 
 
 def main(argv: list[str] | None = None) -> int:

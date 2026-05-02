@@ -837,6 +837,62 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     self.assertGreaterEqual(len(vios), 1)
                     self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
 
+    def test_install_codex_hooks_verify_catches_wrong_event(self):
+        """Round-8 P1-1 (Medium): cmd_verify must rc=1 when a hook is
+        registered to the wrong event, not just when missing. Symmetric
+        with doctor._hooks_status PARTIAL detection."""
+        from codex_preftrack import install_codex_hooks as ich
+        with tempfile.TemporaryDirectory() as td:
+            hooks_json = Path(td) / "hooks.json"
+            hooks_dir = Path(td) / "preference-tracker" / "hooks"
+            hooks_dir.mkdir(parents=True)
+            ich.cmd_add(str(hooks_json), str(hooks_dir))
+            # Move PostToolUse hook to UserPromptSubmit
+            data = json.loads(hooks_json.read_text())
+            ptu = data["hooks"]["PostToolUse"]
+            ups = data["hooks"]["UserPromptSubmit"]
+            wrong = ptu[0]["hooks"][0]
+            ups[0]["hooks"].append(wrong)
+            del data["hooks"]["PostToolUse"]
+            hooks_json.write_text(json.dumps(data, indent=2))
+            rc = ich.cmd_verify(str(hooks_json), str(hooks_dir))
+            self.assertEqual(rc, 1, "wrong-event registration must fail verify")
+
+    def test_posttooluse_bib_drift_handles_quoted_bash_path(self):
+        """Round-8 P1-2 (Medium): bash `echo x >> "refs.bib"` must still
+        trigger drift detection. Old regex captured the leading quote,
+        making bib.is_file() return False and the check silently skip."""
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "project"
+            project.mkdir()
+            bib = project / "refs.bib"
+            bib.write_text("@article{Renamed}\n", encoding="utf-8")
+            ledger = project / "bib_sources.jsonl"
+            ledger.write_text(json.dumps({
+                "bibtex_raw": "@article{Original}",
+                "appended_to": str(bib),
+                "matched_title": "X",
+                "doi": "1",
+            }) + "\n", encoding="utf-8")
+            for cmd_template in [
+                'echo x >> {bib}',
+                'echo x >> "{bib}"',
+                "echo x >> '{bib}'",
+            ]:
+                cmd = cmd_template.format(bib=str(bib))
+                payload = {
+                    "tool_name": "Bash",
+                    "tool_input": {"command": cmd},
+                    "cwd": str(project),
+                    "session_id": "quoted-bash",
+                }
+                vios = cpb._check_bib_drift(payload)
+                self.assertEqual(
+                    [v["rule_id"] for v in vios], ["bib-pref-001"],
+                    f"quoted variant {cmd_template!r} must trigger drift",
+                )
+
     def test_bib_verifier_verify_one_states(self):
         """Direct unit tests for bib_verifier.verify_one — every status path."""
         from codex_preftrack.bib_verifier import verify_one

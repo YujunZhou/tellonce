@@ -62,10 +62,28 @@ def _check_bib_drift(payload: dict) -> list[dict]:
     if isinstance(fp, str) and fp.endswith(".bib"):
         bib_paths.append(Path(fp))
     cmd = tool_input.get("command") or ""
-    if isinstance(cmd, str):
-        import re as _re
-        for m in _re.finditer(r"(\S+\.bib)\b", cmd):
-            bib_paths.append(Path(m.group(1)))
+    if isinstance(cmd, str) and cmd:
+        # Round-8 codex-review P1-2 fix (Medium, 2026-05-02): bash commands
+        # commonly quote paths (`echo x >> "refs.bib"`), and our previous
+        # `\S+\.bib` regex captured the leading quote. Use shlex.split to
+        # parse shell-aware tokens, falling back to the regex on parse
+        # failure (malformed shell, EOF in string, etc.).
+        import shlex as _shlex
+        tokens: list[str] = []
+        try:
+            tokens = _shlex.split(cmd, posix=True)
+        except ValueError:
+            tokens = []
+        for tok in tokens:
+            if tok.endswith(".bib"):
+                bib_paths.append(Path(tok))
+        if not tokens:
+            # shlex couldn't parse — fall back to regex. Strip leftover
+            # quote chars that the regex might have captured.
+            import re as _re
+            for m in _re.finditer(r"(\S+\.bib)\b", cmd):
+                stripped = m.group(1).strip("\"'")
+                bib_paths.append(Path(stripped))
     if not bib_paths:
         return []
 
