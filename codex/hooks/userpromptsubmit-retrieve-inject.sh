@@ -5,9 +5,9 @@
 # Codex hook stdin: JSON with `prompt`, `cwd`, `session_id`, `transcript_path`.
 # Output: JSON with hookSpecificOutput.additionalContext.
 #
-# Round-10 (2026-05-02): default backend is now 'cli' (small-model semantic
-# match). Codex picks codex CLI + gpt-5.4-mini by default; user can override
-# via B5_RETRIEVE_BACKEND/B5_RETRIEVE_CLI/B5_RETRIEVE_MODEL.
+# Round-10 (2026-05-02): default backend is now api/deepinfra semantic
+# retrieval. User can override via B5_RETRIEVE_BACKEND/
+# B5_RETRIEVE_API_PROVIDER/B5_RETRIEVE_MODEL.
 #
 # Defensive: any failure -> exit 0 silently (never block codex turns).
 set +e
@@ -26,10 +26,13 @@ if [[ ! -f "${SHARED_LIB}/retrieve_inject.py" ]]; then
     exit 0
 fi
 
-# Per-runtime defaults: codex hook runs in codex sessions, so route the
-# retrieve CLI through codex + gpt-5.4-mini. User can override via env.
+# Per-runtime default: Codex hook uses the same api/deepinfra retrieval
+# path as the shared config. Keep B5_RETRIEVE_CLI for explicit cli-mode
+# overrides only.
+export B5_RETRIEVE_BACKEND="${B5_RETRIEVE_BACKEND:-api}"
+export B5_RETRIEVE_API_PROVIDER="${B5_RETRIEVE_API_PROVIDER:-deepinfra}"
+export B5_RETRIEVE_MODEL="${B5_RETRIEVE_MODEL:-deepseek-ai/DeepSeek-V4-Flash}"
 export B5_RETRIEVE_CLI="${B5_RETRIEVE_CLI:-codex}"
-export B5_RETRIEVE_MODEL="${B5_RETRIEVE_MODEL:-gpt-5.4-mini}"
 
 # Capture stdin once so we can route to PYTHONPATH-augmented subprocess.
 PT_STDIN="$(cat)"

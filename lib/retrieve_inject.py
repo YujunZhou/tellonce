@@ -139,14 +139,20 @@ RETRIEVE_RECURSION_GUARD = os.environ.get('B5_RETRIEVE_RECURSION_GUARD') == '1'
 
 
 _RULE_INDEX = None
+_RULE_DESC_INDEX = None
 
 
 def _build_index():
-    """One-pass scan of memory dir → {atomic_id: (applies_when, condition)}."""
-    global _RULE_INDEX
+    """One-pass scan of memory dir → {atomic_id: (applies_when, condition)}.
+    Also caches description into _RULE_DESC_INDEX so render can fall back
+    to the .md frontmatter when fingerprints.yaml has no `desc` for the
+    rule (Round-10d UX fix: rules that exist only in memory dir used to
+    render with empty desc in the additionalContext block)."""
+    global _RULE_INDEX, _RULE_DESC_INDEX
     if _RULE_INDEX is not None:
         return _RULE_INDEX
     idx = {}
+    desc_idx: dict[str, str] = {}
     try:
         for path in glob.glob(os.path.join(MEMORY_DIR, '*.md')):
             if os.path.basename(path) == 'MEMORY.md':
@@ -161,18 +167,30 @@ def _build_index():
                 continue
             aw = re.search(r'^applies_when:\s*(.+)$', c, re.MULTILINE)
             cond = re.search(r'^condition:\s*"?([^\n"]+)"?', c, re.MULTILINE)
+            d = re.search(r'^description:\s*(.+)$', c, re.MULTILINE)
             idx[m.group(1)] = (
                 aw.group(1).strip() if aw else '',
                 cond.group(1).strip() if cond else '',
             )
+            if d:
+                desc_idx[m.group(1)] = d.group(1).strip()
     except Exception:
         pass
     _RULE_INDEX = idx
+    _RULE_DESC_INDEX = desc_idx
     return idx
 
 
 def read_rule_applicability(atomic_id):
     return _build_index().get(atomic_id, ('', ''))
+
+
+def read_rule_description(atomic_id: str) -> str:
+    """Return the .md frontmatter `description:` for `atomic_id`, or '' if
+    the rule isn't in memory dir or has no description field."""
+    if _RULE_DESC_INDEX is None:
+        _build_index()
+    return (_RULE_DESC_INDEX or {}).get(atomic_id, '')
 
 
 def _write_debug(record):
@@ -437,14 +455,26 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
 
 def _build_rules_for_prompt(fps_dict, memory_idx):
     """Shared helper: collect rule descriptions for the LLM prompt across
-    cli/api backends."""
+    cli/api backends.
+
+    Round-10d desc-fallback: rules that exist only in memory dir (not in
+    fingerprints.yaml) used to render with empty desc in additionalContext,
+    making the user-facing block read like
+        - **[comm-pref-009]** (normal)
+            • applies_when: ...
+    Now we fall back to the .md frontmatter `description:` so users see
+    a meaningful one-liner even for memory-only rules.
+    """
     rules_for_prompt = []
     seen_ids = set()
     for atomic_id, rule in (fps_dict or {}).items():
         if not isinstance(rule, dict) or atomic_id in seen_ids:
             continue
         seen_ids.add(atomic_id)
-        desc = (rule.get('desc') or '')[:140]
+        desc = (rule.get('desc') or '')
+        if not desc:
+            desc = read_rule_description(atomic_id)
+        desc = desc[:140]
         applies_when, _cond = memory_idx.get(atomic_id, ('', ''))
         rules_for_prompt.append({
             'id': atomic_id,
@@ -459,7 +489,7 @@ def _build_rules_for_prompt(fps_dict, memory_idx):
         seen_ids.add(atomic_id)
         rules_for_prompt.append({
             'id': atomic_id,
-            'desc': '',
+            'desc': read_rule_description(atomic_id)[:140],
             'applies_when': (applies_when or '')[:200],
             'priority': 'normal',
             'action': '',
@@ -727,7 +757,12 @@ def main():
     lines.append('')
     for h in hits[:MAX_SHOW]:
         applies_when, condition = read_rule_applicability(h['id'])
-        lines.append(f"- **[{h['id']}]** ({h['priority']}) {h['desc']}")
+        # Round-10d desc-fallback: keyword-backend hits may have empty desc
+        # if the rule is memory-only (not in fingerprints.yaml). Fall back
+        # to the .md frontmatter `description:` so the rendered block has
+        # a meaningful one-liner.
+        desc = h.get('desc') or read_rule_description(h['id'])
+        lines.append(f"- **[{h['id']}]** ({h['priority']}) {desc}")
         if h['action']:
             lines.append(f"    • action: {h['action']}")
         if applies_when:
