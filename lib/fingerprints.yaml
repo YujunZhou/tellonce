@@ -222,14 +222,16 @@ fingerprints:
     action: "Use resolve_bib.py --append-to to append raw DOI BibTeX (writes provenance to bib_sources.jsonl). Never rename a key or rewrite a field after append — the codex PostToolUse drift check will fire bib-pref-001."
 
   bib-pref-002:
-    desc: "BibTeX 条目必须有 provenance: ledger 记录 OR trusted-key list — 防 phantom citation desk reject"
+    desc: "BibTeX 每条必须有出处 (ledger 自动写 OR 你手动写进 trusted), 防引用不存在被 desk reject"
     triggers:
       - "references.bib"
-      - "phantom citation"
+      - "投稿"
+      - "submit paper"
       - "desk reject"
+      - "提交 paper"
     enforcement: deterministic
     priority: critical
-    action: "每条 .bib 条目必须出现在 bib_sources.jsonl (resolve_bib 写) 或 bib_trusted_keys.txt (用户手动 vouching). 加新条目走 resolve_bib.py --append-to 自动写 ledger; 自己 Google Scholar 来的论文加进 bib_trusted_keys.txt. PostToolUse orphan audit 触发 bib-pref-002 — 提交 paper 前必须 0 orphan."
+    action: "新加条目: python3 scripts/resolve_bib.py \"Paper Title\" --append-to references.bib (自动从 DOI 拉真 BibTeX + 写 bib_sources.jsonl 留出处). 自己 Google Scholar 加的论文: 把 citation key 一行加到 bib_trusted_keys.txt 表示你担保. 投稿前必跑: python3 scripts/verify_bib_ledger.py --audit --strict, rc=0 才能 submit (rc=1 = 有 .bib 条目没出处, 审稿人查不到 DOI 就 desk reject)."
 
 # Notes for forks:
 #   - The rules above are kept generic. To add project-specific rules
