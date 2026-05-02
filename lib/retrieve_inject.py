@@ -40,6 +40,9 @@ MAX_SHOW = 10
 PROMPT_TRUNCATE = 4000
 
 # Round-10: backend default flipped to 'cli' (small-model semantic match).
+# Round-10b: 'api' backend added for OpenAI-compatible HTTP endpoints
+# (DeepInfra / OpenRouter / etc.) — fastest path because no CLI cold-start
+# and no nested-hook collision. Recommended for paper experiment runs.
 RETRIEVE_BACKEND = os.environ.get('B5_RETRIEVE_BACKEND', 'cli').lower()
 # Backwards compat: accept 'haiku' as alias for 'cli' (existing users
 # may still have B5_RETRIEVE_BACKEND=haiku exported).
@@ -50,12 +53,23 @@ _DEFAULT_MODEL_BY_CLI = {
     'claude': 'claude-haiku-4-5',
     'codex': 'gpt-5.4-mini',
 }
-RETRIEVE_MODEL = os.environ.get('B5_RETRIEVE_MODEL') or _DEFAULT_MODEL_BY_CLI.get(
-    RETRIEVE_CLI, 'claude-haiku-4-5'
-)
+# API backend selectors
+RETRIEVE_API_PROVIDER = os.environ.get('B5_RETRIEVE_API_PROVIDER', 'openrouter').lower()
+_DEFAULT_MODEL_BY_API = {
+    # User confirmed DeepSeek V4 flash for experiment runs. If the model
+    # name doesn't resolve on the chosen provider, override via
+    # B5_RETRIEVE_MODEL env.
+    'openrouter': 'deepseek/deepseek-v4-flash',
+    'deepinfra': 'deepseek-ai/DeepSeek-V4-Flash',
+}
+if RETRIEVE_BACKEND == 'api':
+    _backend_default_model = _DEFAULT_MODEL_BY_API.get(RETRIEVE_API_PROVIDER, '')
+else:
+    _backend_default_model = _DEFAULT_MODEL_BY_CLI.get(RETRIEVE_CLI, 'claude-haiku-4-5')
+RETRIEVE_MODEL = os.environ.get('B5_RETRIEVE_MODEL') or _backend_default_model
 RETRIEVE_TIMEOUT_S = int(os.environ.get('B5_RETRIEVE_TIMEOUT', '12'))
 RETRIEVE_HAIKU_PROMPT_BUDGET = 2000  # truncate user prompt
-RETRIEVE_HAIKU_RULE_LIMIT = 40       # max rules to show CLI
+RETRIEVE_HAIKU_RULE_LIMIT = 40       # max rules to show backend
 
 # Recursion guard: when retrieve_inject calls the CLI, it sets this env.
 # Hook scripts check it and exit 0 immediately so a nested session doesn't
@@ -360,6 +374,211 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
     return hits
 
 
+def _build_rules_for_prompt(fps_dict, memory_idx):
+    """Shared helper: collect rule descriptions for the LLM prompt across
+    cli/api backends."""
+    rules_for_prompt = []
+    seen_ids = set()
+    for atomic_id, rule in (fps_dict or {}).items():
+        if not isinstance(rule, dict) or atomic_id in seen_ids:
+            continue
+        seen_ids.add(atomic_id)
+        desc = (rule.get('desc') or '')[:140]
+        applies_when, _cond = memory_idx.get(atomic_id, ('', ''))
+        rules_for_prompt.append({
+            'id': atomic_id,
+            'desc': desc,
+            'applies_when': (applies_when or '')[:200],
+            'priority': rule.get('priority', 'normal'),
+            'action': (rule.get('action') or '')[:140],
+        })
+    for atomic_id, (applies_when, _cond) in memory_idx.items():
+        if atomic_id in seen_ids:
+            continue
+        seen_ids.add(atomic_id)
+        rules_for_prompt.append({
+            'id': atomic_id,
+            'desc': '',
+            'applies_when': (applies_when or '')[:200],
+            'priority': 'normal',
+            'action': '',
+        })
+    return rules_for_prompt[:RETRIEVE_HAIKU_RULE_LIMIT]
+
+
+def _build_llm_prompt_text(user_prompt, rules_for_prompt):
+    rules_lines = [
+        f"- {r['id']}: {r['desc']}" + (f" | applies_when: {r['applies_when']}" if r['applies_when'] else '')
+        for r in rules_for_prompt
+    ]
+    rules_text = '\n'.join(rules_lines)
+    prompt_text = user_prompt[:RETRIEVE_HAIKU_PROMPT_BUDGET]
+    return (
+        "You select which preference rules apply to a user message.\n\n"
+        "User message:\n\"\"\"\n" + prompt_text + "\n\"\"\"\n\n"
+        "Available rules (one per line, format `atomic_id: description | applies_when: ...`):\n"
+        + rules_text + "\n\n"
+        "Return ONLY a JSON array of atomic_id strings for rules that apply, no prose.\n"
+        "Example: [\"lang-pref-001\", \"oth-pref-001\"]\n"
+        "If no rule applies, return [].\n"
+    )
+
+
+def _resolve_api_endpoint() -> tuple[str, dict, str]:
+    """Round-10b API backend: pick OpenAI-compatible (url, headers, provider).
+    Returns ('', {}, '') if config incomplete (caller falls back to keyword)."""
+    provider = RETRIEVE_API_PROVIDER
+    if provider == 'deepinfra':
+        base = os.environ.get('B5_RETRIEVE_API_BASE_URL', 'https://api.deepinfra.com/v1/openai')
+        # DeepInfra accepts both DEEPINFRA_API_KEY and DeepInfra_API_KEY (user
+        # has both set; pick whichever resolves).
+        api_key = (
+            os.environ.get('DEEPINFRA_API_KEY')
+            or os.environ.get('DeepInfra_API_KEY')
+            or os.environ.get('B5_RETRIEVE_API_KEY')
+            or ''
+        )
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+        }
+    elif provider == 'openrouter':
+        base = os.environ.get('B5_RETRIEVE_API_BASE_URL', 'https://openrouter.ai/api/v1')
+        api_key = (
+            os.environ.get('OPENROUTER_API_KEY')
+            or os.environ.get('B5_RETRIEVE_API_KEY')
+            or ''
+        )
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+            # OpenRouter prefers identifying headers (rate-limit hygiene).
+            'HTTP-Referer': 'https://github.com/YujunZhou/preference-tracker',
+            'X-Title': 'preference-tracker',
+        }
+    else:
+        # Custom OpenAI-compatible: user MUST provide both env vars.
+        base = os.environ.get('B5_RETRIEVE_API_BASE_URL', '').rstrip('/')
+        api_key = os.environ.get('B5_RETRIEVE_API_KEY', '')
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+        }
+    if not base or not api_key:
+        return ('', {}, provider)
+    url = base.rstrip('/') + '/chat/completions'
+    return (url, headers, provider)
+
+
+def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
+    """Round-10b: direct OpenAI-compatible HTTP call (DeepInfra /
+    OpenRouter / etc) for retrieve. No CLI cold-start, no nested-hook
+    issue — fastest path, but uses an API key (not subscription).
+
+    Returns hit list; on any failure returns [] so caller falls back to
+    keyword backend.
+    """
+    if not user_prompt or RETRIEVE_RECURSION_GUARD:
+        return []
+    rules_for_prompt = _build_rules_for_prompt(fps_dict, memory_idx)
+    if not rules_for_prompt:
+        return []
+    prompt = _build_llm_prompt_text(user_prompt, rules_for_prompt)
+
+    url, headers, provider = _resolve_api_endpoint()
+    debug = os.environ.get('B5_RETRIEVE_DEBUG') == '1'
+    debug_record = {
+        'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        'backend': 'api',
+        'provider': provider,
+        'model': RETRIEVE_MODEL,
+        'rules_count': len(rules_for_prompt),
+        'prompt_truncated_len': len(user_prompt[:RETRIEVE_HAIKU_PROMPT_BUDGET]),
+    }
+    if not url:
+        debug_record['err'] = 'api endpoint config incomplete (base_url or api_key missing)'
+        _write_debug(debug_record) if debug else None
+        return []
+
+    body = json.dumps({
+        'model': RETRIEVE_MODEL,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'temperature': 0.0,
+        'max_tokens': 256,
+    }).encode('utf-8')
+
+    import urllib.request as _urlreq
+    import urllib.error as _urlerr
+    out = ''
+    try:
+        t0 = time.time()
+        req = _urlreq.Request(url, data=body, headers=headers, method='POST')
+        with _urlreq.urlopen(req, timeout=RETRIEVE_TIMEOUT_S) as resp:
+            raw = resp.read().decode('utf-8', errors='replace')
+        debug_record['latency_ms'] = round((time.time() - t0) * 1000, 1)
+        try:
+            obj = json.loads(raw)
+        except json.JSONDecodeError as e:
+            debug_record['err'] = f'response not JSON: {e}; head={raw[:200]}'
+            _write_debug(debug_record) if debug else None
+            return []
+        choices = obj.get('choices') or []
+        if not choices:
+            err_field = obj.get('error') or obj.get('message') or {}
+            debug_record['err'] = f'no choices; error={str(err_field)[:200]}'
+            _write_debug(debug_record) if debug else None
+            return []
+        out = (choices[0].get('message') or {}).get('content') or ''
+        debug_record['stdout_len'] = len(out)
+    except _urlerr.HTTPError as e:
+        body_excerpt = ''
+        try:
+            body_excerpt = e.read().decode('utf-8', errors='replace')[:300]
+        except Exception:
+            pass
+        debug_record['err'] = f'HTTP {e.code}: {body_excerpt}'
+        _write_debug(debug_record) if debug else None
+        return []
+    except Exception as e:
+        debug_record['err'] = f'{type(e).__name__}: {str(e)[:200]}'
+        _write_debug(debug_record) if debug else None
+        return []
+
+    m = re.search(r'\[[^\[\]]*\]', out, re.DOTALL)
+    if not m:
+        debug_record['err'] = f'no JSON array in response (len={len(out)})'
+        debug_record['stdout_head'] = out[:200]
+        _write_debug(debug_record) if debug else None
+        return []
+    try:
+        ids = json.loads(m.group())
+    except (json.JSONDecodeError, ValueError) as e:
+        debug_record['err'] = f'json decode: {e}'
+        _write_debug(debug_record) if debug else None
+        return []
+    if not isinstance(ids, list):
+        return []
+    debug_record['ids'] = ids
+    _write_debug(debug_record) if debug else None
+
+    rules_by_id = {r['id']: r for r in rules_for_prompt}
+    hits = []
+    for rid in ids:
+        if not isinstance(rid, str):
+            continue
+        r = rules_by_id.get(rid)
+        if not r:
+            continue
+        hits.append({
+            'id': r['id'],
+            'trigger': f'api-{provider}-semantic',
+            'priority': r['priority'],
+            'desc': r['desc'],
+            'action': r['action'],
+        })
+    return hits
+
+
 def _retrieve_via_keyword(user_prompt, fps_dict):
     """Keyword + regex matching (v1 behavior)."""
     prompt_scan = user_prompt[:PROMPT_TRUNCATE].lower()
@@ -421,9 +640,14 @@ def main():
 
     fps = (fp_data or {}).get('fingerprints', {}) or {}
 
-    # Round-10: cli backend default. Falls back to keyword on any failure
-    # (CLI missing / timeout / parse error / nested-recursion guard).
-    if RETRIEVE_BACKEND == 'cli':
+    # Round-10/10b: backend dispatch. cli/api both fall back to keyword
+    # on any failure so the user never loses retrieval.
+    if RETRIEVE_BACKEND == 'api':
+        memory_idx = _build_index()
+        hits = _retrieve_via_api(prompt, fps, memory_idx)
+        if not hits:
+            hits = _retrieve_via_keyword(prompt, fps)
+    elif RETRIEVE_BACKEND == 'cli':
         memory_idx = _build_index()
         hits = _retrieve_via_cli(prompt, fps, memory_idx)
         if not hits:
