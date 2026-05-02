@@ -153,10 +153,21 @@ if [[ -f "${SETTINGS}" ]]; then
     run_test "hooks 注册在 settings.local.json" \
         python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
             --settings "${SETTINGS}" --hooks-dir "${SKILL_DIR}/hooks" --verify
+elif [[ -f "${HOME}/.claude/settings.json" ]] && \
+     python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
+         --settings "${HOME}/.claude/settings.json" --hooks-dir "${SKILL_DIR}/hooks" --verify > /dev/null 2>&1; then
+    # Round-10e fix: user installed PT user-globally (Round-4 default).
+    # Hooks ARE registered, just in ~/.claude/settings.json instead of
+    # project-local. CC merges user+project+local at session start so
+    # hooks fire from any cwd. Don't false-fail this case.
+    echo "  ✓ hooks 注册在 ~/.claude/settings.json (user-global 装法)"
+    PASS=$((PASS + 1))
 else
-    echo "  ⚠ settings.local.json 不存在 (install 先?)"
+    echo "  ⚠ 没找到 PT hook 注册 — 既不在 ${SETTINGS} 也不在 ~/.claude/settings.json"
+    echo "    用户全局: bash ${SKILL_DIR}/install.sh (默认装到 ~/.claude/settings.json)"
+    echo "    项目本地: bash ${SKILL_DIR}/install.sh --project-local"
     FAIL=$((FAIL + 1))
-    FAILED_TESTS+=("settings.local.json")
+    FAILED_TESTS+=("hooks 注册")
 fi
 
 # claude CLI (warn only)
