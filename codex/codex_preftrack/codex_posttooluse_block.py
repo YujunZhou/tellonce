@@ -94,7 +94,7 @@ def _check_bib_drift(payload: dict) -> list[dict]:
     # adapter still loads even if bib_verifier import fails for some weird
     # reason — fail-open is the contract).
     try:
-        from .bib_verifier import check_drift, has_blocking_drift
+        from .bib_verifier import check_drift, has_blocking_drift, audit_orphans
     except Exception:
         return []
 
@@ -140,27 +140,54 @@ def _check_bib_drift(payload: dict) -> list[dict]:
             except Exception:
                 pass
             continue
-        if not has_blocking_drift(summary):
-            continue
-        # Build a short readable evidence excerpt from the first few drift records.
-        head_lines = []
-        for r in drift_records[:5]:
-            head_lines.append(
-                f"[{r['status']}] {r.get('title','?')[:60]} (DOI: {r.get('doi','?')}): "
-                f"{r.get('reason','?')}"
-            )
-        head = "\n".join(head_lines)
-        violations.append({
-            "rule_id": "bib-pref-001",
-            "reason": (
-                f"BibTeX ledger drift detected in {bib.name}: an entry that "
-                f"resolve_bib.py recorded in {ledger.name} no longer matches "
-                f"the .bib file verbatim. Likely cause: agent renamed a "
-                f"citation key or rewrote a field after the authoritative "
-                f"copy was appended."
-            ),
-            "evidence_excerpt": head[:400],
-        })
+        if has_blocking_drift(summary):
+            head_lines = []
+            for r in drift_records[:5]:
+                head_lines.append(
+                    f"[{r['status']}] {r.get('title','?')[:60]} (DOI: {r.get('doi','?')}): "
+                    f"{r.get('reason','?')}"
+                )
+            head = "\n".join(head_lines)
+            violations.append({
+                "rule_id": "bib-pref-001",
+                "reason": (
+                    f"BibTeX ledger drift detected in {bib.name}: an entry that "
+                    f"resolve_bib.py recorded in {ledger.name} no longer matches "
+                    f"the .bib file verbatim. Likely cause: agent renamed a "
+                    f"citation key or rewrote a field after the authoritative "
+                    f"copy was appended."
+                ),
+                "evidence_excerpt": head[:400],
+            })
+
+        # Round-9 follow-up: orphan check. An entry in .bib that has neither
+        # a ledger record nor a trusted-list entry is the phantom-citation
+        # vector. We look for a sibling bib_trusted_keys.txt, and report
+        # any orphan as bib-pref-002.
+        trusted_path = bib.parent / "bib_trusted_keys.txt"
+        if not trusted_path.is_file():
+            trusted_path = bib.parent.parent / "bib_trusted_keys.txt"
+        try:
+            audit = audit_orphans(bib, ledger, trusted_path if trusted_path.is_file() else None)
+        except Exception:
+            audit = {"orphans": []}
+        if audit.get("orphans"):
+            sample = ", ".join(audit["orphans"][:5])
+            more = "" if len(audit["orphans"]) <= 5 else f" (+{len(audit['orphans']) - 5} more)"
+            violations.append({
+                "rule_id": "bib-pref-002",
+                "reason": (
+                    f"BibTeX orphan citation key(s) in {bib.name}: keys "
+                    f"present in the .bib but neither in {ledger.name} nor "
+                    f"in bib_trusted_keys.txt — provenance unknown, phantom-"
+                    f"citation risk for paper submission. Either re-resolve "
+                    f"via resolve_bib.py to write a real ledger entry, or "
+                    f"add the key to bib_trusted_keys.txt if you vouch for "
+                    f"it personally (e.g. your own Google Scholar-sourced "
+                    f"publication)."
+                ),
+                "evidence_excerpt": f"orphan keys: {sample}{more}",
+            })
     return violations
 
 

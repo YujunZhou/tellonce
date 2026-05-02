@@ -221,6 +221,16 @@ fingerprints:
     priority: high
     action: "Use resolve_bib.py --append-to to append raw DOI BibTeX (writes provenance to bib_sources.jsonl). Never rename a key or rewrite a field after append — the codex PostToolUse drift check will fire bib-pref-001."
 
+  bib-pref-002:
+    desc: "BibTeX 条目必须有 provenance: ledger 记录 OR trusted-key list — 防 phantom citation desk reject"
+    triggers:
+      - "references.bib"
+      - "phantom citation"
+      - "desk reject"
+    enforcement: deterministic
+    priority: critical
+    action: "每条 .bib 条目必须出现在 bib_sources.jsonl (resolve_bib 写) 或 bib_trusted_keys.txt (用户手动 vouching). 加新条目走 resolve_bib.py --append-to 自动写 ledger; 自己 Google Scholar 来的论文加进 bib_trusted_keys.txt. PostToolUse orphan audit 触发 bib-pref-002 — 提交 paper 前必须 0 orphan."
+
 # Notes for forks:
 #   - The rules above are kept generic. To add project-specific rules
 #     (your own task IDs, internal jargon, paper section names, etc.),

@@ -134,3 +134,100 @@ def has_blocking_drift(summary: dict, strict: bool = False) -> bool:
     if strict and summary.get("drift_whitespace", 0):
         return True
     return False
+
+
+# ----------------------------------------------------------------------------
+# Orphan audit — Round-9 follow-up (2026-05-02)
+#
+# Drift detection only protects entries that are ALREADY in the ledger. The
+# attack vector PT didn't cover until now: an agent (or hand edit) appends a
+# new BibTeX entry to references.bib without going through resolve_bib.py,
+# producing a ledger-less "orphan" entry. For a paper submission this is how
+# phantom citations creep in (fabricated DOI, hallucinated author list, etc.)
+# and earns desk reject.
+#
+# audit_orphans walks references.bib and reports every entry whose citation
+# key is NOT in the ledger. The user can then either (a) re-resolve via
+# resolve_bib.py to add a proper DOI-backed ledger entry, (b) add the key to
+# a TRUSTED list (`bib_trusted_keys.txt`) for entries the user vouches for
+# personally (e.g. their own published papers from Google Scholar). The
+# trusted list is dumb-text, one key per line, # for comments — easy to audit.
+# ----------------------------------------------------------------------------
+
+_BIB_ENTRY_RE = re.compile(r"@[a-zA-Z]+\s*\{\s*([^,\s]+)", re.MULTILINE)
+
+
+def list_bib_keys(bib_text: str) -> list[str]:
+    """Extract every citation key from BibTeX text in source order. Duplicates
+    are preserved (caller can dedupe if needed)."""
+    return [m.group(1) for m in _BIB_ENTRY_RE.finditer(bib_text)]
+
+
+def list_ledger_keys(ledger_path: Path) -> set[str]:
+    """Pull citation keys out of every ledger entry's bibtex_raw."""
+    keys: set[str] = set()
+    for entry in _iter_ledger_entries(ledger_path):
+        raw = entry.get("bibtex_raw") or ""
+        m = _BIB_ENTRY_RE.search(raw)
+        if m:
+            keys.add(m.group(1))
+    return keys
+
+
+def load_trusted_keys(trusted_path: Path) -> set[str]:
+    """Read a `bib_trusted_keys.txt` file. One key per line; blank lines and
+    `#` comments ignored. Missing file == empty set (no trust)."""
+    if not trusted_path.is_file():
+        return set()
+    keys: set[str] = set()
+    try:
+        for raw in trusted_path.read_text(encoding="utf-8").splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                keys.add(line)
+    except OSError:
+        return set()
+    return keys
+
+
+def audit_orphans(bib_path: Path, ledger_path: Path, trusted_path: Path | None = None) -> dict:
+    """Find BibTeX keys present in `.bib` but absent from both the ledger and
+    the trusted list.
+
+    Returns:
+        {
+          "total": int,                # total entries in .bib
+          "verified": list[str],       # keys present in ledger (drift-checked)
+          "trusted": list[str],        # keys in the trusted list
+          "orphans": list[str],        # keys with NO provenance — phantom-citation risk
+        }
+    """
+    if not bib_path.is_file():
+        return {"total": 0, "verified": [], "trusted": [], "orphans": []}
+    try:
+        text = bib_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return {"total": 0, "verified": [], "trusted": [], "orphans": []}
+    all_keys = list_bib_keys(text)
+    ledger_keys = list_ledger_keys(ledger_path) if ledger_path else set()
+    trusted_keys = load_trusted_keys(trusted_path) if trusted_path else set()
+    seen: set[str] = set()
+    verified: list[str] = []
+    trusted: list[str] = []
+    orphans: list[str] = []
+    for k in all_keys:
+        if k in seen:
+            continue
+        seen.add(k)
+        if k in ledger_keys:
+            verified.append(k)
+        elif k in trusted_keys:
+            trusted.append(k)
+        else:
+            orphans.append(k)
+    return {
+        "total": len(seen),
+        "verified": verified,
+        "trusted": trusted,
+        "orphans": orphans,
+    }

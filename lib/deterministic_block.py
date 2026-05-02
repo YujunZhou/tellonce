@@ -359,6 +359,7 @@ def build_block_reason(violations):
         'oth-pref-001': '改 /tmp/ → 项目内 state/runtime/ 或 .claude/preference-tracker-state/',
         'lang-pref-001': '改中文回复. 若给外部 reviewer, 在下条 prompt 明示 in english 触发 bypass',
         'bib-pref-001': '撤回对 .bib 的修改 (git checkout / 手动还原), 或 (a) 用 resolve_bib.py --append-to 重新从 DOI 拉权威 raw BibTeX 覆盖 + 同步 bib_sources.jsonl, (b) 不要重命名 citation key / 不要改字段',
+        'bib-pref-002': '每个 orphan key 必须二选一: (a) 从 DOI 重 resolve: `python3 scripts/resolve_bib.py "<title>" --append-to references.bib` (写 ledger), 或 (b) 加进 bib_trusted_keys.txt (一行一 key, 仅给你 100% 确定来源的条目, 比如自己 Google Scholar 发表的论文)',
     }
     triggered_lines = []
     for v in violations:
