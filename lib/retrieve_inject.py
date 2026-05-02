@@ -123,8 +123,23 @@ def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
     Returns (None, None) on unknown CLI.
     """
     if RETRIEVE_CLI == 'claude':
+        # Round-10 nested-call fix (2026-05-02): inner claude -p must NOT
+        # load any PT hook. Outer session's user-global hooks
+        # (~/.claude/settings.json) plus any project-local settings would
+        # otherwise fire on inner's Stop event — usually
+        # check-observation-log returns decision=block, leaving
+        # terminal_reason=stop_hook_prevented + empty result.
+        #
+        # `--setting-sources project` excludes user-global. The caller
+        # (_retrieve_via_cli below) ALSO sets subprocess.run cwd to a
+        # known clean dir (/tmp) so no project .claude/settings.json gets
+        # loaded either. Together that means the inner session loads zero
+        # hooks and returns its real text.
         return (
-            ['claude', '-p', prompt, '--model', RETRIEVE_MODEL, '--output-format', 'text'],
+            ['claude', '-p', prompt,
+             '--model', RETRIEVE_MODEL,
+             '--output-format', 'text',
+             '--setting-sources', 'project'],
             None,
         )
     if RETRIEVE_CLI == 'codex':
@@ -223,10 +238,37 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         _write_debug(debug_record) if debug else None
         return []
 
-    # Recursion guard: child CLI sessions must NOT re-fire retrieve hook.
+    # Round-10: child CLI sessions must NOT re-fire any PT hook AND must
+    # NOT inherit the outer Claude Code session's SSE-mode env vars. If
+    # CLAUDECODE / CLAUDE_CODE_SSE_PORT etc. leak through, the inner
+    # claude detects "I'm inside a Claude Code session" and routes its
+    # response over the SSE channel instead of stdout — retrieve gets
+    # back len=1 ('\n') and falls back to keyword.
     child_env = dict(os.environ)
+    # Recursion guard for our own hook scripts (CC + Codex check this).
     child_env['B5_RETRIEVE_RECURSION_GUARD'] = '1'
+    # Disable all PT hooks in the inner session so its Stop hook chain
+    # (check-observation-log / deterministic-block / verify-compliance /
+    # shadow-judge / pending-promote) doesn't return decision=block and
+    # turn the result into terminal_reason=stop_hook_prevented.
+    child_env['B5_DETERMINISTIC_DISABLED'] = '1'
+    child_env['B5_SHADOW_DISABLED'] = '1'
+    child_env['B5_INJECT_DISABLED'] = '1'
+    # Strip outer Claude Code session markers so inner claude runs as a
+    # fresh top-level CLI session and writes its result to stdout.
+    for k in (
+        'CLAUDECODE',
+        'CLAUDE_CODE_SSE_PORT',
+        'CLAUDE_CODE_ENTRYPOINT',
+        'CLAUDE_CODE_EXECPATH',
+        'AI_AGENT',
+    ):
+        child_env.pop(k, None)
 
+    # Round-10: run the inner CLI from /tmp so no project .claude/settings.json
+    # gets loaded. Combined with --setting-sources project (claude) /
+    # --ignore-user-config (codex), the inner session loads zero hooks.
+    inner_cwd = '/tmp'
     out = ''
     try:
         t0 = time.time()
@@ -236,12 +278,20 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
                 cmd, input=prompt,
                 capture_output=True, text=True,
                 timeout=RETRIEVE_TIMEOUT_S, env=child_env,
+                cwd=inner_cwd,
             )
         else:
+            # claude -p has prompt as argv positional. We MUST close inner
+            # stdin (DEVNULL) — otherwise claude -p inherits the hook
+            # process's stdin (already drained by json.load) and waits 3s
+            # for input, then sometimes returns empty stdout. Setting
+            # stdin=DEVNULL makes inner claude proceed immediately.
             proc = subprocess.run(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 capture_output=True, text=True,
                 timeout=RETRIEVE_TIMEOUT_S, env=child_env,
+                cwd=inner_cwd,
             )
         debug_record['latency_ms'] = round((time.time() - t0) * 1000, 1)
         debug_record['rc'] = proc.returncode
@@ -302,7 +352,7 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
             continue
         hits.append({
             'id': r['id'],
-            'trigger': 'haiku-semantic',
+            'trigger': f'{RETRIEVE_CLI}-semantic',
             'priority': r['priority'],
             'desc': r['desc'],
             'action': r['action'],
