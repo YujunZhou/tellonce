@@ -110,7 +110,19 @@ def _check_bib_drift(payload: dict) -> list[dict]:
             continue
         if proc.returncode == 0:
             continue
-        # rc=1 means drift / missing entry; rc=2 means fatal verifier error.
+        if proc.returncode != 1:
+            # rc=2 (or anything else) is a fatal verifier error — verifier
+            # itself broke, not agent-caused drift. Don't synthesize a
+            # bib-pref-001 violation; just log to stderr and move on.
+            try:
+                sys.stderr.write(
+                    f"[preference-tracker] verify_bib_ledger.py exited with "
+                    f"rc={proc.returncode} (fatal); skipping drift check for "
+                    f"{bib.name}.\n"
+                )
+            except Exception:
+                pass
+            continue
         head = (proc.stdout or "")[:600]
         violations.append({
             "rule_id": "bib-pref-001",

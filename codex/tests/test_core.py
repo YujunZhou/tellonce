@@ -837,6 +837,38 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     self.assertGreaterEqual(len(vios), 1)
                     self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
 
+    def test_posttooluse_bib_drift_fatal_rc2_does_not_synthesize_violation(self):
+        """If verify_bib_ledger.py fatally errors (rc=2), don't fake a
+        bib-pref-001 violation — log to stderr and skip."""
+        from codex_preftrack import codex_posttooluse_block as cpb
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "project"
+            project.mkdir()
+            bib = project / "refs.bib"
+            bib.write_text("@article{x}\n", encoding="utf-8")
+            ledger = project / "bib_sources.jsonl"
+            ledger.write_text(json.dumps({
+                "bibtex_raw": "@article{x}",
+                "appended_to": str(bib),
+                "doi": "1",
+                "matched_title": "x",
+            }) + "\n", encoding="utf-8")
+            scripts = project / "scripts"
+            scripts.mkdir()
+            # Stub verifier returns rc=2 (fatal verifier error)
+            (scripts / "verify_bib_ledger.py").write_text(
+                "#!/usr/bin/env python3\nimport sys\nsys.exit(2)\n",
+                encoding="utf-8",
+            )
+            payload = {
+                "tool_input": {"file_path": str(bib)},
+                "cwd": str(project),
+                "session_id": "rc2-test",
+            }
+            vios = cpb._check_bib_drift(payload)
+            self.assertEqual(vios, [],
+                "rc=2 verifier error must not synthesize a drift violation")
+
     def test_posttooluse_bib_no_verifier_no_violation(self):
         """If no verify_bib_ledger.py is in the project, .bib writes don't
         synthesize a violation (we fail open — drift detection is opt-in)."""
