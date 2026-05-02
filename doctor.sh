@@ -147,25 +147,34 @@ run_test "chinese_ratio helper" chinese_ratio_test
 echo ""
 echo "[3/4] Hook 注册 + CLI:"
 
+# Round-10e fix: accept user-global registration as PASS. Project-local
+# settings.local.json may exist (user has their own hooks) but not have PT.
+# CC merges user+project+local at session start, so user-global is enough
+# for hooks to fire from any cwd in this repo.
+USER_GLOBAL="${HOME}/.claude/settings.json"
+PROJ_OK=false
+GLOBAL_OK=false
 if [[ -f "${SETTINGS}" ]]; then
-    # Codex review C1 fix (2026-05-01): hooks now register skill-dir paths.
-    # Verify against ${SKILL_DIR}/hooks/, not project-local ${HOOKS_DIR}/.
-    run_test "hooks 注册在 settings.local.json" \
-        python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
-            --settings "${SETTINGS}" --hooks-dir "${SKILL_DIR}/hooks" --verify
-elif [[ -f "${HOME}/.claude/settings.json" ]] && \
-     python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
-         --settings "${HOME}/.claude/settings.json" --hooks-dir "${SKILL_DIR}/hooks" --verify > /dev/null 2>&1; then
-    # Round-10e fix: user installed PT user-globally (Round-4 default).
-    # Hooks ARE registered, just in ~/.claude/settings.json instead of
-    # project-local. CC merges user+project+local at session start so
-    # hooks fire from any cwd. Don't false-fail this case.
-    echo "  ✓ hooks 注册在 ~/.claude/settings.json (user-global 装法)"
+    if python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
+        --settings "${SETTINGS}" --hooks-dir "${SKILL_DIR}/hooks" --verify > /dev/null 2>&1; then
+        PROJ_OK=true
+    fi
+fi
+if [[ -f "${USER_GLOBAL}" ]]; then
+    if python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
+        --settings "${USER_GLOBAL}" --hooks-dir "${SKILL_DIR}/hooks" --verify > /dev/null 2>&1; then
+        GLOBAL_OK=true
+    fi
+fi
+if [[ "${PROJ_OK}" == true ]]; then
+    echo "  ✓ hooks 注册在 ${SETTINGS} (project-local)"
+    PASS=$((PASS + 1))
+elif [[ "${GLOBAL_OK}" == true ]]; then
+    echo "  ✓ hooks 注册在 ${USER_GLOBAL} (user-global, 在任何 cwd 都生效)"
     PASS=$((PASS + 1))
 else
-    echo "  ⚠ 没找到 PT hook 注册 — 既不在 ${SETTINGS} 也不在 ~/.claude/settings.json"
-    echo "    用户全局: bash ${SKILL_DIR}/install.sh (默认装到 ~/.claude/settings.json)"
-    echo "    项目本地: bash ${SKILL_DIR}/install.sh --project-local"
+    echo "  ✗ 没找到 PT hook 注册 (既不在 ${SETTINGS} 也不在 ${USER_GLOBAL})"
+    echo "    用户全局: bash ${SKILL_DIR}/install.sh"
     FAIL=$((FAIL + 1))
     FAILED_TESTS+=("hooks 注册")
 fi
