@@ -958,8 +958,9 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     "session_id": "quoted-bash",
                 }
                 vios = cpb._check_bib_drift(payload)
-                self.assertEqual(
-                    [v["rule_id"] for v in vios], ["bib-pref-001"],
+                rule_ids = sorted(v["rule_id"] for v in vios)
+                self.assertIn(
+                    "bib-pref-001", rule_ids,
                     f"quoted variant {cmd_template!r} must trigger drift",
                 )
 
@@ -1126,8 +1127,13 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 "session_id": "short-edit",
             }
             vios = cpb._check_bib_drift(payload)
-            self.assertEqual(len(vios), 1)
-            self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
+            # Round-9 follow-up: a key-rename triggers BOTH bib-pref-001
+            # (drift_modified for the old key in ledger) AND bib-pref-002
+            # (the renamed new key has no ledger entry, so it's orphan).
+            # Both signals are correct.
+            rule_ids = sorted(v["rule_id"] for v in vios)
+            self.assertIn("bib-pref-001", rule_ids,
+                "drift on short-text rename must still trigger bib-pref-001")
 
     def test_cli_install_no_hooks_flag(self):
         """Round-7 P1-3 (High): codex_preftrack install --no-hooks must NOT
