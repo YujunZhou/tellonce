@@ -837,6 +837,99 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     self.assertGreaterEqual(len(vios), 1)
                     self.assertEqual(vios[0]["rule_id"], "bib-pref-001")
 
+    def test_bib_verifier_verify_one_states(self):
+        """Direct unit tests for bib_verifier.verify_one — every status path."""
+        from codex_preftrack.bib_verifier import verify_one
+        raw = "@article{Smith2024,\n  title = {T},\n  author = {S}\n}"
+        # ok: verbatim
+        r = verify_one({"bibtex_raw": raw, "matched_title": "T", "doi": "1"},
+                       raw + "\n")
+        self.assertEqual(r["status"], "ok")
+        # drift_whitespace: collapsed whitespace
+        r = verify_one({"bibtex_raw": raw, "matched_title": "T", "doi": "1"},
+                       " ".join(raw.split()) + "\n")
+        self.assertEqual(r["status"], "drift_whitespace")
+        # drift_modified: same key, edited field
+        modified = raw.replace("title = {T}", "title = {NEW}")
+        r = verify_one({"bibtex_raw": raw, "matched_title": "T", "doi": "1"},
+                       modified + "\n")
+        self.assertEqual(r["status"], "drift_modified")
+        self.assertEqual(r["key"], "Smith2024")
+        # missing: completely absent
+        r = verify_one({"bibtex_raw": raw, "matched_title": "T", "doi": "1"},
+                       "@article{OtherEntry,\n}\n")
+        self.assertEqual(r["status"], "missing")
+        # skipped: ledger has no bibtex_raw
+        r = verify_one({"bibtex_raw": "", "matched_title": "T", "doi": "1"},
+                       raw)
+        self.assertEqual(r["status"], "skipped")
+
+    def test_bib_verifier_check_drift_filters_other_bibs(self):
+        """check_drift should skip ledger entries whose appended_to points to
+        a DIFFERENT .bib file — those aren't drift on this .bib."""
+        from codex_preftrack.bib_verifier import check_drift
+        with tempfile.TemporaryDirectory() as td:
+            bib_a = Path(td) / "refs_a.bib"
+            bib_b = Path(td) / "refs_b.bib"
+            bib_a.write_text("@article{A}\n")
+            bib_b.write_text("@article{B}\n")
+            ledger = Path(td) / "bib_sources.jsonl"
+            # Ledger has entries for both bibs; checking bib_a should only
+            # report on A's entry, not B's
+            ledger.write_text("\n".join([
+                json.dumps({"bibtex_raw": "@article{A}", "appended_to": str(bib_a),
+                            "matched_title": "A", "doi": "1"}),
+                json.dumps({"bibtex_raw": "@article{B}", "appended_to": str(bib_b),
+                            "matched_title": "B", "doi": "2"}),
+            ]) + "\n", encoding="utf-8")
+            drift, summary = check_drift(bib_a, ledger)
+            self.assertEqual(summary["ok"], 1)
+            self.assertEqual(summary["missing"], 0,
+                "B's ledger entry must not be checked against A's bib")
+
+    def test_bib_verifier_has_blocking_drift_strict_flag(self):
+        """has_blocking_drift treats drift_whitespace as blocking only in --strict."""
+        from codex_preftrack.bib_verifier import has_blocking_drift
+        self.assertFalse(has_blocking_drift({"ok": 5}))
+        self.assertTrue(has_blocking_drift({"drift_modified": 1}))
+        self.assertTrue(has_blocking_drift({"missing": 1}))
+        self.assertFalse(has_blocking_drift({"drift_whitespace": 1}))
+        self.assertTrue(has_blocking_drift({"drift_whitespace": 1}, strict=True))
+
+    def test_bib_verifier_handles_empty_or_missing_ledger(self):
+        """Empty ledger or missing ledger file returns no drift (fail-open)."""
+        from codex_preftrack.bib_verifier import check_drift
+        with tempfile.TemporaryDirectory() as td:
+            bib = Path(td) / "refs.bib"
+            bib.write_text("@article{x}\n")
+            # Missing ledger
+            drift, summary = check_drift(bib, Path(td) / "no_such_ledger.jsonl")
+            self.assertEqual(drift, [])
+            self.assertEqual(summary["ok"], 0)
+            # Empty ledger
+            empty = Path(td) / "empty.jsonl"
+            empty.write_text("")
+            drift, summary = check_drift(bib, empty)
+            self.assertEqual(drift, [])
+
+    def test_bib_verifier_skips_malformed_ledger_lines(self):
+        """A malformed JSON line in the ledger is skipped, not fatal."""
+        from codex_preftrack.bib_verifier import check_drift
+        with tempfile.TemporaryDirectory() as td:
+            bib = Path(td) / "refs.bib"
+            bib.write_text("@article{Good}\n")
+            ledger = Path(td) / "bib_sources.jsonl"
+            ledger.write_text(
+                "{this is not json\n"
+                + json.dumps({"bibtex_raw": "@article{Good}", "appended_to": str(bib),
+                              "matched_title": "G", "doi": "1"}) + "\n"
+                + "another bad line\n",
+                encoding="utf-8",
+            )
+            drift, summary = check_drift(bib, ledger)
+            # The one valid line should still be checked
+            self.assertEqual(summary["ok"], 1)
+
     def test_posttooluse_bib_check_does_not_exec_project_script(self):
         """Round-7 P0-1 (Critical): drift check uses in-bundle bib_verifier;
         a hostile scripts/verify_bib_ledger.py in the project tree must NOT

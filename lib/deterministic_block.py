@@ -358,6 +358,7 @@ def build_block_reason(violations):
         'lang-pit-130': '把英文借词换中文 (stub→占位代码 / merge→合并 / drift→漂移 / ship→上线)',
         'oth-pref-001': '改 /tmp/ → 项目内 state/runtime/ 或 .claude/preference-tracker-state/',
         'lang-pref-001': '改中文回复. 若给外部 reviewer, 在下条 prompt 明示 in english 触发 bypass',
+        'bib-pref-001': '撤回对 .bib 的修改 (git checkout / 手动还原), 或 (a) 用 resolve_bib.py --append-to 重新从 DOI 拉权威 raw BibTeX 覆盖 + 同步 bib_sources.jsonl, (b) 不要重命名 citation key / 不要改字段',
     }
     triggered_lines = []
     for v in violations:
