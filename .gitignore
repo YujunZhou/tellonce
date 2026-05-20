@@ -29,3 +29,6 @@ runtime/
 # When install.sh runs inside repo root for testing, it writes here.
 .claude/
 .codex/
+.copilot/preference-tracker-state/
+.copilot/preference-tracker/
+_review_diff.txt
