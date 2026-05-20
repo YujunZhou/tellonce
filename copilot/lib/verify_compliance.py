@@ -108,7 +108,7 @@ def detect_rules_for_response(response_text):
     appears in the response. Returns list of atomic_ids."""
     try:
         import yaml
-        with open(FP_YAML) as f:
+        with open(FP_YAML, encoding='utf-8') as f:
             data = yaml.safe_load(f) or {}
     except Exception:
         return []

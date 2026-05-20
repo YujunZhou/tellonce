@@ -362,7 +362,7 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
             # codex reads prompt from stdin
             proc = subprocess.run(
                 cmd, input=prompt,
-                capture_output=True, text=True,
+                capture_output=True, text=True, encoding='utf-8',
                 timeout=RETRIEVE_TIMEOUT_S, env=child_env,
                 cwd=inner_cwd,
             )
@@ -372,7 +372,7 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
             proc = subprocess.run(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                capture_output=True, text=True,
+                capture_output=True, text=True, encoding='utf-8',
                 timeout=RETRIEVE_TIMEOUT_S, env=child_env,
                 cwd=inner_cwd,
             )
@@ -815,20 +815,10 @@ def session_start_summary():
             })
             seen_ids.add(atomic_id)
 
-    # From memory dir (rules that exist as .md but not in fingerprints.yaml)
-    for mid, (aw, cond) in memory_idx.items():
-        if mid in seen_ids:
-            continue
-        desc = read_rule_description(mid)
-        # Memory-only rules without fingerprint entry default to 'normal';
-        # include them only if they look critical/high from their content.
-        # For now, include all memory-dir rules so the agent sees them.
-        candidates.append({
-            'id': mid,
-            'priority': 'normal',
-            'desc': desc,
-            'action': '',
-        })
+    # Memory-dir-only rules (not in fingerprints.yaml) lack a priority field
+    # in their .md frontmatter, so we cannot reliably classify them as
+    # critical/high. Skip them at session start; they'll be matched per-prompt
+    # via keyword/CLI/API retrieval when available.
 
     if not candidates:
         sys.exit(0)

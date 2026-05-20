@@ -103,7 +103,7 @@ def _classify_via_cli(user_msg: str) -> str:
         proc = subprocess.run(
             ['copilot', '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg),
              '--model', 'claude-haiku-4-5', '--output-format', 'text'],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, encoding='utf-8', timeout=15,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return 'u'

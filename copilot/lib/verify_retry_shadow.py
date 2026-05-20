@@ -291,7 +291,7 @@ Rules:
         proc = subprocess.run(
             ['copilot', '-p', prompt, '--model', B5_JUDGE_MODEL,
              '--output-format', 'text'],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, encoding='utf-8', timeout=60,
         )
         latency_ms = (time.time() - t0) * 1000
         if proc.returncode != 0:

@@ -146,8 +146,11 @@ def get_memory_dir() -> str:
     def default():
         new_dir = os.path.join(get_project_root(), '.copilot', 'preference-tracker', 'memory')
         # If new dir already has memory files, use it
-        if os.path.isdir(new_dir) and any(f.endswith('.md') for f in os.listdir(new_dir)):
-            return new_dir
+        try:
+            if os.path.isdir(new_dir) and any(f.endswith('.md') for f in os.listdir(new_dir)):
+                return new_dir
+        except Exception:
+            pass
         # Migration fallback: check legacy Claude Code path
         try:
             cwd = get_project_root()

@@ -112,7 +112,7 @@ def main():
         })
 
         if not dry_run:
-            os.rename(path, new_path)
+            os.replace(path, new_path)
 
     # Write log
     if not dry_run and actions:
