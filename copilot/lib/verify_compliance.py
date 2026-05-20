@@ -278,7 +278,7 @@ Session has accumulated **{pending_count} pending obs entries** (detected=True +
 
 ## What to do
 
-1. Run `python3 <PLUGIN_ROOT>/lib/pending_queue_manager.py inject` to see queue (`inject` 输出当前队列内容; `promote/inject/prune` 是 3 个支持的命令)
+1. Run `python3 {_LIB_DIR}/pending_queue_manager.py inject` to see queue (`inject` 输出当前队列内容; `promote/inject/prune` 是 3 个支持的命令)
 2. For each pending obs: either (a) write memory file + edit obs to set saved_to_memory='yes', or (b) re-classify obs to detected=False if false-positive
 3. Then re-stop — gate will pass when pending count drops below threshold
 
@@ -315,7 +315,7 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
       2. Read existing obs_log content under lock.
       3. Write existing + new entry line to <obs_log>.tmp.<pid>.<us>.
       4. fsync tmp.
-      5. os.rename(tmp, obs_log) — atomic on POSIX.
+      5. os.replace(tmp, obs_log) — atomic on POSIX, works on Windows too.
       6. Release lock.
 
     Args:
@@ -427,7 +427,7 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
             f.write(line.encode('utf-8'))
             f.flush()
             os.fsync(f.fileno())
-        os.rename(tmp_path, obs_log_path)
+        os.replace(tmp_path, obs_log_path)
     finally:
         try:
             if fcntl:
@@ -641,7 +641,7 @@ def main():
             f"write the memory file, then update the obs entry's saved_to_memory='yes'.\n"
             f"  (b) RECLASSIFY as false-positive: if on reflection the signal was not real, "
             f"edit the obs entry's detection.detected=False (use `pending_queue_manager.py` or direct edit).\n"
-            f"  (c) DISCARD via prune: `python3 <PLUGIN_ROOT>/lib/pending_queue_manager.py "
+            f"  (c) DISCARD via prune: `python3 {_LIB_DIR}/pending_queue_manager.py "
             f"prune --force <queue_entry_id>` if not actionable.\n\n"
             f"Detected NOT acceptable: 'I'll do it later' / silently retry / append to handoff and stop. "
             f"The next stop you attempt will re-fire this gate until pending count drops to ≤{int(THRESHOLD_PENDING)}.\n\n"

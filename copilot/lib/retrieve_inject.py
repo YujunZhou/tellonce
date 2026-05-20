@@ -11,11 +11,12 @@ B5_RETRIEVE_BACKEND env var:
     instant but only as good as the trigger lists in fingerprints.yaml.
 
 CLI dispatch is governed by B5_RETRIEVE_CLI:
-  - 'claude' (default, CC runtime): `claude -p --model <model>`
-  - 'codex'  (codex runtime): `codex exec --ephemeral ... -m <model>`
+  - 'copilot' (default, Copilot CLI runtime): `copilot -p --model <model>`
+  - 'claude'  (Claude Code runtime): `claude -p --model <model>`
+  - 'codex'   (codex runtime): `codex exec --ephemeral ... -m <model>`
 
 Default model is derived from B5_RETRIEVE_CLI when B5_RETRIEVE_MODEL is unset:
-  claude → claude-haiku-4-5, codex → gpt-5.4-mini.
+  copilot → claude-haiku-4-5, claude → claude-haiku-4-5, codex → gpt-5.4-mini.
 
 Recursion guard: when retrieve_inject invokes the CLI, it sets
 B5_RETRIEVE_RECURSION_GUARD=1 in the child env. The hook scripts in
@@ -218,16 +219,16 @@ def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
     """
     if RETRIEVE_CLI in ('copilot', 'claude'):
         # Copilot/Claude CLI: prompt is positional arg, output on stdout.
-        # --setting-sources project excludes user-global hooks so nested
-        # session doesn't fire PT hooks and block itself.
         cli_cmd = 'copilot' if RETRIEVE_CLI == 'copilot' else 'claude'
-        return (
-            [cli_cmd, '-p', prompt,
-             '--model', RETRIEVE_MODEL,
-             '--output-format', 'text',
-             '--setting-sources', 'project'],
-            None,
-        )
+        cmd = [cli_cmd, '-p', prompt,
+               '--model', RETRIEVE_MODEL,
+               '--output-format', 'text']
+        # --setting-sources project: excludes user-global hooks so nested
+        # session doesn't fire PT hooks and block itself. Claude-only flag;
+        # for Copilot we rely on the B5_RETRIEVE_RECURSION_GUARD env var.
+        if RETRIEVE_CLI == 'claude':
+            cmd.extend(['--setting-sources', 'project'])
+        return (cmd, None)
     if RETRIEVE_CLI == 'codex':
         # codex exec reads prompt from stdin, writes last assistant text to a
         # file via --output-last-message. --ephemeral + --ignore-user-config +

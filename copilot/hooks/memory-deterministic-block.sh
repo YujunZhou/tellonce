@@ -55,6 +55,10 @@ fi
 printf '%s' "${_INPUT_SC}" | python3 "${PT_LIB}/deterministic_block.py"
 _CHILD_RC=$?
 if [ "${_CHILD_RC}" -eq 2 ]; then
+  # Copilot: exit 2 means "block" in Claude but only "warn" in Copilot.
+  # deterministic_block.py already emits JSON {"decision":"block"} on stdout,
+  # so exit 0 lets Copilot read that JSON and enforce the block.
   exit 0
 fi
-exit 0
+# Preserve non-block exit codes (0=pass, 1=internal error, etc.)
+exit "${_CHILD_RC}"

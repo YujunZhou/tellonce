@@ -6,11 +6,10 @@ LLM judge runs on every Stop event, identifies violations of 3 enforce rules
 block covers, but using semantic LLM judge to catch what regex missed.
 
 IMPORTANT (per `exp-proj-285` per-runtime judge dispatch):
-  此实施仅 Claude Code 运行时. Codex / OpenClaw 运行时各走自己额度通道:
-    - Claude Code: `claude -p` 子进程 (本文件 _judge_call_cli, 当前默认)
+  Copilot CLI runtime uses `copilot -p` subprocess (本文件 _judge_call_cli, 当前默认).
+  Other runtimes:
+    - Claude Code: `claude -p` 子进程
     - Codex: 待 `exp-proj-114` Codex hook 兼容联通后写 _judge_call_codex
-    - OpenClaw: 待 OpenClaw 完全搭好后写 _judge_call_openclaw, 复用 OpenClaw
-                部署模型 (Gemma via DeepInfra / DeepSeek 等), 不另起 Anthropic
   统一 Anthropic SDK 路径 (_judge_call_sdk) 仅作 fallback, paper 实验场景或
   CLI 调用失败兜底用. 默认 B5_USE_SDK=False 走运行时本地通道.
 

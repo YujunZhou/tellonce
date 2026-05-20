@@ -19,7 +19,7 @@ any visible signal. Reviewed env contract:
                                       identical to prior behaviour ON FAILURE.
   PT_PREFER_BACKEND=sdk             → Anthropic Python SDK (legacy path).
                                       Charges per call; user opts in.
-  PT_PREFER_BACKEND=cli             → Use `claude -p` subprocess (subscription
+  PT_PREFER_BACKEND=cli             → Use `copilot -p` subprocess (subscription
                                       mode, 0 metered cost).
 
 This means the deterministic_block short-circuit still works (urgent = skip)

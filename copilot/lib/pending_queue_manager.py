@@ -117,7 +117,7 @@ def _atomic_replace_queue(keep):
             f.flush()
             os.fsync(f.fileno())
         path_config.chmod_or_warn(tmp, 0o600)
-        shutil.move(tmp, QUEUE)
+        os.replace(tmp, QUEUE)
         path_config.chmod_or_warn(QUEUE, 0o600)
     except Exception:
         try:
@@ -413,7 +413,7 @@ def _write_pending_alert(queue):
             f.write('1. Review each entry above.\n')
             f.write('2. For each → apply conflict-resolution algorithm '
                     '(NOOP / UPDATE / SUPERSEDE / NEW) per `wf-pit-016`.\n')
-            f.write('3. Run `python3 <PLUGIN_ROOT>/lib/'
+            f.write(f'3. Run `python3 {_LIB_DIR}/'
                     'pending_queue_manager.py prune` to drop resolved entries from queue.\n')
         # Round-5 H3 fix: alert MD echoes user content; restrict.
         path_config.chmod_or_warn(ALERT, 0o600)
@@ -455,7 +455,7 @@ def inject_for_userprompt():
     lines.append('')
     lines.append('Action required THIS session before substantive work: review each, '
                  'apply NOOP / UPDATE / SUPERSEDE / NEW per `wf-pit-016`, then run '
-                 '`python3 <PLUGIN_ROOT>/lib/'
+                 f'`python3 {_LIB_DIR}/'
                  'pending_queue_manager.py prune`. For entries whose '
                  '`proposed_atomic_id` is `<unknown>` or non-canonical (cannot be '
                  'auto-pruned), use `prune --force <queue_entry_id>` after deciding '
