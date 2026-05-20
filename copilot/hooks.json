@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/check-observation-log.sh",
+        "powershell": "python \"${CLAUDE_PLUGIN_ROOT}\\lib\\verify_compliance.py\" --gate-check",
+        "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-deterministic-block.sh",
+        "powershell": "python \"${CLAUDE_PLUGIN_ROOT}\\lib\\deterministic_block.py\"",
+        "timeoutSec": 15
+      },
+      {
+        "type": "command",
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-verify-compliance.sh",
+        "powershell": "python \"${CLAUDE_PLUGIN_ROOT}\\lib\\verify_compliance.py\"",
+        "timeoutSec": 15
+      },
+      {
+        "type": "command",
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-shadow-judge.sh",
+        "powershell": "python \"${CLAUDE_PLUGIN_ROOT}\\lib\\verify_retry_shadow.py\"",
+        "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-pending-promote.sh",
+        "powershell": "python \"${CLAUDE_PLUGIN_ROOT}\\lib\\pending_queue_manager.py\" --promote",
+        "timeoutSec": 10
+      }
+    ],
+    "SessionStart": [
+      {
+        "type": "command",
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-inject.sh",
+        "powershell": "python \"${CLAUDE_PLUGIN_ROOT}\\lib\\session_start_inject.py\"",
+        "timeoutSec": 15
+      }
+    ]
+  }
+}

@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""Central path detection — Copilot CLI port.
+
+All lib modules import this; no hard-coded path constants elsewhere.
+Uses env / config / auto-detect 3-layer fallback.
+
+Priority (high → low):
+  1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT /
+              B5_WHITELIST_USER)
+  2. ~/.preference-tracker.config.json (key: state_dir / memory_dir / obs_log_dir /
+              project_root / whitelist_user)
+  3. Auto-detect:
+     - skill_dir = Path(__file__).parent.parent (plugin root)
+     - project_root = os.getcwd()
+     - state_dir = <project_root>/.copilot/preference-tracker-state/runtime
+     - obs_log_dir = <project_root>/.copilot/preference-tracker-state/obs_log
+     - memory_dir = <project_root>/.copilot/preference-tracker/memory
+
+Ported from Claude Code version. Key changes:
+  - .claude/ → .copilot/ in all default paths
+  - memory_dir simplified to project-local (no escaped home path)
+"""
+import json
+import os
+import sys
+from functools import lru_cache
+from pathlib import Path
+
+CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
+
+
+_CHMOD_WARN_ONCE = set()
+
+
+def chmod_or_warn(path, mode, critical=True):
+    """chmod best-effort, but warn once-per-path on failure for security-critical
+    files so a misconfigured filesystem (NFS no_squash, FAT32) doesn't silently
+    leave files world-readable. Set critical=False for hardening hints (e.g. lock
+    files). Set env PT_QUIET_CHMOD=1 to silence warnings.
+    """
+    try:
+        os.chmod(path, mode)
+    except OSError as e:
+        if not critical:
+            return
+        key = str(path)
+        if key in _CHMOD_WARN_ONCE:
+            return
+        _CHMOD_WARN_ONCE.add(key)
+        if os.environ.get('PT_QUIET_CHMOD') == '1':
+            return
+        try:
+            sys.stderr.write(
+                f'preference-tracker: warning: chmod {oct(mode)} on {path} '
+                f'failed ({e.__class__.__name__}: {e}). File may be '
+                f'world-readable; consider remounting on a chmod-capable '
+                f'filesystem or set PT_QUIET_CHMOD=1 to silence.\n'
+            )
+        except Exception:
+            pass
+
+
+def _clear_cache():
+    """Test only — reset all lru_cache decorators in this module."""
+    for fn in [_read_config_file, get_skill_dir, get_project_root, get_state_dir,
+               get_obs_log_dir, get_memory_dir, get_b5_summary_dir,
+               get_b5_alerts_threshold_dir]:
+        try:
+            fn.cache_clear()
+        except AttributeError:
+            pass
+
+
+@lru_cache(maxsize=1)
+def _read_config_file() -> dict:
+    """Read ~/.preference-tracker.config.json. Returns empty dict if missing/corrupt."""
+    if not os.path.exists(CONFIG_PATH):
+        return {}
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _resolve(env_var: str, config_key: str, default_func):
+    """3-layer priority: env > config file > default_func()."""
+    v = os.environ.get(env_var)
+    if v:
+        return v
+    cfg = _read_config_file()
+    if config_key in cfg and cfg[config_key]:
+        return cfg[config_key]
+    return default_func()
+
+
+@lru_cache(maxsize=1)
+def get_skill_dir() -> str:
+    """Plugin root directory. Path(__file__).parent.parent.
+
+    e.g. ~/.copilot/installed-plugins/_direct/preference-tracker/copilot/
+    """
+    return str(Path(__file__).resolve().parent.parent)
+
+
+@lru_cache(maxsize=1)
+def get_project_root() -> str:
+    """Project root (cwd when hook fires).
+
+    Stop/SessionStart hooks inherit the Copilot CLI session's cwd.
+    """
+    return _resolve('B5_PROJECT_ROOT', 'project_root', os.getcwd)
+
+
+@lru_cache(maxsize=1)
+def get_state_dir() -> str:
+    """State runtime root. Default: <cwd>/.copilot/preference-tracker-state/runtime."""
+    return _resolve(
+        'B5_STATE_DIR', 'state_dir',
+        lambda: os.path.join(get_project_root(), '.copilot', 'preference-tracker-state', 'runtime')
+    )
+
+
+@lru_cache(maxsize=1)
+def get_obs_log_dir() -> str:
+    """Observation log + compliance log + pending queue root.
+
+    Default: <cwd>/.copilot/preference-tracker-state/obs_log.
+    """
+    return _resolve(
+        'B5_OBS_LOG_DIR', 'obs_log_dir',
+        lambda: os.path.join(get_project_root(), '.copilot', 'preference-tracker-state', 'obs_log')
+    )
+
+
+@lru_cache(maxsize=1)
+def get_memory_dir() -> str:
+    """Memory rules directory.
+
+    Copilot port: project-local at <cwd>/.copilot/preference-tracker/memory.
+    (Claude Code used ~/.claude/projects/<cwd_escaped>/memory — too coupled.)
+    """
+    def default():
+        return os.path.join(get_project_root(), '.copilot', 'preference-tracker', 'memory')
+    return _resolve('B5_MEMORY_DIR', 'memory_dir', default)
+
+
+def get_compliance_log_path() -> str:
+    return os.path.join(get_obs_log_dir(), 'compliance_log.jsonl')
+
+
+def get_observations_log_path() -> str:
+    return os.path.join(get_obs_log_dir(), 'observations.jsonl')
+
+
+def get_pending_queue_path() -> str:
+    return os.path.join(get_obs_log_dir(), 'pending_queue.jsonl')
+
+
+def get_pending_alert_path() -> str:
+    return os.path.join(get_obs_log_dir(), 'PENDING_ALERT.md')
+
+
+def get_pending_error_log_path() -> str:
+    return os.path.join(get_obs_log_dir(), 'pending_queue_errors.jsonl')
+
+
+def get_shadow_log_path() -> str:
+    return os.path.join(get_state_dir(), 'b5_shadow_alerts', 'b5_shadow_log.jsonl')
+
+
+def get_shadow_alert_md_path() -> str:
+    return os.path.join(get_state_dir(), 'b5_shadow_alerts', 'B5_SHADOW_ALERT.md')
+
+
+def get_cost_log_dir() -> str:
+    return os.path.join(get_state_dir(), 'b5_cost')
+
+
+def get_streak_dir() -> str:
+    return os.path.join(get_state_dir(), 'b5_deterministic_streak')
+
+
+def get_retire_log_path() -> str:
+    return os.path.join(get_state_dir(), 'b5_retire_log', 'retire_log.jsonl')
+
+
+def get_b4_retry_dir() -> str:
+    return os.path.join(get_state_dir(), 'b4_retry')
+
+
+def get_b4_alert_dir() -> str:
+    return os.path.join(get_state_dir(), 'b4_alerts')
+
+
+@lru_cache(maxsize=1)
+def get_b5_summary_dir() -> str:
+    return os.path.join(get_state_dir(), 'b5_daily_summary')
+
+
+@lru_cache(maxsize=1)
+def get_b5_alerts_threshold_dir() -> str:
+    return os.path.join(get_state_dir(), 'b5_alerts_threshold')
+
+
+def get_whitelist_paths() -> list:
+    """Return [base_whitelist, per_user_whitelist] paths.
+
+    Base: <skill_dir>/lib/deterministic_block_whitelist.txt
+    Per-user: <skill_dir>/lib/deterministic_block_whitelist_user.txt
+              (env B5_WHITELIST_USER can override)
+    """
+    skill_dir = get_skill_dir()
+    base = os.path.join(skill_dir, 'lib', 'deterministic_block_whitelist.txt')
+    user = _resolve(
+        'B5_WHITELIST_USER', 'whitelist_user',
+        lambda: os.path.join(skill_dir, 'lib', 'deterministic_block_whitelist_user.txt')
+    )
+    return [base, user]
+
+
+def ensure_dirs():
+    """Create all state subdirectories. Called by install script + lib self-check.
+
+    Idempotent (mkdir -p equivalent).
+    """
+    for d in [
+        get_state_dir(),
+        get_obs_log_dir(),
+        get_cost_log_dir(),
+        get_streak_dir(),
+        get_b5_summary_dir(),
+        get_b5_alerts_threshold_dir(),
+        os.path.dirname(get_shadow_log_path()),
+        os.path.dirname(get_retire_log_path()),
+        get_b4_retry_dir(),
+        get_b4_alert_dir(),
+        get_memory_dir(),
+    ]:
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            pass
+
+
+if __name__ == '__main__':
+    """Debug: print all paths."""
+    print(f'skill_dir       = {get_skill_dir()}')
+    print(f'project_root    = {get_project_root()}')
+    print(f'state_dir       = {get_state_dir()}')
+    print(f'obs_log_dir     = {get_obs_log_dir()}')
+    print(f'memory_dir      = {get_memory_dir()}')
+    print(f'compliance_log  = {get_compliance_log_path()}')
+    print(f'shadow_log      = {get_shadow_log_path()}')
+    print(f'shadow_alert_md = {get_shadow_alert_md_path()}')
+    print(f'cost_log_dir    = {get_cost_log_dir()}')
+    print(f'streak_dir      = {get_streak_dir()}')
+    print(f'retire_log      = {get_retire_log_path()}')
+    print(f'b5_summary_dir  = {get_b5_summary_dir()}')
+    print(f'whitelist_paths = {get_whitelist_paths()}')
+    print()
+    print(f'Config file: {CONFIG_PATH} (exists: {os.path.exists(CONFIG_PATH)})')
+    print(f'Config loaded: {_read_config_file()}')
