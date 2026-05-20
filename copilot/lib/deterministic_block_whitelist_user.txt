@@ -1,0 +1,4 @@
+# Per-user whitelist 增量 (Phase 4.4) — 同学装包后专名加这里, 不动全局基础 219 条.
+# 同 format: 每行一个, # 开头注释行 skip, 不区分大小写.
+# Reload: 不需 restart, lib 下次 import 自然读 (path_config.get_whitelist_paths()).
+# 默认空 — 同学按需加自己 advisor 名 / project name / 自定义术语.
