@@ -714,7 +714,7 @@ def main():
         sys.exit(0)
 
     try:
-        with open(FP_YAML) as f:
+        with open(FP_YAML, encoding='utf-8') as f:
             fp_data = yaml.safe_load(f)
     except Exception:
         sys.exit(0)
@@ -772,9 +772,100 @@ def main():
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
 
 
+def session_start_summary():
+    """SessionStart mode: inject top critical/high rules without prompt matching.
+
+    At session start there is no user prompt, so keyword/CLI/API matching can't
+    fire.  Instead, scan the memory dir for all rules and inject those marked
+    critical or high priority so the agent has context from turn 1.
+    """
+    try:
+        import yaml
+    except ImportError:
+        sys.exit(0)
+
+    if not os.path.exists(FP_YAML):
+        sys.exit(0)
+
+    try:
+        with open(FP_YAML, encoding='utf-8') as f:
+            fp_data = yaml.safe_load(f)
+    except Exception:
+        sys.exit(0)
+
+    fps = (fp_data or {}).get('fingerprints', {}) or {}
+    memory_idx = _build_index()
+
+    # Collect all rules that have critical or high priority
+    priority_order = {'critical': 0, 'high': 1, 'normal': 2}
+    candidates = []
+    seen_ids = set()
+
+    # From fingerprints.yaml
+    for atomic_id, rule in fps.items():
+        if not isinstance(rule, dict):
+            continue
+        pri = rule.get('priority', 'normal')
+        if pri in ('critical', 'high'):
+            candidates.append({
+                'id': atomic_id,
+                'priority': pri,
+                'desc': rule.get('desc', ''),
+                'action': rule.get('action', ''),
+            })
+            seen_ids.add(atomic_id)
+
+    # From memory dir (rules that exist as .md but not in fingerprints.yaml)
+    for mid, (aw, cond) in memory_idx.items():
+        if mid in seen_ids:
+            continue
+        desc = read_rule_description(mid)
+        # Memory-only rules without fingerprint entry default to 'normal';
+        # include them only if they look critical/high from their content.
+        # For now, include all memory-dir rules so the agent sees them.
+        candidates.append({
+            'id': mid,
+            'priority': 'normal',
+            'desc': desc,
+            'action': '',
+        })
+
+    if not candidates:
+        sys.exit(0)
+
+    candidates.sort(key=lambda h: priority_order.get(h['priority'], 3))
+
+    lines = ['### Session-start memory rules summary (all critical/high + memory-dir rules):']
+    lines.append('(Verify applies_when/condition against context before applying. Skip inapplicable rules.)')
+    lines.append('')
+    for h in candidates[:MAX_SHOW]:
+        applies_when, condition = read_rule_applicability(h['id'])
+        desc = h.get('desc') or read_rule_description(h['id'])
+        lines.append(f"- **[{h['id']}]** ({h['priority']}) {desc}")
+        if h['action']:
+            lines.append(f"    • action: {h['action']}")
+        if applies_when:
+            lines.append(f"    • applies_when: {applies_when[:200]}")
+        if condition:
+            lines.append(f"    • condition: {condition[:120]}")
+    lines.append('')
+    lines.append('(Phase B1+B2 session-start retrieval. Full prompt-based matching fires per-turn in Claude; Copilot injects at session start only.)')
+
+    out = {
+        'hookSpecificOutput': {
+            'hookEventName': 'SessionStart',
+            'additionalContext': '\n'.join(lines),
+        }
+    }
+    sys.stdout.write(json.dumps(out, ensure_ascii=False))
+
+
 if __name__ == '__main__':
     try:
-        main()
+        if '--session-start' in sys.argv:
+            session_start_summary()
+        else:
+            main()
     except SystemExit:
         raise
     except Exception:

@@ -138,10 +138,26 @@ def get_memory_dir() -> str:
     """Memory rules directory.
 
     Copilot port: project-local at <cwd>/.copilot/preference-tracker/memory.
-    (Claude Code used ~/.claude/projects/<cwd_escaped>/memory — too coupled.)
+    Migration fallback: if the new path has no .md files, check the legacy
+    Claude Code path (~/.claude/projects/<cwd_escaped>/memory) and use it
+    if it has content. This ensures existing rules aren't invisible after
+    switching from Claude Code to Copilot CLI.
     """
     def default():
-        return os.path.join(get_project_root(), '.copilot', 'preference-tracker', 'memory')
+        new_dir = os.path.join(get_project_root(), '.copilot', 'preference-tracker', 'memory')
+        # If new dir already has memory files, use it
+        if os.path.isdir(new_dir) and any(f.endswith('.md') for f in os.listdir(new_dir)):
+            return new_dir
+        # Migration fallback: check legacy Claude Code path
+        try:
+            cwd = get_project_root()
+            escaped = cwd.replace('/', '-').replace('\\', '-').replace(':', '-')
+            legacy_dir = os.path.expanduser(f'~/.claude/projects/{escaped}/memory')
+            if os.path.isdir(legacy_dir) and any(f.endswith('.md') for f in os.listdir(legacy_dir)):
+                return legacy_dir
+        except Exception:
+            pass
+        return new_dir
     return _resolve('B5_MEMORY_DIR', 'memory_dir', default)
 
 
