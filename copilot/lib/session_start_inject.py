@@ -95,6 +95,12 @@ def main() -> None:
     parts: list[str] = []
     forwarded_input = raw_input if raw_input.strip() else '{}'
 
+    # NOTE: retrieve_inject.py requires data["prompt"] to trigger keyword matching.
+    # SessionStart events don't include a prompt, so this call is effectively a
+    # no-op in Copilot (known v1 limitation — Claude fires on UserPromptSubmit
+    # which includes the prompt). Kept for forward-compatibility if Copilot adds
+    # prompt to SessionStart payload, or if B5_RETRIEVE_CLI is set to a mode
+    # that doesn't need prompt-based triggering.
     if os.environ.get('B5_RETRIEVE_RECURSION_GUARD') != '1':
         ctx = _extract_context(_run_entry(
             'retrieve_inject.py',
