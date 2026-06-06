@@ -11,7 +11,9 @@
 set -euo pipefail
 
 REPO="https://github.com/YujunZhou/preference-tracker"
-BRANCH="main"
+# Pinned to a release tag (immutable) for integrity.
+REF="v1.0.0"
+REFKIND="tags"
 
 fail() { printf '\033[31m[X] %s\033[0m\n' "$1" >&2; exit 1; }
 
@@ -40,7 +42,7 @@ SRC_COPILOT=""
 got_src=0
 if command -v git >/dev/null 2>&1; then
     echo "Downloading (git)..."
-    if git clone --depth 1 --branch "${BRANCH}" "${REPO}.git" "${WORK}/repo" >/dev/null 2>&1; then
+    if git clone --depth 1 --branch "${REF}" "${REPO}.git" "${WORK}/repo" >/dev/null 2>&1; then
         SRC_COPILOT="${WORK}/repo/copilot"; got_src=1
     else
         echo "[i] git clone failed, falling back to tarball..."
@@ -48,7 +50,7 @@ if command -v git >/dev/null 2>&1; then
 fi
 if [ "${got_src}" -ne 1 ]; then
     echo "Downloading (tarball)..."
-    curl -fsSL "${REPO}/archive/refs/heads/${BRANCH}.tar.gz" -o "${WORK}/src.tgz" \
+    curl -fsSL "${REPO}/archive/refs/${REFKIND}/${REF}.tar.gz" -o "${WORK}/src.tgz" \
         || fail "Download failed (no internet / proxy / private repo?). Check your connection and retry."
     tar -xzf "${WORK}/src.tgz" -C "${WORK}" || fail "Extract failed."
     SRC_COPILOT="$(find "${WORK}" -maxdepth 2 -type d -name copilot | head -1)"

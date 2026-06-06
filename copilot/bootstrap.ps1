@@ -11,7 +11,10 @@
 
 $ErrorActionPreference = 'Stop'
 $REPO   = 'https://github.com/YujunZhou/preference-tracker'
-$BRANCH = 'main'
+# Pinned to a release tag (immutable) for integrity. git clone --branch accepts
+# a tag; archive uses refs/tags for a tag (refs/heads for a branch).
+$REF    = 'v1.0.0'
+$REFKIND = 'tags'
 
 function Fail($msg) { Write-Host "[X] $msg" -ForegroundColor Red; exit 1 }
 
@@ -46,7 +49,7 @@ $srcCopilot = $null
 try {
     if (Get-Command git -ErrorAction SilentlyContinue) {
         Write-Host "Downloading (git)..."
-        git clone --depth 1 --branch $BRANCH "$REPO.git" $work 2>$null | Out-Null
+        git clone --depth 1 --branch $REF "$REPO.git" $work 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
         $srcCopilot = Join-Path $work 'copilot'
     } else { throw "no git" }
@@ -54,7 +57,7 @@ try {
     Write-Host "Downloading (zip)..."
     try {
         $zip = "$work.zip"
-        Invoke-WebRequest -UseBasicParsing -Uri "$REPO/archive/refs/heads/$BRANCH.zip" -OutFile $zip
+        Invoke-WebRequest -UseBasicParsing -Uri "$REPO/archive/refs/$REFKIND/$REF.zip" -OutFile $zip
         New-Item -ItemType Directory -Force -Path $work | Out-Null
         Expand-Archive -Path $zip -DestinationPath $work -Force
         $inner = Get-ChildItem $work -Directory | Select-Object -First 1

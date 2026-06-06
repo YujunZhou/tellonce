@@ -10,20 +10,32 @@ anywhere until you opt in.
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+。其余全自动。装完**重启 Copilot**即可。
+> 命令钉在固定 release tag `v1.0.0`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/main/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.0.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/main/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.0.0/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot（hook 才会加载）→ 设成安全的 observe 模式 → 记录你的 python 路径。**装完重启 Copilot。**
 
 > 默认 **observe**（只记录+提醒，不拦截、不调用 LLM）。
+
+### 想先核对脚本没被篡改？（可选，安全谨慎者）
+管道执行前可以先下载读一遍，并核对 SHA256（应等于 `v1.0.0` 发布的值）：
+```
+# Windows: irm ".../v1.0.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.0.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+```
+| 文件 | SHA256 (v1.0.0) |
+|------|------------------|
+| `bootstrap.ps1` | `9a45c661f06c1c3e8a4ecfbd795472331a634786a805d5233f797de0a73bcac4` |
+| `bootstrap.sh`  | `97680f207f5fc5289d15c5b521d809ef190d388f7924282b0ef60aca649a569a` |
 
 ---
 
