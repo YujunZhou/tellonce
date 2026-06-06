@@ -32,3 +32,13 @@ runtime/
 .copilot/preference-tracker-state/
 .copilot/preference-tracker/
 _review_diff.txt
+
+# machine-specific python path recorded by install (run.ps1 launcher)
+copilot/hooks/.python_path.txt
+.python_path.txt
+
+# preference-tracker runtime state (any depth)
+**/.copilot/
+**/preference-tracker-state/
+**/__pycache__/
+.pytest_cache/

@@ -29,8 +29,8 @@ if ! command -v jq > /dev/null 2>&1; then
 fi
 
 INPUT=$(cat)
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || echo "")
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
+CWD=$(echo "$INPUT" | jq -r '.cwd // .workingDirectory // empty' 2>/dev/null || echo "")
+TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // .transcriptPath // empty' 2>/dev/null || echo "")
 
 # Detect OBS_LOG via path_config (single source of truth). Use env-channel argv
 # rather than string-interpolated `sys.path.insert(0, '${HOME}...')` to avoid
@@ -48,6 +48,20 @@ print(path_config.get_observations_log_path())
 if [[ -z "${OBS_LOG}" ]]; then
   exit 0
 fi
+
+# Public default: observe-only. This gate only HARD-BLOCKS the Stop when
+# enforcement is explicitly opted in (env PT_ENFORCE=1 or config {"enforce":true}).
+# Single source of truth = path_config.enforcement_enabled(). Without it, the
+# gate still logs/traces but never blocks — a stranger can't be locked out.
+PT_ENFORCE_ON=$(env PT_LIB="${PT_LIB}" PYTHONIOENCODING=utf-8 python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["PT_LIB"])
+try:
+    import path_config
+    print("1" if path_config.enforcement_enabled() else "0")
+except Exception:
+    print("0")
+' 2>/dev/null || echo "0")
 
 # Trace log: opt-in via B5_TRACE=1 (default OFF). When opt-in, write to
 # state_dir (per project) instead of /tmp — /tmp is world-readable on shared
@@ -97,7 +111,7 @@ WARNINGS=""
 #   c) Last entry's timestamp within 30s of now
 # Any miss → warn
 # ══════════════════════════════════════════════════════════════════════════
-CURRENT_SESSION=$(echo "$INPUT" | jq -r '.session_id // empty')
+CURRENT_SESSION=$(echo "$INPUT" | jq -r '.session_id // .sessionId // empty')
 
 if [ -f "$OBS_LOG" ]; then
   # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.
@@ -296,7 +310,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════
 # OUTPUT
 # ══════════════════════════════════════════════════════════════════════════
-if [ -n "$WARNINGS" ]; then
+if [ -n "$WARNINGS" ] && [ "$PT_ENFORCE_ON" = "1" ]; then
   MSG=$(echo -e "$WARNINGS" | head -10)
   # Use decision=block → CC forces model to re-engage BEFORE truly stopping.
   # continue=false also ensures the stop is rejected until gate is satisfied.
@@ -315,7 +329,7 @@ if [ -n "$WARNINGS" ]; then
   exit 0
 fi
 
-echo "[output] (no warnings — pass)" >> "$TRACE_LOG"
+echo "[output] (no block — warnings=${WARNINGS:+present} enforce=${PT_ENFORCE_ON})" >> "$TRACE_LOG"
 echo "[exit_code] 0 (OK)" >> "$TRACE_LOG"
 echo "" >> "$TRACE_LOG"
 exit 0

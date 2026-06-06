@@ -12,7 +12,7 @@ set -uo pipefail
 # Both required — otherwise fall through to full hook (safe degrade).
 # ──────────────────────────────────────────────────────────────────────────
 _INPUT_SC=$(cat)
-_CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // empty' 2>/dev/null)
+_CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // .sessionId // empty' 2>/dev/null)
 _OBS_LOG_FOR_SC=$(env PT_LIB="${PT_LIB}" PYTHONIOENCODING=utf-8 python3 -c 'import sys, os; sys.path.insert(0, os.environ["PT_LIB"]); import path_config; print(path_config.get_observations_log_path())' 2>/dev/null)
 if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SID_SC}" ]; then
   # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.

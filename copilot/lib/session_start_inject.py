@@ -12,6 +12,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows pipes default to cp1252; we print Chinese additionalContext, which
+# would raise UnicodeEncodeError and silently drop injection. Force UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if _stream is not None and hasattr(_stream, 'reconfigure'):
+            _stream.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 THIS_LIB = Path(__file__).resolve().parent
 # All lib modules live alongside this file in copilot/lib/
 ROOT_LIB = THIS_LIB
@@ -80,6 +89,13 @@ def _run_entry(script_name: str, args: list[str] | None = None, *, stdin_text: s
 
 
 def main() -> None:
+    # Child-session guard: if this SessionStart fired inside a nested `copilot -p`
+    # subprocess that the skill itself spawned (e.g. the shadow judge), do nothing
+    # — don't re-inject memory into a throwaway child session.
+    if os.environ.get('PT_CHILD_SESSION', '').strip().lower() in ('1', 'true', 'yes', 'on') \
+            or os.environ.get('B5_INJECT_DISABLED', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+        sys.exit(0)
+
     raw_input = '' if sys.stdin.isatty() else sys.stdin.read()
     payload = {}
     if raw_input.strip():
@@ -124,7 +140,25 @@ def main() -> None:
 
     if parts:
         combined = '\n\n---\n\n'.join(parts)
-        print(json.dumps({'additionalContext': combined}, ensure_ascii=False))
+        # Copilot CLI injects the TOP-LEVEL `additionalContext` field and SILENTLY
+        # IGNORES `hookSpecificOutput.additionalContext`. Verified live 2026-06-05
+        # via `copilot -p`: the default hookSpecificOutput shape → child reports
+        # NO-INJECTION-FOUND; top-level → child quotes the full injection. The CLI
+        # bundle confirms it (the SessionStart output mapper reads `c.additionalContext`).
+        # So default to top-level. Copilot's parser is lenient (no
+        # additionalProperties:false), so the "extra key rejects the whole object"
+        # fear did not materialize. Set PT_SESSIONSTART_HOOKSPECIFIC=1 to emit the
+        # Claude-style hookSpecificOutput envelope instead (e.g. when reusing the
+        # same module on Claude Code, which reads that shape).
+        if os.environ.get('PT_SESSIONSTART_HOOKSPECIFIC', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+            print(json.dumps({
+                'hookSpecificOutput': {
+                    'hookEventName': 'SessionStart',
+                    'additionalContext': combined,
+                }
+            }, ensure_ascii=False))
+        else:
+            print(json.dumps({'additionalContext': combined}, ensure_ascii=False))
 
     sys.exit(0)
 

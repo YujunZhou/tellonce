@@ -6,6 +6,25 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 # Preference Tracker
 
+## 运行模式与默认值（公开发布版）
+
+**默认 = 观察模式（observe-only）**：本 skill 默认只做「扫描偏好 → 记录 → 告知用户」，**绝不硬阻断会话**，**绝不调用 LLM**。刚装上的新用户不会被任何硬规则拦截，也不会把对话内容发给第三方模型。
+
+- **硬阻断强制**（deterministic block / B4 pending gate / observation-log gate）默认**关**。
+- **影子 LLM 判官**（把对话发给 `copilot -p` 做语义判分）默认**关**。隐私提示：开启后每轮会把「最后一条 user 消息 + 助手回复」（已脱敏 API key / 密码等）发给该模型。
+- `seed_memory/` 里的语言、路径规则只是**示例记忆**，默认不被强制；它们反映作者个人偏好，不代表使用者必须遵守。
+
+**切换模式只用一条命令**（不用记环境变量、不用手改 JSON）：
+
+```
+python <plugin>/lib/pt_mode.py enforce     # 开硬拦截
+python <plugin>/lib/pt_mode.py full        # 硬拦截 + AI 判官
+python <plugin>/lib/pt_mode.py observe      # 回到安全默认
+python <plugin>/lib/pt_mode.py status       # 看当前模式
+```
+
+> 安装时也能直接选：`install.ps1 -Mode enforce`（或 `--mode enforce` for bash）。下文 Infrastructure / Gate 等章节描述的是**强制模式开启后**的行为。
+
 ## Infrastructure (Phase B1/B2/B3)
 
 这个 skill 不止是 Iron Law + Gate Function. 装了 3 层基础设施, 以**自动 hook** 形式运行, 不需要显式 Skill 调用就生效.

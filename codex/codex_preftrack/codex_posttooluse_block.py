@@ -342,6 +342,12 @@ def main() -> int:
             violations = db.evaluate_rules(text, [])
         except Exception:
             violations = []
+        # Tool input (a file's content or a shell command) is NOT a user-facing
+        # reply, so the language rules (lang-pit-130 chinese-purity, lang-pref-001
+        # all-English-long-reply) do not apply — they would false-positive and, in
+        # blocking mode, reject a perfectly valid English file write. Keep only
+        # content/path-class rules (e.g. oth-pref-001 /tmp).
+        violations = [v for v in violations if not str(v.get('rule_id', '')).startswith('lang-')]
         if bib_violations:
             violations = list(violations) + bib_violations
 

@@ -57,7 +57,7 @@ def _load_user_config() -> dict:
     if not os.path.exists(_USER_CONFIG_PATH):
         return {}
     try:
-        with open(_USER_CONFIG_PATH, encoding='utf-8') as f:
+        with open(_USER_CONFIG_PATH, encoding='utf-8-sig') as f:
             data = json.load(f)
     except Exception:
         return {}
@@ -385,7 +385,8 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         # claude: stdout = response. codex: read out_path file.
         if out_path and os.path.isfile(out_path):
             try:
-                out = open(out_path, encoding='utf-8', errors='replace').read()
+                with open(out_path, encoding='utf-8', errors='replace') as _f:
+                    out = _f.read()
             except OSError:
                 out = proc.stdout or ''
         else:

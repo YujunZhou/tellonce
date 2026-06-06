@@ -43,6 +43,7 @@ sys.path.insert(0, LIB_DIR)
 import path_config  # Phase 4.1 解耦中央
 import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
 import deterministic_block  # local guard for language-related shadow false positives
+import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
 MEMORY_DIR = path_config.get_memory_dir()
@@ -104,47 +105,13 @@ def _read_rule_text(atomic_id):
 
 
 def _read_response_and_last_user(stdin_data):
-    """Extract last assistant response + last user prompt from transcript."""
-    transcript_path = stdin_data.get('transcript_path')
-    if not transcript_path or not os.path.exists(transcript_path):
-        return '', ''
-    try:
-        with open(transcript_path, errors='ignore') as f:
-            lines = f.readlines()
-    except Exception:
-        return '', ''
-    response = ''
-    last_user = ''
-    # Find last assistant text + last user text
-    for line in reversed(lines[-300:]):
-        try:
-            o = json.loads(line)
-        except Exception:
-            continue
-        if not response and o.get('type') == 'assistant':
-            msg = o.get('message') or {}
-            content = msg.get('content', [])
-            if isinstance(content, str):
-                response = content
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        response = item.get('text', '')
-                        break
-        if not last_user and o.get('type') == 'user':
-            msg = o.get('message') or {}
-            content = msg.get('content', '')
-            if isinstance(content, str):
-                last_user = content
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        last_user = item.get('text', '')
-                        break
-            elif content:
-                last_user = str(content)
-        if response and last_user:
-            break
+    """Extract last assistant response + last user prompt from transcript.
+
+    Delegates to transcript_adapter so Copilot (transcriptPath +
+    assistant.message/data.content) and Claude (transcript_path +
+    assistant/message.content) schemas both work.
+    """
+    response, last_user, _tools, _lines = transcript_adapter.read_transcript(stdin_data)
     return response, last_user
 
 
@@ -288,10 +255,27 @@ Rules:
 输出严格 JSON 一行格式:
 {{"verdicts":[{{"rule_id":"<id>","applicable":true|false,"compliant":true|false,"judge_confidence":0.0-1.0,"evidence":"<10-30 字>","feedback":"<若 false 给修正指令>"}}]}}"""
     try:
+        # Recursion / fan-out guard: the judge spawns `copilot -p`, a nested
+        # agent session that may itself fire Stop hooks. Without disabling the
+        # enforcement/shadow/inject layers in the child, that nested Stop could
+        # re-invoke this judge → unbounded recursion / fork-bomb. Mirror the
+        # guard retrieve_inject.py uses for its nested CLI call.
+        _child_env = {
+            **os.environ,
+            'B5_SHADOW_DISABLED': '1',
+            'B5_DETERMINISTIC_DISABLED': '1',
+            'B5_INJECT_DISABLED': '1',
+            'B5_RETRIEVE_RECURSION_GUARD': '1',
+            'PT_ENFORCE': '0',
+            'PT_SHADOW': '0',
+            'PT_CHILD_SESSION': '1',
+        }
+        _child_env.pop('COPILOT_SESSION_ID', None)
         proc = subprocess.run(
             ['copilot', '-p', prompt, '--model', B5_JUDGE_MODEL,
              '--output-format', 'text'],
             capture_output=True, text=True, encoding='utf-8', timeout=60,
+            env=_child_env,
         )
         latency_ms = (time.time() - t0) * 1000
         if proc.returncode != 0:
@@ -400,6 +384,11 @@ def _judge_call(rules, last_user, response):
             return verdicts, 0.0, (time.time() - t0) * 1000, None
         except Exception as e:
             return [], 0.0, (time.time() - t0) * 1000, f'mock parse error: {e}'
+    # Redact secrets before anything leaves the machine for the LLM judge.
+    # Rebinding here is local to this dispatcher; downstream suppression logic
+    # in the caller still sees the raw text it needs for keyword checks.
+    last_user = redaction.redact(last_user or '')
+    response = redaction.redact(response or '')
     if B5_USE_SDK:
         return _judge_call_sdk(rules, last_user, response)
     return _judge_call_cli(rules, last_user, response)
@@ -471,7 +460,7 @@ def evaluate(stdin_data):
     Status one of: 'disabled' / 'no_credit' / 'cost_capped' / 'skip_short' /
                    'compliant' / 'violation' / 'judge_error'
     """
-    session_id = stdin_data.get('session_id', '')
+    session_id = transcript_adapter.get_session_id(stdin_data)
     log_entry = {
         'timestamp': _now().isoformat(),
         'session_id': session_id,
@@ -479,7 +468,7 @@ def evaluate(stdin_data):
         'check_source': 'verify_retry_shadow',
     }
 
-    if B5_SHADOW_DISABLED:
+    if B5_SHADOW_DISABLED or not path_config.shadow_enabled():
         log_entry['b5_check'] = {'shadow_judge_status': 'disabled'}
         return 'disabled', log_entry
 

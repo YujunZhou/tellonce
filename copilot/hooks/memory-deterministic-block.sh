@@ -13,7 +13,7 @@ set -uo pipefail
 # Both required — otherwise fall through to full hook (safe degrade).
 # ──────────────────────────────────────────────────────────────────────────
 _INPUT_SC=$(cat)
-_CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // empty' 2>/dev/null)
+_CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // .sessionId // empty' 2>/dev/null)
 _OBS_LOG_FOR_SC=$(env PT_LIB="${PT_LIB}" PYTHONIOENCODING=utf-8 python3 -c 'import sys, os; sys.path.insert(0, os.environ["PT_LIB"]); import path_config; print(path_config.get_observations_log_path())' 2>/dev/null)
 if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SID_SC}" ]; then
   # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.
@@ -28,7 +28,7 @@ if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SI
       _LAST_DETECTED_SC=$(echo "${_LAST_LINE_SC}" | jq -r '.detection.detected // empty' 2>/dev/null)
       if [ "${_LAST_DETECTED_SC}" = "false" ]; then
         # User-prefer gate: only skip when user prefers URGENT (per v23 day-1 refinement)
-        _TRANSCRIPT_SC=$(echo "${_INPUT_SC}" | jq -r '.transcript_path // empty' 2>/dev/null)
+        _TRANSCRIPT_SC=$(echo "${_INPUT_SC}" | jq -r '.transcript_path // .transcriptPath // empty' 2>/dev/null)
         _PREFER_SC="u"
         if [ -n "${_TRANSCRIPT_SC}" ] && [ -f "${_TRANSCRIPT_SC}" ]; then
           _PREFER_SC=$(timeout 5 python3 "${PT_LIB}/detect_user_prefer.py" "${_TRANSCRIPT_SC}" 2>/dev/null || echo u)

@@ -40,6 +40,7 @@ _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config  # Phase 4.1 解耦
 import redaction  # codex review H2 fix (2026-05-01): redact secrets before disk
+import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 
 LOG_PATH = path_config.get_compliance_log_path()
 # B4_TEST_OBS_OVERRIDE: lets test_b4_blocking.py inject a fixture obs file (I2 from code review)
@@ -247,8 +248,9 @@ def bump_retry_state(session_id):
 
 
 def write_pending_alert(session_id, pending_count, session_age_min, oldest_pending_age_min, retry_count=0):
-    """Write a /tmp/session_pending_alert_<sid>.md file describing the block reason
-    so agent has machine-readable alert when retry stop triggers."""
+    """Write a pending-alert markdown file (under the B4 alert dir, see ALERT_DIR)
+    describing the block reason so the agent has a machine-readable alert when the
+    retry-stop gate triggers."""
     sid = session_id or 'unknown'
     sid_safe = re.sub(r'[^a-zA-Z0-9_-]', '_', sid)[:64]
     path = os.path.join(ALERT_DIR, f'session_pending_alert_{sid_safe}.md')
@@ -506,7 +508,10 @@ def main():
     except Exception:
         sys.exit(0)
 
-    session_id = data.get('session_id', '')
+    if path_config.is_child_session():
+        sys.exit(0)
+
+    session_id = transcript_adapter.get_session_id(data)
 
     entry = {
         'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -514,26 +519,7 @@ def main():
         'event': 'Stop',
     }
 
-    response_text = ''
-    try:
-        if 'transcript_path' in data and os.path.exists(data['transcript_path']):
-            with open(data['transcript_path']) as f:
-                lines = f.readlines()
-            for line in reversed(lines[-200:]):
-                try:
-                    o = json.loads(line)
-                    if o.get('type') == 'assistant':
-                        msg = o.get('message', {})
-                        for item in msg.get('content', []):
-                            if item.get('type') == 'text':
-                                response_text = item.get('text', '')
-                                break
-                    if response_text:
-                        break
-                except Exception:
-                    continue
-    except Exception:
-        pass
+    response_text, _last_user, _tools, _lines = transcript_adapter.read_transcript(data)
 
     if response_text:
         entry['response_excerpt'] = response_text[:400]
@@ -586,7 +572,7 @@ def main():
         pending_count > THRESHOLD_PENDING
         and session_age_min > THRESHOLD_DURATION_MIN
     )
-    should_block = would_block and not B4_DISABLED and not self_disabled
+    should_block = would_block and path_config.enforcement_enabled() and not B4_DISABLED and not self_disabled
     entry['b4_check']['would_block'] = would_block
 
     # Write compliance log first (always); H10 fix chmod 0600 on the log
@@ -657,7 +643,7 @@ def main():
             'reason': reason,
         }
         print(json.dumps(decision, ensure_ascii=False))
-        sys.exit(2)
+        sys.exit(path_config.stop_block_exit_code())
 
     # Default: log-only, exit 0
     sys.exit(0)

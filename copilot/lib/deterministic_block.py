@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 import path_config  # Phase 4.1 解耦中央
+import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 
 B5_DETERMINISTIC_DISABLED = os.environ.get('B5_DETERMINISTIC_DISABLED', '').lower() in ('1', 'true', 'yes')
 
@@ -229,10 +230,12 @@ def last_user_prompt_explicit_english_request(transcript_lines):
             o = json.loads(line)
         except Exception:
             continue
-        if o.get('type') != 'user':
+        role = o.get('type')
+        if role not in ('user', 'user.message'):
             continue
-        msg = o.get('message') or {}
-        content = msg.get('content')
+        # Copilot schema: data.content (str); Claude schema: message.content
+        container = o.get('data') if role == 'user.message' else (o.get('message') or {})
+        content = (container or {}).get('content') if isinstance(container, dict) else None
         if isinstance(content, str):
             last_user_text = content
             break
@@ -247,9 +250,13 @@ def last_user_prompt_explicit_english_request(transcript_lines):
             last_user_text = str(content)
             break
 
+    return user_text_allows_english(last_user_text)
+
+
+def user_text_allows_english(last_user_text):
+    """True if the user's text explicitly asks for English OR is paper context."""
     if not last_user_text:
         return False
-
     if _EXPLICIT_ENGLISH_KW.search(last_user_text):
         return True
     if _PAPER_CTX_KW.search(last_user_text):
@@ -258,58 +265,42 @@ def last_user_prompt_explicit_english_request(transcript_lines):
 
 
 def _extract_response_and_transcript_lines(stdin_data):
-    """From Stop hook stdin JSON {session_id, transcript_path, ...},
-    extract (response_text, transcript_lines).
+    """From Stop hook stdin JSON, extract (response_text, transcript_lines).
 
-    response_text = last assistant message text.
-    transcript_lines = full JSONL lines (for last_user_prompt detection).
+    Delegates to transcript_adapter so both Copilot (transcriptPath +
+    assistant.message/data.content) and Claude (transcript_path +
+    assistant/message.content) schemas work. Kept for backward-compat /
+    existing tests; main() uses the richer adapter call directly.
+
     Returns (response_text, transcript_lines) or ('', []).
     """
-    transcript_path = stdin_data.get('transcript_path')
-    if not transcript_path or not os.path.exists(transcript_path):
-        return '', []
-    try:
-        with open(transcript_path, errors='ignore') as f:
-            lines = f.readlines()
-    except Exception:
-        return '', []
-    # Find last assistant text
-    response_text = ''
-    for line in reversed(lines[-200:]):
-        try:
-            o = json.loads(line)
-            if o.get('type') == 'assistant':
-                msg = o.get('message') or {}
-                content = msg.get('content', [])
-                if isinstance(content, str):
-                    response_text = content
-                    break
-                if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get('type') == 'text':
-                            response_text = item.get('text', '')
-                            break
-                if response_text:
-                    break
-        except Exception:
-            continue
-    return response_text, lines
+    response, _last_user, _tools, lines = transcript_adapter.read_transcript(stdin_data)
+    return response, lines
 
 
-def evaluate_rules(response, transcript_lines):
+def evaluate_rules(response, transcript_lines=None, last_user='', tool_commands=None):
     """Evaluate 3 deterministic rules. Returns list of violation dicts.
 
     Each violation dict: {rule_id, reason, evidence_excerpt}
+
+    Args:
+      response: last assistant natural-language text.
+      transcript_lines: raw transcript lines (legacy; used only if last_user
+        not supplied, to recover the last user prompt for the english bypass).
+      last_user: last user prompt text (preferred; from transcript_adapter).
+      tool_commands: shell/tool command strings from the latest assistant turn;
+        scanned for /tmp/ so the rule fires even when the agent runs a command
+        via a tool instead of a fenced code block (Copilot behaviour).
     """
     violations = []
-    if not response:
+    if not response and not tool_commands:
         return violations
 
-    cr = chinese_ratio(response)
-    n = len(response)
+    cr = chinese_ratio(response) if response else 0.0
+    n = len(response or '')
 
     # Rule 1: lang-pit-130 (chinese majority + inline english word) — Phase 7 阈值从 frontmatter 读
-    if cr >= _CHINESE_RATIO_PIT_130() and n > _LANG_PIT_130_MIN_LENGTH():
+    if response and cr >= _CHINESE_RATIO_PIT_130() and n > _LANG_PIT_130_MIN_LENGTH():
         if has_inline_english_word(response):
             # Find first 3 non-whitelisted english words for evidence
             wl = _load_whitelist()
@@ -324,20 +315,33 @@ def evaluate_rules(response, transcript_lines):
                 'evidence_excerpt': f'chinese_ratio={cr:.2f}, found english words: {offenders}',
             })
 
-    # Rule 2: oth-pref-001 (path /tmp/ in active code block)
-    if has_active_code_block_with_tmp_path(response):
+    # Rule 2: oth-pref-001 (path /tmp/ in active code block OR a tool command)
+    tool_cmds = tool_commands or []
+    tmp_in_tool = next((c for c in tool_cmds if isinstance(c, str) and '/tmp/' in c), None)
+    if has_active_code_block_with_tmp_path(response or ''):
         # Snip first /tmp/ occurrence in code block for evidence
-        m = re.search(r'```[a-zA-Z0-9_\-]*\n.{0,500}?/tmp/[^\n]*', response, re.DOTALL)
+        m = re.search(r'```[a-zA-Z0-9_\-]*\n.{0,500}?/tmp/[^\n]*', response or '', re.DOTALL)
         excerpt = m.group(0)[-200:] if m else '/tmp/...'
         violations.append({
             'rule_id': 'oth-pref-001',
             'reason': 'active code block 含 /tmp/ path (per `tool-pit-130` 不持久)',
             'evidence_excerpt': excerpt,
         })
+    elif tmp_in_tool:
+        violations.append({
+            'rule_id': 'oth-pref-001',
+            'reason': 'tool 命令写入 /tmp/ path (per `tool-pit-130` 不持久)',
+            'evidence_excerpt': tmp_in_tool[:200],
+        })
 
     # Rule 3: lang-pref-001 relaxed (全英文长 reply + 用户没明显要 english) — Phase 7 阈值从 frontmatter 读
-    if n > _LANG_PREF_001_MIN_LENGTH() and cr < _CHINESE_RATIO_PREF_001():
-        if not last_user_prompt_explicit_english_request(transcript_lines):
+    if response and n > _LANG_PREF_001_MIN_LENGTH() and cr < _CHINESE_RATIO_PREF_001():
+        # Prefer the adapter-supplied last_user; fall back to scanning lines.
+        allows_english = (
+            user_text_allows_english(last_user) if last_user
+            else last_user_prompt_explicit_english_request(transcript_lines or [])
+        )
+        if not allows_english:
             violations.append({
                 'rule_id': 'lang-pref-001',
                 'reason': 'response 几乎全英文但 user 上 prompt 没明 explicit ask English / paper context',
@@ -466,18 +470,21 @@ def main():
         # Malformed stdin: don't block
         sys.exit(0)
 
-    session_id = data.get('session_id', '')
+    session_id = transcript_adapter.get_session_id(data)
 
-    if B5_DETERMINISTIC_DISABLED:
+    if path_config.is_child_session():
+        sys.exit(0)
+
+    if B5_DETERMINISTIC_DISABLED or not path_config.enforcement_enabled():
         log_check(session_id, 'disabled', [], (time.time() - t0) * 1000)
         sys.exit(0)
 
-    response, transcript_lines = _extract_response_and_transcript_lines(data)
-    if not response:
+    response, last_user, tool_commands, transcript_lines = transcript_adapter.read_transcript(data)
+    if not response and not tool_commands:
         log_check(session_id, 'pass', [], (time.time() - t0) * 1000)
         sys.exit(0)
 
-    violations = evaluate_rules(response, transcript_lines)
+    violations = evaluate_rules(response, transcript_lines, last_user=last_user, tool_commands=tool_commands)
 
     # 思路 D: 安全阀 — 同 rule 连续 STREAK_BYPASS 次后该 rule 放行
     if violations:
@@ -498,7 +505,7 @@ def main():
             'reason': build_block_reason(violations),
         }
         print(json.dumps(decision, ensure_ascii=False))
-        sys.exit(2)
+        sys.exit(path_config.stop_block_exit_code())
 
     log_check(session_id, 'pass', [], latency_ms)
     sys.exit(0)

@@ -529,6 +529,11 @@ def _is_tty_stderr():
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else 'promote'
+    # Child-session guard: a nested `copilot -p` (e.g. shadow judge) must not
+    # promote/mutate the shared pending queue. Only the auto 'promote' Stop-hook
+    # path is guarded; explicit interactive commands (inject/prune/status) still run.
+    if cmd == 'promote' and path_config.is_child_session():
+        sys.exit(0)
     if cmd == 'promote':
         result = promote_from_observations()
         # Stop hook is silent; only emit JSON when invoked directly with --verbose or in tty

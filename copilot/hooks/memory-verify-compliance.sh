@@ -12,7 +12,7 @@ set -uo pipefail
 # Both required — otherwise fall through to full hook (safe degrade).
 # ──────────────────────────────────────────────────────────────────────────
 _INPUT_SC=$(cat)
-_CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // empty' 2>/dev/null)
+_CUR_SID_SC=$(echo "${_INPUT_SC}" | jq -r '.session_id // .sessionId // empty' 2>/dev/null)
 _OBS_LOG_FOR_SC=$(env PT_LIB="${PT_LIB}" PYTHONIOENCODING=utf-8 python3 -c 'import sys, os; sys.path.insert(0, os.environ["PT_LIB"]); import path_config; print(path_config.get_observations_log_path())' 2>/dev/null)
 if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SID_SC}" ]; then
   # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.
@@ -33,7 +33,13 @@ if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SI
 fi
 # End short-circuit — re-feed stdin to child below
 
-# Appends a compliance record per turn. Never blocks.
-# Re-feed captured stdin (drained by `cat` above). See C1 fix in
-# memory-deterministic-block.sh for full context.
-printf '%s' "${_INPUT_SC}" | exec python3 "${PT_LIB}/verify_compliance.py"
+# Appends a compliance record per turn. When B4 enforcement is on it may emit a
+# {"decision":"block"} JSON. Normalize the child's exit 2 → 0 for Copilot (exit 2
+# is warning-only there; the stdout JSON is what enforces the block), matching
+# memory-deterministic-block.sh. Re-feed captured stdin (drained by `cat` above).
+printf '%s' "${_INPUT_SC}" | python3 "${PT_LIB}/verify_compliance.py"
+_CHILD_RC=$?
+if [ "${_CHILD_RC}" -eq 2 ]; then
+  exit 0
+fi
+exit "${_CHILD_RC}"

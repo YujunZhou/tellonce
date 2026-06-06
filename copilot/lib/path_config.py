@@ -26,6 +26,28 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+
+def force_utf8_io():
+    """Make stdout/stderr emit UTF-8 regardless of the platform console code page.
+
+    Windows pipes default to cp1252. Hook modules print Chinese/emoji block
+    reasons and `additionalContext`; on cp1252 that raises UnicodeEncodeError,
+    which the hooks' defensive `except` swallows into a silent exit 0 — so
+    blocking and memory injection silently break on native Windows. Forcing
+    UTF-8 here fixes both. No-op on Linux/macOS (already UTF-8) and idempotent.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
+
+# Apply at import time: every hook module imports path_config before printing,
+# so this guarantees UTF-8 stdout for block decisions / additionalContext.
+force_utf8_io()
+
 CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
 
 
@@ -77,7 +99,7 @@ def _read_config_file() -> dict:
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding='utf-8-sig') as f:
             return json.load(f)
     except Exception:
         return {}
@@ -92,6 +114,78 @@ def _resolve(env_var: str, config_key: str, default_func):
     if config_key in cfg and cfg[config_key]:
         return cfg[config_key]
     return default_func()
+
+
+def _bool_setting(env_var: str, config_key: str, default: bool) -> bool:
+    """3-layer boolean: env > config file > default. Truthy = 1/true/yes/on."""
+    v = os.environ.get(env_var)
+    if v is not None:
+        return v.strip().lower() in ('1', 'true', 'yes', 'on')
+    cfg = _read_config_file()
+    if config_key in cfg:
+        cv = cfg[config_key]
+        if isinstance(cv, bool):
+            return cv
+        # Tolerate string/int forms a user might hand-edit ("true", "1", 1).
+        if isinstance(cv, (str, int)):
+            return str(cv).strip().lower() in ('1', 'true', 'yes', 'on')
+    return default
+
+
+def stop_block_exit_code() -> int:
+    """Exit code a Stop hook uses when it decides to BLOCK.
+
+    Per copilot/PORT_DESIGN.md §2.2 the Copilot CLI treats a Stop hook's
+    `exit 2` as a warning only; to actually block it wants `{"decision":"block"}`
+    on stdout plus `exit 0`. We therefore default to 0 here so the Windows
+    (PowerShell-direct python) path and the bash-wrapper path behave identically
+    and per-spec — the previous `sys.exit(2)` silently degraded to a warning on
+    Windows. Override with env `PT_STOP_BLOCK_EXIT=2` if a runtime is found to
+    honor exit-2 blocking (see SESSION_HANDOFF Test B).
+
+    REVERSE RISK (write it down so future-you remembers): if the live test shows
+    Copilot honors `exit 2` but IGNORES stdout JSON, then defaulting to 0 means a
+    real violation is SILENTLY let through (not even a warning) on the Windows
+    python-direct path. In that case set PT_STOP_BLOCK_EXIT=2. Defaulting to 0 is
+    only safe under the assumption (PORT_DESIGN §2.2) that stdout JSON + exit 0 is
+    what Copilot reads.
+    """
+    v = os.environ.get('PT_STOP_BLOCK_EXIT')
+    if v and v.strip().isdigit():
+        return int(v.strip())
+    return 0
+
+
+def is_child_session() -> bool:
+    """True inside a nested `copilot -p` subprocess that this skill spawned
+    (e.g. the shadow judge). All Stop/SessionStart hook entry points early-exit
+    when this is set, so a nested agent session can't re-fire the gates, re-inject
+    context, promote the shared pending queue, or pollute the compliance log.
+    Set via env `PT_CHILD_SESSION=1` on the child (see verify_retry_shadow)."""
+    return os.environ.get('PT_CHILD_SESSION', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def enforcement_enabled() -> bool:
+    """Master opt-in for hard-blocking gates (deterministic block, B4 pending-
+    finalize gate, observation-log gate).
+
+    PUBLIC DEFAULT = False (observe-only). A freshly installed skill records
+    preferences and surfaces them, but NEVER hard-blocks a session — so a
+    stranger can't be locked out or have replies rejected by the author's
+    personal rules. Turn full enforcement on with env `PT_ENFORCE=1` or
+    config {"enforce": true}.
+    """
+    return _bool_setting('PT_ENFORCE', 'enforce', False)
+
+
+def shadow_enabled() -> bool:
+    """Opt-in for the shadow LLM judge, which sends the last user message +
+    assistant reply to an LLM (`copilot -p`).
+
+    PUBLIC DEFAULT = False (privacy + cost). Turn on with env `PT_SHADOW=1`
+    or config {"shadow": true}.
+    """
+    return _bool_setting('PT_SHADOW', 'shadow', False)
 
 
 @lru_cache(maxsize=1)
