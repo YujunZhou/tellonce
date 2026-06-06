@@ -36,9 +36,35 @@ _sys.path.insert(0, _LIB_DIR)
 import path_config  # Phase 4.1 解耦
 
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
+# Private overlay: the shipped fingerprints.yaml is empty by default. Users keep
+# their own rules in fingerprints.user.yaml (gitignored), merged at load.
+FP_USER_YAML = os.path.join(_LIB_DIR, 'fingerprints.user.yaml')
 MEMORY_DIR = path_config.get_memory_dir()
 MAX_SHOW = 10
 PROMPT_TRUNCATE = 4000
+
+
+def _load_fingerprints():
+    """Return the merged `fingerprints` dict: shipped fingerprints.yaml plus the
+    optional private fingerprints.user.yaml overlay (user entries win). Requires
+    PyYAML; returns {} if unavailable or both files missing/unreadable."""
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    merged = {}
+    for path in (FP_YAML, FP_USER_YAML):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            fps = (data or {}).get('fingerprints', {}) or {}
+            if isinstance(fps, dict):
+                merged.update(fps)
+        except Exception:
+            continue
+    return merged
 
 
 # Round-10c (2026-05-02): persist retrieve defaults in
@@ -707,20 +733,11 @@ def main():
     prompt_scan = prompt[:PROMPT_TRUNCATE].lower()
 
     try:
-        import yaml
+        import yaml  # noqa: F401  (kept so the guard below still exits cleanly if missing)
     except ImportError:
         sys.exit(0)
 
-    if not os.path.exists(FP_YAML):
-        sys.exit(0)
-
-    try:
-        with open(FP_YAML, encoding='utf-8') as f:
-            fp_data = yaml.safe_load(f)
-    except Exception:
-        sys.exit(0)
-
-    fps = (fp_data or {}).get('fingerprints', {}) or {}
+    fps = _load_fingerprints()
 
     # Round-10/10b: backend dispatch. cli/api both fall back to keyword
     # on any failure so the user never loses retrieval.
@@ -785,16 +802,7 @@ def session_start_summary():
     except ImportError:
         sys.exit(0)
 
-    if not os.path.exists(FP_YAML):
-        sys.exit(0)
-
-    try:
-        with open(FP_YAML, encoding='utf-8') as f:
-            fp_data = yaml.safe_load(f)
-    except Exception:
-        sys.exit(0)
-
-    fps = (fp_data or {}).get('fingerprints', {}) or {}
+    fps = _load_fingerprints()
     memory_idx = _build_index()
 
     # Collect all rules that have critical or high priority

@@ -46,6 +46,7 @@ LOG_PATH = path_config.get_compliance_log_path()
 # B4_TEST_OBS_OVERRIDE: lets test_b4_blocking.py inject a fixture obs file (I2 from code review)
 OBS_LOG = os.environ.get('B4_TEST_OBS_OVERRIDE', path_config.get_observations_log_path())
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
+FP_USER_YAML = os.path.join(_LIB_DIR, 'fingerprints.user.yaml')
 # Alert + retry state lives in project-local persistent state dir (path_config-driven),
 # not /tmp — many shared hosts wipe /tmp on a schedule.
 ALERT_DIR = os.environ.get('B4_ALERT_DIR', path_config.get_b4_alert_dir())
@@ -109,8 +110,14 @@ def detect_rules_for_response(response_text):
     appears in the response. Returns list of atomic_ids."""
     try:
         import yaml
-        with open(FP_YAML, encoding='utf-8') as f:
-            data = yaml.safe_load(f) or {}
+        data = {}
+        for _p in (FP_YAML, FP_USER_YAML):
+            if os.path.exists(_p):
+                with open(_p, encoding='utf-8') as f:
+                    _d = yaml.safe_load(f) or {}
+                _fps = (_d or {}).get('fingerprints', {}) or {}
+                if isinstance(_fps, dict):
+                    data.setdefault('fingerprints', {}).update(_fps)
     except Exception:
         return []
     fps = data.get('fingerprints', {}) or {}

@@ -50,3 +50,8 @@ AUDIT_REPORT_2026-06-05.md
 MARKETING_HIGHLIGHTS.md
 RELEASE_READINESS.md
 PRE_PUBLISH_CHECKLIST.md
+
+# personal fingerprint/seed overlays (kept local, never shipped)
+copilot/lib/fingerprints.user.yaml
+copilot/seed_memory.user/
+**/fingerprints.user.yaml
