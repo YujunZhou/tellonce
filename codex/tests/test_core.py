@@ -815,10 +815,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 scripts_dir = project / "scripts"
                 scripts_dir.mkdir()
                 (scripts_dir / "verify_bib_ledger.py").write_text(
-                    Path(__file__).resolve().parents[2].joinpath(
-                        "..", "example-research-project-paper", "scripts", "verify_bib_ledger.py"
-                    ).resolve().read_text() if Path("/home/user/zyj/example-research-project-paper/scripts/verify_bib_ledger.py").is_file()
-                    else "#!/usr/bin/env python3\nimport sys; sys.exit(1)\n",
+                    "#!/usr/bin/env python3\nimport sys; sys.exit(1)\n",
                     encoding="utf-8",
                 )
                 payload = {

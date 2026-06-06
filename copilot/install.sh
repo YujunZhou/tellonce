@@ -14,13 +14,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PT_LIB="${SCRIPT_DIR}/lib"
 
-# Parse optional --project-root / --mode (observe|enforce|full)
+# Parse optional --project-root / --mode (observe|enforce|full) / --python <path>
 PROJECT_ROOT="$(pwd)"
 MODE="observe"
+PY=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --project-root) PROJECT_ROOT="${2:-$PROJECT_ROOT}"; shift 2 || shift;;
         --mode)         MODE="${2:-observe}"; shift 2 || shift;;
+        --python)       PY="${2:-}"; shift 2 || shift;;
         *)              shift;;
     esac
 done
@@ -33,13 +35,19 @@ echo "Plugin root:  ${SCRIPT_DIR}"
 echo "Project root: ${PROJECT_ROOT}"
 echo ""
 
-# 1. Verify Python 3
-if ! command -v python3 &>/dev/null; then
-    echo "❌ python3 not found in PATH. Please install Python 3.7+."
+# 1. Resolve Python 3.7+ (prefer --python from bootstrap, else python3, else python).
+if [ -z "${PY}" ] || ! "${PY}" -c 'import sys; raise SystemExit(0 if sys.version_info>=(3,7) else 1)' 2>/dev/null; then
+    PY=""
+    for c in python3 python; do
+        if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; raise SystemExit(0 if sys.version_info>=(3,7) else 1)' 2>/dev/null; then PY="$c"; break; fi
+    done
+fi
+if [ -z "${PY}" ]; then
+    echo "❌ Python 3.7+ not found in PATH. Please install it."
     exit 1
 fi
-PYTHON_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-echo "✅ Python ${PYTHON_VER}"
+PYTHON_VER=$("${PY}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+echo "✅ Python ${PYTHON_VER} ($(command -v "${PY}" || echo "${PY}"))"
 
 # 2. Verify jq (needed by bash hooks)
 if command -v jq &>/dev/null; then
@@ -51,8 +59,8 @@ fi
 # 3. Create state directories via path_config
 echo ""
 echo "Creating state directories..."
-env B5_PROJECT_ROOT="${PROJECT_ROOT}" python3 "${PT_LIB}/path_config.py"
-env B5_PROJECT_ROOT="${PROJECT_ROOT}" python3 -c "
+env B5_PROJECT_ROOT="${PROJECT_ROOT}" "${PY}" "${PT_LIB}/path_config.py"
+env B5_PROJECT_ROOT="${PROJECT_ROOT}" "${PY}" -c "
 import sys, os
 sys.path.insert(0, '${PT_LIB}')
 import path_config
@@ -61,7 +69,7 @@ print('✅ State directories created')
 "
 
 # 4. Seed memory (if not already present)
-MEMORY_DIR=$(env B5_PROJECT_ROOT="${PROJECT_ROOT}" python3 -c "
+MEMORY_DIR=$(env B5_PROJECT_ROOT="${PROJECT_ROOT}" "${PY}" -c "
 import sys, os
 sys.path.insert(0, '${PT_LIB}')
 import path_config
@@ -94,7 +102,7 @@ else
     echo "✅ Config already exists at ${CONFIG_PATH}"
     # Migration: older installs pinned `project_root` into the config, which
     # overrides per-cwd path resolution. Strip it so runtime falls back to cwd.
-    python3 - <<'PY' 2>/dev/null || true
+    "${PY}" - <<'PY' 2>/dev/null || true
 import json, io, os
 p = os.path.expanduser("~/.preference-tracker.config.json")
 try:
@@ -113,7 +121,7 @@ fi
 # Set the on/off switch for the user automatically (no hand-editing).
 echo ""
 echo "Setting mode = ${MODE} ..."
-python3 "${PT_LIB}/pt_mode.py" "${MODE}" >/dev/null && echo "✅ Mode set to ${MODE}"
+"${PY}" "${PT_LIB}/pt_mode.py" "${MODE}" >/dev/null && echo "✅ Mode set to ${MODE}"
 
 # Register the plugin with Copilot so its hooks load (side-load installs only;
 # `copilot plugin install` already does this). Idempotent + backs up config.json.
@@ -121,7 +129,7 @@ case "$(echo "${SCRIPT_DIR}" | tr '[:upper:]' '[:lower:]')" in
     *installed-plugins*)
         echo ""
         echo "Registering plugin with Copilot (so hooks load)..."
-        python3 "${PT_LIB}/register_plugin.py" || true
+        "${PY}" "${PT_LIB}/register_plugin.py" || true
         echo "  (restart Copilot to load the hooks)"
         ;;
     *)

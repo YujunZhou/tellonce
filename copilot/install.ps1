@@ -11,7 +11,8 @@
 param(
     [string]$ProjectRoot = (Get-Location).Path,
     [ValidateSet('observe','enforce','full')]
-    [string]$Mode = 'observe'
+    [string]$Mode = 'observe',
+    [string]$Python = ''
 )
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -25,20 +26,36 @@ Write-Host "Plugin root:  $ScriptDir"
 Write-Host "Project root: $ProjectRoot"
 Write-Host ""
 
-# 1. Verify Python
-$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-if (-not $pythonCmd) {
-    Write-Host "[ERROR] python not found in PATH. Please install Python 3.7+." -ForegroundColor Red
+# 1. Resolve a REAL python (3.7+). Prefer the path bootstrap passed in (-Python);
+# otherwise search PATH skipping the Microsoft Store WindowsApps stub and trying
+# python3 before python. Using bare `python` is unsafe (can be the Store stub).
+function Resolve-RealPython {
+    param([string]$Hint)
+    if ($Hint -and (Test-Path $Hint)) {
+        try { & $Hint -c "import sys; raise SystemExit(0 if sys.version_info>=(3,7) else 1)" 2>$null; if ($LASTEXITCODE -eq 0) { return $Hint } } catch {}
+    }
+    foreach ($name in @('python3','python')) {
+        foreach ($c in (Get-Command $name -All -ErrorAction SilentlyContinue)) {
+            if ($c.Source -and ($c.Source -notlike '*\WindowsApps\*')) {
+                try { & $c.Source -c "import sys; raise SystemExit(0 if sys.version_info>=(3,7) else 1)" 2>$null; if ($LASTEXITCODE -eq 0) { return $c.Source } } catch {}
+            }
+        }
+    }
+    return $null
+}
+$Py = Resolve-RealPython -Hint $Python
+if (-not $Py) {
+    Write-Host "[ERROR] Python 3.7+ not found (the Microsoft Store stub does not count)." -ForegroundColor Red
+    Write-Host "        Install from https://www.python.org/downloads/ (check 'Add to PATH')." -ForegroundColor Red
     exit 1
 }
-$pythonVer = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
-Write-Host "[OK] Python $pythonVer" -ForegroundColor Green
+$pythonVer = & $Py -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+Write-Host "[OK] Python $pythonVer ($Py)" -ForegroundColor Green
 
-# 1b. Record the REAL python executable for the hook launcher (run.ps1).
-# When Copilot spawns hooks it may not have the conda PATH, so bare `python`
-# can resolve to the Microsoft Store WindowsApps stub and the hook won't run.
-# We pin the absolute path of the python that is running this installer.
-$realPython = python -c "import sys; print(sys.executable)"
+# 1b. Record the REAL python executable for the hook launcher (run.ps1). When
+# Copilot spawns hooks it may not have the conda PATH, so bare `python` can
+# resolve to the WindowsApps stub and the hook won't run.
+$realPython = & $Py -c "import sys; print(sys.executable)"
 if ($realPython) {
     $sidecar = Join-Path $ScriptDir "hooks\.python_path.txt"
     [System.IO.File]::WriteAllText($sidecar, $realPython.Trim(), (New-Object System.Text.UTF8Encoding($false)))
@@ -50,12 +67,12 @@ Write-Host ""
 Write-Host "Creating state directories..."
 $env:B5_PROJECT_ROOT = $ProjectRoot
 $env:PT_LIB = $PTLib
-python "$PTLib\path_config.py"
-python "$ScriptDir\_install_helper.py" ensure-dirs
+& $Py "$PTLib\path_config.py"
+& $Py "$ScriptDir\_install_helper.py" ensure-dirs
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] State directories created" -ForegroundColor Green }
 
 # 3. Seed memory
-$memoryDir = python "$ScriptDir\_install_helper.py" get-memory-dir
+$memoryDir = & $Py "$ScriptDir\_install_helper.py" get-memory-dir
 
 if ((Test-Path $memoryDir) -and (Get-ChildItem $memoryDir -Filter "*.md" -ErrorAction SilentlyContinue)) {
     Write-Host "[OK] Memory directory already has rules ($memoryDir)" -ForegroundColor Green
@@ -103,14 +120,14 @@ if "project_root" in c:
         f.write("\n")
     print("[OK] Migrated config: removed stale project_root")
 '@
-    python -c $migrate 2>$null
+    & $Py -c $migrate 2>$null
 }
 
 # Set the on/off switch for the user automatically — no hand-editing needed.
 # pt_mode merges into the config and preserves all other keys.
 Write-Host ""
 Write-Host "Setting mode = $Mode ..."
-python "$PTLib\pt_mode.py" $Mode | Out-Null
+& $Py "$PTLib\pt_mode.py" $Mode | Out-Null
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Mode set to $Mode" -ForegroundColor Green }
 
 # Register the plugin in Copilot's config so its hooks actually load. Required
@@ -121,7 +138,7 @@ $scriptUnderInstalled = $ScriptDir.ToLower().Replace('\','/') -like '*installed-
 if ($scriptUnderInstalled) {
     Write-Host ""
     Write-Host "Registering plugin with Copilot (so hooks load)..."
-    python "$PTLib\register_plugin.py"
+    & $Py "$PTLib\register_plugin.py"
     Write-Host "  (restart Copilot to load the hooks)"
 } else {
     Write-Host ""

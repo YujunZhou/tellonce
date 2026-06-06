@@ -37,14 +37,20 @@ echo "[OK] Python: $(command -v "${PY}")"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 SRC_COPILOT=""
+got_src=0
 if command -v git >/dev/null 2>&1; then
     echo "Downloading (git)..."
-    git clone --depth 1 --branch "${BRANCH}" "${REPO}.git" "${WORK}/repo" >/dev/null 2>&1 || fail "git clone failed"
-    SRC_COPILOT="${WORK}/repo/copilot"
-else
+    if git clone --depth 1 --branch "${BRANCH}" "${REPO}.git" "${WORK}/repo" >/dev/null 2>&1; then
+        SRC_COPILOT="${WORK}/repo/copilot"; got_src=1
+    else
+        echo "[i] git clone failed, falling back to tarball..."
+    fi
+fi
+if [ "${got_src}" -ne 1 ]; then
     echo "Downloading (tarball)..."
-    curl -fsSL "${REPO}/archive/refs/heads/${BRANCH}.tar.gz" -o "${WORK}/src.tgz" || fail "download failed"
-    tar -xzf "${WORK}/src.tgz" -C "${WORK}"
+    curl -fsSL "${REPO}/archive/refs/heads/${BRANCH}.tar.gz" -o "${WORK}/src.tgz" \
+        || fail "Download failed (no internet / proxy / private repo?). Check your connection and retry."
+    tar -xzf "${WORK}/src.tgz" -C "${WORK}" || fail "Extract failed."
     SRC_COPILOT="$(find "${WORK}" -maxdepth 2 -type d -name copilot | head -1)"
 fi
 [ -d "${SRC_COPILOT}" ] || fail "Download succeeded but copilot/ folder missing — repo layout changed?"
@@ -56,16 +62,17 @@ mkdir -p "${DEST}"
 ( cd "${SRC_COPILOT}" && tar --exclude='__pycache__' --exclude='.pytest_cache' --exclude='PORT_NOTES' --exclude='*.pyc' -cf - . ) | ( cd "${DEST}" && tar -xf - )
 echo "[OK] Plugin files installed to ${DEST}"
 
-# 5. Optional dependency (best-effort).
-if "${PY}" -m pip install --quiet --disable-pip-version-check pyyaml >/dev/null 2>&1; then
+# 5. Optional dependency (best-effort; deterministic blocking works without it,
+# but session-start rule injection needs PyYAML).
+if "${PY}" -m pip install --quiet --disable-pip-version-check "pyyaml>=6.0" >/dev/null 2>&1; then
     echo "[OK] PyYAML ready"
 else
-    echo "[i] PyYAML not installed (fingerprint retrieval will degrade; core blocking still works)"
+    echo "[i] PyYAML not installed — session-start rule injection will be OFF (deterministic blocking still works). Install later: ${PY} -m pip install pyyaml"
 fi
 
-# 6. Run post-install from installed copy.
+# 6. Run post-install from installed copy. Pass the resolved python through.
 echo "Running post-install..."
-bash "${DEST}/install.sh" --mode observe
+bash "${DEST}/install.sh" --mode observe --python "${PY}"
 
 echo ""
 echo "================================================================"
@@ -77,4 +84,6 @@ echo "  Turn on hard blocking later with:"
 echo "    ${PY} \"${DEST}/lib/pt_mode.py\" enforce"
 echo "  Check status anytime:"
 echo "    ${PY} \"${DEST}/lib/doctor.py\""
+echo "  Uninstall:"
+echo "    ${PY} \"${DEST}/lib/uninstall.py\" --all"
 echo "================================================================"

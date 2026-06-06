@@ -42,3 +42,11 @@ copilot/hooks/.python_path.txt
 **/preference-tracker-state/
 **/__pycache__/
 .pytest_cache/
+
+# internal session/engineering notes — kept on disk for the author, not shipped public
+SESSION_HANDOFF_v1.md
+SESSION_HANDOFF_v2.md
+AUDIT_REPORT_2026-06-05.md
+MARKETING_HIGHLIGHTS.md
+RELEASE_READINESS.md
+PRE_PUBLISH_CHECKLIST.md

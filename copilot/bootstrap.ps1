@@ -52,13 +52,17 @@ try {
     } else { throw "no git" }
 } catch {
     Write-Host "Downloading (zip)..."
-    $zip = "$work.zip"
-    Invoke-WebRequest -UseBasicParsing -Uri "$REPO/archive/refs/heads/$BRANCH.zip" -OutFile $zip
-    New-Item -ItemType Directory -Force -Path $work | Out-Null
-    Expand-Archive -Path $zip -DestinationPath $work -Force
-    $inner = Get-ChildItem $work -Directory | Select-Object -First 1
-    $srcCopilot = Join-Path $inner.FullName 'copilot'
-    Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    try {
+        $zip = "$work.zip"
+        Invoke-WebRequest -UseBasicParsing -Uri "$REPO/archive/refs/heads/$BRANCH.zip" -OutFile $zip
+        New-Item -ItemType Directory -Force -Path $work | Out-Null
+        Expand-Archive -Path $zip -DestinationPath $work -Force
+        $inner = Get-ChildItem $work -Directory | Select-Object -First 1
+        $srcCopilot = Join-Path $inner.FullName 'copilot'
+        Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    } catch {
+        Fail "Download failed (no internet / proxy / private repo?). Check your connection and retry. Details: $($_.Exception.Message)"
+    }
 }
 if (-not (Test-Path $srcCopilot)) { Fail "Download succeeded but copilot/ folder missing — repo layout changed?" }
 
@@ -68,12 +72,20 @@ New-Item -ItemType Directory -Force -Path $dest | Out-Null
 robocopy $srcCopilot $dest /E /XD __pycache__ .pytest_cache PORT_NOTES /XF *.pyc /NFL /NDL /NJH /NJS /NP | Out-Null
 Write-Host "[OK] Plugin files installed to $dest" -ForegroundColor Green
 
-# 5. Optional dependency (best-effort; the flagship block works without it).
-try { & $py -m pip install --quiet --disable-pip-version-check pyyaml 2>$null; Write-Host "[OK] PyYAML ready" -ForegroundColor Green } catch { Write-Host "[i] PyYAML not installed (fingerprint retrieval will degrade; core blocking still works)" -ForegroundColor Yellow }
+# 5. Optional dependency (best-effort; deterministic blocking works without it,
+# but session-start rule injection needs PyYAML). Native commands don't throw, so
+# check $LASTEXITCODE rather than try/catch.
+& $py -m pip install --quiet --disable-pip-version-check "pyyaml>=6.0" 2>$null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "[OK] PyYAML ready" -ForegroundColor Green
+} else {
+    Write-Host "[i] PyYAML not installed — session-start rule injection will be OFF (deterministic blocking still works). Install later: $py -m pip install pyyaml" -ForegroundColor Yellow
+}
 
-# 6. Run post-install from the installed copy (state, seed, observe mode, register, python path).
+# 6. Run post-install from the installed copy. Pass the resolved python so the
+# installer doesn't re-discover (and risk picking the WindowsApps stub).
 Write-Host "Running post-install..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $dest 'install.ps1') -Mode observe
+& powershell -ExecutionPolicy Bypass -File (Join-Path $dest 'install.ps1') -Mode observe -Python $py
 
 # 7. Cleanup.
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
@@ -88,4 +100,6 @@ Write-Host "  Turn on hard blocking later with:"
 Write-Host "    python `"$dest\lib\pt_mode.py`" enforce"
 Write-Host "  Check status anytime:"
 Write-Host "    python `"$dest\lib\doctor.py`""
+Write-Host "  Uninstall:"
+Write-Host "    python `"$dest\lib\uninstall.py`" --all"
 Write-Host "================================================================"

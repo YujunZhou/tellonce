@@ -12,6 +12,7 @@ Pass explicit flags to actually delete:
     python <plugin>/lib/uninstall.py --purge-state   # delete .copilot/preference-tracker-state/
     python <plugin>/lib/uninstall.py --purge-memory  # delete the memory/ rules
     python <plugin>/lib/uninstall.py --reset-config   # remove enforce/shadow keys (back to observe)
+    python <plugin>/lib/uninstall.py --unregister     # remove from Copilot's installedPlugins
     python <plugin>/lib/uninstall.py --all            # all of the above
 
 User data (memory rules) is preserved unless you ask for --purge-memory/--all.

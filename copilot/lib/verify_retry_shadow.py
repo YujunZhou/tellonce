@@ -54,7 +54,8 @@ COST_LOG_DIR = path_config.get_cost_log_dir()
 
 # Env opt-out and gates
 B5_SHADOW_DISABLED = os.environ.get('B5_SHADOW_DISABLED', '').lower() in ('1', 'true', 'yes')
-# 2026-04-26 update: user 已充 credit, 默认 True; 仅当显式 set ANTHROPIC_CREDIT_OK=0/false 才禁
+# Legacy credit gate (only consulted on the SDK path). The real send-gate is
+# path_config.shadow_enabled() (PUBLIC DEFAULT = False).
 ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1', 'true', 'yes')
 B5_DAILY_COST_CAP = float(os.environ.get('B5_DAILY_COST_CAP', '0.50'))
 B5_USE_DEEPINFRA = os.environ.get('B5_USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')

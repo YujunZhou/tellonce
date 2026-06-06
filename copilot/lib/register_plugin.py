@@ -72,10 +72,12 @@ def _save(header, data):
         out = header + body + '\n'
     else:
         out = header + '\n' + body + '\n'
-    # Backup once per run.
+    # Timestamped backup so a re-run after a corruption can't overwrite the only
+    # good copy (kept local; *.bak is gitignored).
     try:
         if os.path.exists(CONFIG_PATH):
-            bak = CONFIG_PATH + '.bak-pt-register'
+            ts = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
+            bak = f'{CONFIG_PATH}.bak-pt-register-{ts}'
             with open(CONFIG_PATH, encoding='utf-8-sig') as f, open(bak, 'w', encoding='utf-8') as b:
                 b.write(f.read())
     except Exception:
@@ -104,6 +106,12 @@ def register():
     if _is_registered(data):
         print(f'[OK] {PLUGIN_NAME} already registered in {CONFIG_PATH}')
         return 0
+    existing = data.get('installedPlugins')
+    if existing is not None and not isinstance(existing, list):
+        print(f'[WARN] installedPlugins in {CONFIG_PATH} is not a list (got '
+              f'{type(existing).__name__}); Copilot config schema may have changed. '
+              f'Refusing to edit — register via `copilot plugin install` instead.')
+        return 1
     plugins = data.setdefault('installedPlugins', [])
     norm = PLUGIN_ROOT.replace('\\', '/').lower()
     if 'installed-plugins' not in norm:
@@ -120,7 +128,7 @@ def register():
     })
     _save(header, data)
     print(f'[OK] Registered {PLUGIN_NAME} (cache_path={PLUGIN_ROOT}). '
-          f'Restart Copilot to load hooks. Backup: {CONFIG_PATH}.bak-pt-register')
+          f'Restart Copilot to load hooks. (config backed up alongside it)')
     return 0
 
 
