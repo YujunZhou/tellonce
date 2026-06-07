@@ -80,6 +80,25 @@ sends the last message and reply (redacted) to `copilot -p`.
 
 ## Self-check / uninstall
 
+**One-command uninstall** (removes the hook registration so hooks stop firing,
+then the plugin files; your saved memory is kept):
+
+Windows (PowerShell):
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.0.0/copilot/uninstall.ps1 | iex"
+```
+macOS / Linux:
+```bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.0.0/copilot/uninstall.sh | bash
+```
+**Restart Copilot afterward.** To also wipe your saved memory/state, download the
+script and run it with `-Purge` (PowerShell) / `--purge` (bash).
+
+> Deleting the plugin files alone is NOT enough — the hooks keep firing while the
+> plugin is still registered in `~/.copilot/config.json`. The uninstaller removes
+> that registration first.
+
+Manual / granular alternative:
 ```bash
 python "<plugin>/lib/doctor.py"                 # self-check (python / registration / mode / hooks)
 python "<plugin>/lib/dashboard.py"              # status at a glance (mode / registration / rule count / record count)
