@@ -81,6 +81,9 @@ if [ -d "${MEMORY_DIR}" ] && [ "$(ls -A "${MEMORY_DIR}" 2>/dev/null)" ]; then
 else
     echo "Seeding memory with starter rules..."
     mkdir -p "${MEMORY_DIR}"
+    # Issue #1 fix (#5): memory holds your recorded preferences — tighten to 700
+    # so it isn't world/group-readable on a shared HOME / multi-user box.
+    chmod 700 "${MEMORY_DIR}" 2>/dev/null || true
     cp -n "${SCRIPT_DIR}/seed_memory/"*.md "${MEMORY_DIR}/" 2>/dev/null || true
     echo "✅ Seeded $(ls "${MEMORY_DIR}"/*.md 2>/dev/null | wc -l) rules"
 fi

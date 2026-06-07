@@ -269,11 +269,24 @@ print("  ✓ state subdirs created")
 # 的 hooks 永远写到旧项目的 state dir. 我们假设最近一次 install 反映用户当前
 # project; 老 config 字段 (whitelist_user / memory_dir 等) 保留.
 log ""
-log "  锚定 PROJECT_ROOT 到 ~/.preference-tracker.config.json (C7 fix: overwrite, not setdefault):"
+# Issue #1 fix (#2): do NOT pin project_root/state_dir/obs_log_dir in the GLOBAL
+# ~/.preference-tracker.config.json by default. That single-file anchor is
+# "last writer wins" — installing project B clobbers project A, and on a shared
+# HOME multiple users collide. path_config resolves these per-project from the
+# hook's cwd at runtime, so no global anchor is needed. Only pin when the user
+# explicitly passed --state-dir; either way, clear any stale anchor left behind.
+if [[ -n "${STATE_DIR_OVERRIDE}" ]]; then
+    log "  锚定到 ~/.preference-tracker.config.json (显式 --state-dir):"
+    _PT_CFG_ACTION=pin
+else
+    log "  per-project 模式: 不写全局 anchor (hooks 按项目 cwd 解析); 清除旧 anchor 若有:"
+    _PT_CFG_ACTION=clean
+fi
 run env \
     B5_PROJECT_ROOT="${PROJECT_ROOT}" \
     B5_STATE_DIR="${STATE_DIR}" \
     B5_OBS_LOG_DIR="${OBS_LOG_DIR}" \
+    PT_CFG_ACTION="${_PT_CFG_ACTION}" \
     PYTHONIOENCODING=utf-8 \
     python3 -c '
 import json, os
@@ -285,20 +298,30 @@ if os.path.exists(config_path):
             config = json.load(f)
     except Exception:
         config = {}
-# Overwrite the three install-driven keys; preserve any user-customized keys
-# (whitelist_user / memory_dir / etc) the user wrote by hand.
-config["project_root"] = os.environ["B5_PROJECT_ROOT"]
-config["state_dir"] = os.environ["B5_STATE_DIR"]
-config["obs_log_dir"] = os.environ["B5_OBS_LOG_DIR"]
-with open(config_path, "w", encoding="utf-8") as f:
-    json.dump(config, f, indent=2, ensure_ascii=False)
-print("  ✓ config:", config_path)
+keys = ("project_root", "state_dir", "obs_log_dir")
+if os.environ.get("PT_CFG_ACTION") == "pin":
+    for k, ev in zip(keys, ("B5_PROJECT_ROOT", "B5_STATE_DIR", "B5_OBS_LOG_DIR")):
+        config[k] = os.environ[ev]
+    changed = True
+else:
+    changed = any(k in config for k in keys)
+    for k in keys:
+        config.pop(k, None)
+if changed:
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+    print("  ✓ config:", config_path)
+else:
+    print("  ✓ no global anchor (per-project cwd resolution)")
 '
 
 # 2.6 cp seed memory (如果不存在), sed 替换私有 session id 为通用 seed 标记 (M9 fix)
 log ""
 log "  装 seed memory (如不存在):"
 run mkdir -p "${MEMORY_DIR}"
+# Issue #1 fix (#5): memory holds your recorded preferences — tighten to 700 so
+# it isn't world/group-readable on a shared HOME / multi-user box.
+run chmod 700 "${MEMORY_DIR}" 2>/dev/null || true
 SEED_SKIPPED=0
 if [[ -d "${SKILL_DIR}/seed_memory" ]]; then
     for seed in "${SKILL_DIR}"/seed_memory/*.md; do
@@ -344,20 +367,24 @@ fi
 # ============================================================
 log ""
 log "[3/5] 收集: 验日志路径可写"
-for d in "${OBS_LOG_DIR}" "${STATE_DIR}"; do
-    if [[ ! -d "${d}" ]]; then
-        log "❌ ${d} 不存在 (Phase 2 应创了)"
-        exit 1
-    fi
-    test_file="${d}/.write_test_$$"
-    if ! touch "${test_file}" 2>/dev/null; then
-        log "❌ ${d} 不可写"
-        exit 1
-    fi
-    rm -f "${test_file}"
-done
-log "  ✓ ${OBS_LOG_DIR} 可写"
-log "  ✓ ${STATE_DIR} 可写"
+if [[ "${DRY_RUN}" == true ]]; then
+    log "  [dry-run] 跳过日志路径可写检查 (Phase 2 的 dir 创建在 dry-run 下被跳过了, 不是失败)"
+else
+    for d in "${OBS_LOG_DIR}" "${STATE_DIR}"; do
+        if [[ ! -d "${d}" ]]; then
+            log "❌ ${d} 不存在 (Phase 2 应创了)"
+            exit 1
+        fi
+        test_file="${d}/.write_test_$$"
+        if ! touch "${test_file}" 2>/dev/null; then
+            log "❌ ${d} 不可写"
+            exit 1
+        fi
+        rm -f "${test_file}"
+    done
+    log "  ✓ ${OBS_LOG_DIR} 可写"
+    log "  ✓ ${STATE_DIR} 可写"
+fi
 
 # ============================================================
 # Phase 4: 执行 (跑 doctor)
@@ -395,6 +422,12 @@ log "  - skill: ${SKILL_DIR}"
 log "  - hooks: ${HOOKS_DIR}"
 log "  - state: ${STATE_DIR}"
 log "  - memory: ${MEMORY_DIR}"
+log ""
+log "提示 (避免新用户误会):"
+log "  - 默认 observe 模式: 只记录+提醒, 不硬拦截、不调用 LLM。"
+log "  - shadow judge 只在 full 模式跑, 且首次有冷启动延迟 (会拉起一个 claude -p 子进程,"
+log "    可能几十秒到几分钟) —— 这不是卡死/装坏。observe 模式根本不跑它。"
+log "    想彻底关掉: export B5_SHADOW_DISABLED=1"
 log ""
 log "下一步:"
 log "  - 看 README.md / FAQ.md"
