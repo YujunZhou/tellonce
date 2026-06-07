@@ -38,7 +38,7 @@ from datetime import datetime, timezone, timedelta
 import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
-import path_config  # Phase 4.1 解耦
+import path_config
 import redaction  # codex review H2 fix (2026-05-01): redact secrets before disk
 import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 

@@ -25,7 +25,7 @@ import sys as _sys
 import os as _os
 _LIB_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
-import path_config  # Phase 4.1 解耦
+import path_config
 
 COMPLIANCE_LOG = path_config.get_compliance_log_path()
 SUMMARY_DIR = path_config.get_b5_summary_dir()
@@ -91,7 +91,7 @@ def compute_metrics(entries):
             deterministic_pass += 1
         elif det_status == 'disabled':
             deterministic_disabled += 1
-        # Shadow (M2 fix per Phase 8 review): 用 shadow_violation_rule_ids 做 per-rule 分桶
+        # Shadow (M2 fix per Phase 8 review): bucket per-rule using shadow_violation_rule_ids
         shadow_status = b5.get('shadow_judge_status')
         if shadow_status == 'violation':
             shadow_violations += 1

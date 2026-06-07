@@ -6,12 +6,12 @@ LLM judge runs on every Stop event, identifies violations of 3 enforce rules
 block covers, but using semantic LLM judge to catch what regex missed.
 
 IMPORTANT (per `exp-proj-285` per-runtime judge dispatch):
-  Copilot CLI runtime uses `copilot -p` subprocess (本文件 _judge_call_cli, 当前默认).
+  Copilot CLI runtime uses `copilot -p` subprocess (this file's _judge_call_cli, the current default).
   Other runtimes:
-    - Claude Code: `claude -p` 子进程
-    - Codex: 待 `exp-proj-114` Codex hook 兼容联通后写 _judge_call_codex
-  统一 Anthropic SDK 路径 (_judge_call_sdk) 仅作 fallback, paper 实验场景或
-  CLI 调用失败兜底用. 默认 B5_USE_SDK=False 走运行时本地通道.
+    - Claude Code: `claude -p` subprocess
+    - Codex: pending `exp-proj-114` Codex hook compatibility, then write _judge_call_codex
+  The unified Anthropic SDK path (_judge_call_sdk) is only a fallback, used for paper experiment
+  scenarios or when the CLI call fails. Default B5_USE_SDK=False uses the runtime-local channel.
 
 **ALWAYS exits 0** — shadow mode never blocks. Side effects:
   - Append violations to b5_shadow_log.jsonl (history)
@@ -45,7 +45,7 @@ from datetime import datetime, timezone, timedelta
 
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
-import path_config  # Phase 4.1 解耦中央
+import path_config  # central path config
 import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
 import deterministic_block  # local guard for language-related shadow false positives
 import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
@@ -489,7 +489,7 @@ def _shadow_suppression_reason(verdict, last_user, response):
 def _just_blocked_by_deterministic(within_sec=5):
     """I1 fix: check if deterministic_block just fired within `within_sec` seconds.
 
-    若刚被确定性阻断, shadow judge skip — already hard-blocked, no need to log violation again
+    If just hard-blocked by deterministic, shadow judge skip — already hard-blocked, no need to log violation again
     (saves ~1 CLI call per blocked Stop).
     """
     if not os.path.exists(COMPLIANCE_LOG):
@@ -580,9 +580,9 @@ def evaluate(stdin_data):
     if cost_usd > 0:
         _bump_daily_cost(cost_usd)
 
-    # Pre-collect violation rule_ids 给主 compliance log 用 (M2 fix per Phase 8 review):
-    # 主 entry 写 shadow_violation_rule_ids list, 让 analyze_b5_compliance.py 直接做 per-rule
-    # 分桶, 不需读 b5_shadow_log.jsonl 双 source.
+    # Pre-collect violation rule_ids for the main compliance log (M2 fix per Phase 8 review):
+    # the main entry writes a shadow_violation_rule_ids list so analyze_b5_compliance.py can do
+    # per-rule bucketing directly, without reading b5_shadow_log.jsonl as a second source.
     raw_violations = [v for v in verdicts
                       if v.get('applicable', True) and not v.get('compliant', True)]
     violations = []

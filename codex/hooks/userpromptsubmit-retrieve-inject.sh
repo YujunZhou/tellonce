@@ -54,7 +54,7 @@ if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
     export B5_PROJECT_ROOT="${CODEX_CWD}"
 fi
 
-# Run retrieve_inject. PYTHONIOENCODING=utf-8 防 LANG 不是 utf-8 时 stdout 崩.
+# Run retrieve_inject. PYTHONIOENCODING=utf-8 prevents stdout from crashing when LANG is not utf-8.
 printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SHARED_LIB}" \
     timeout 30 python3 "${SHARED_LIB}/retrieve_inject.py" 2>/dev/null
 exit 0

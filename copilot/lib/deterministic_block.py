@@ -18,7 +18,7 @@ Defenses:
   - B5_DETERMINISTIC_DISABLED=1 env opt-out
 
 Per `code-pref-101` (JSON for reward-hack-resistant surfaces) — verdict output is JSON.
-Per `wf-pref-027` (versioned 备份) — additive new file, not in-place edit existing.
+Per `wf-pref-027` (versioned backup) — additive new file, not in-place edit existing.
 """
 import json
 import os
@@ -28,18 +28,20 @@ from datetime import datetime, timezone
 
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
-import path_config  # Phase 4.1 解耦中央
+import path_config  # central path config
 import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 
 B5_DETERMINISTIC_DISABLED = os.environ.get('B5_DETERMINISTIC_DISABLED', '').lower() in ('1', 'true', 'yes')
 
-# 思路 D 安全阀: 同 atomic_id 在同 session 连续触发 >= STREAK_BYPASS 次后, 该 atomic_id
-# 在剩余 session 自动放行 (log 警告但不阻断). 防级联 transcript 灾难.
+# Idea D safety valve: once the same atomic_id fires >= STREAK_BYPASS times in a row
+# within a session, that atomic_id is auto-bypassed for the rest of the session
+# (logs a warning but does not block). Prevents cascading transcript disasters.
 STREAK_BYPASS = int(os.environ.get('B5_STREAK_BYPASS', '3'))
 
-# 代码默认值. Phase 7 简易自适应: 规则 frontmatter `params:` 块若设了则覆盖.
-# 用 lambda 让 evaluate_rules 每次 fire 时拿最新值 (用户改 frontmatter 不需重启).
-import rule_params  # noqa: E402 — 解耦阈值
+# Code defaults. Phase 7 simple adaptive: overridden if the rule frontmatter `params:`
+# block sets a value. Using a lambda lets evaluate_rules read the latest value on each
+# fire (editing frontmatter does not require a restart).
+import rule_params  # noqa: E402 — decoupled thresholds
 
 def _LANG_PIT_130_MIN_LENGTH():
     return rule_params.get_param('lang-pit-130', 'min_length', 50)
@@ -53,7 +55,7 @@ def _CHINESE_RATIO_PIT_130():
 def _CHINESE_RATIO_PREF_001():
     return rule_params.get_param('lang-pref-001', 'chinese_ratio_threshold', 0.1)
 
-# Backward-compat 常量 (旧 import 不破)
+# Backward-compat constants (so old imports don't break)
 LANG_PIT_130_MIN_LENGTH = 50
 LANG_PREF_001_MIN_LENGTH = 200
 CHINESE_RATIO_PIT_130 = 0.7
@@ -64,7 +66,7 @@ _WHITELIST_CACHE = None
 
 
 def _load_whitelist():
-    """Load whitelist from [全局基础, per-user 增量] 两文件合并. Skip blank + comment lines.
+    """Load whitelist by merging [global base, per-user increment] two files. Skip blank + comment lines.
 
     Returns set of lowercase entries.
     """
@@ -374,7 +376,7 @@ def _bump_streak(session_id, rule_ids):
 
 
 def _filter_bypass_streaked(violations, streak):
-    """思路 D: 同 atomic_id streak >= STREAK_BYPASS → 该规则放行 (drop from violations).
+    """Idea D: same atomic_id streak >= STREAK_BYPASS → bypass that rule (drop from violations).
     Returns (filtered_violations, bypassed_rule_ids).
     """
     filtered = []
@@ -438,12 +440,12 @@ def main():
 
     violations = evaluate_rules(response, transcript_lines, last_user=last_user, tool_commands=tool_commands)
 
-    # 思路 D: 安全阀 — 同 rule 连续 STREAK_BYPASS 次后该 rule 放行
+    # Idea D: safety valve — bypass a rule after it fires STREAK_BYPASS times in a row
     if violations:
         streak = _load_streak(session_id)
         violations, bypassed = _filter_bypass_streaked(violations, streak)
         if bypassed:
-            # log 这些放行的 rule (不阻断, 但记录灾难 escape 事件)
+            # log the bypassed rules (don't block, but record the disaster-escape event)
             log_check(session_id, 'streak_bypass', [{'rule_id': r, 'reason': 'streak >= bypass threshold', 'evidence_excerpt': f'streak={streak.get(r, 0)}'} for r in bypassed], (time.time() - t0) * 1000)
 
     latency_ms = (time.time() - t0) * 1000

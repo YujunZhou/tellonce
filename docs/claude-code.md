@@ -93,17 +93,6 @@ bash ~/.claude/skills/preference-tracker/dashboard.sh
 #   - judge failure rate / cost / latency
 ```
 
-## False-positive defenses
-
-| Scenario | Symptom | Fix |
-|---|---|---|
-| A Chinese reply using `PostgreSQL` / `Redis` is wrongly blocked | exit 2 + lang-pit-130 | the global whitelist already covers these; if it persists: `echo X >> whitelist_user.txt` |
-| An all-English log dump is wrongly blocked | exit 2 + lang-pref-001 | temporarily: `export B5_DETERMINISTIC_DISABLED=1`, or say "in english" in the prompt |
-| The same rule fires repeatedly on a long transcript | streak counter reaches 3 → auto-bypass that rule for that session | automatic; the rule is still logged |
-| Install fails midway | settings rolled back, hooks partially copied | re-run install (idempotent) or `doctor.sh --rollback` |
-
-See [`../FAQ.md`](../FAQ.md) for more.
-
 ## Uninstall
 
 ```bash

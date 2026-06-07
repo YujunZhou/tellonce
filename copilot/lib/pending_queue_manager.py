@@ -35,7 +35,7 @@ from datetime import datetime, timezone, timedelta
 import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
-import path_config  # Phase 4.1 解耦
+import path_config
 import redaction  # Round-5 H3 fix (2026-05-01): redact secrets in queue entries
 
 OBS_LOG = path_config.get_observations_log_path()

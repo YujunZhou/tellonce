@@ -67,55 +67,6 @@ semantics to dedupe (idempotent) and won't add the same hook twice.
 
 ---
 
-## False positives
-
-> Note: the public build ships **no built-in rules**, so the language/`/tmp`
-> false-positives below no longer occur by default. They are kept as reference
-> for anyone who adds their own deterministic rules.
-
-### Q5: A Chinese reply using `PostgreSQL`/`Redis`/`React` got blocked!
-
-The global 219-entry whitelist already covers mainstream DBs / frameworks. If one
-is missing:
-
-```bash
-echo "NewTerm" >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
-```
-
-One per line; lines starting with `#` are skipped; case-insensitive; no reload
-needed.
-
-Or temporarily disable:
-
-```bash
-export B5_DETERMINISTIC_DISABLED=1
-```
-
----
-
-### Q6: I paste a stack trace / log for Claude to debug and its all-English reply gets blocked
-
-`lang-pref-001` fired (chinese_ratio < 0.1 + length > 200). State it in the prompt
-to bypass:
-- "help me read this log, in english is fine" → bypass (the `in english` keyword)
-- "draft the abstract for the paper" → bypass (the `paper` keyword)
-
-Or at the hook level:
-
-```bash
-export B5_DETERMINISTIC_DISABLED=1
-```
-
----
-
-### Q7: The same rule fires over and over and the transcript keeps growing
-
-Streak safety valve: after a rule fires 3 times in a row it auto-bypasses for the
-rest of the session. No manual action needed. The threshold `B5_STREAK_BYPASS=3`
-is tunable.
-
----
-
 ## Configuration / thresholds
 
 ### Q8: How do I change a threshold?

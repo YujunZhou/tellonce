@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Phase 7 完整版自适应阈值 advisor (per `wf-pref-292`).
+"""Phase 7 full adaptive-threshold advisor (per `wf-pref-292`).
 
-跑历史 compliance + shadow 日志算 per-rule 触发率, 输出建议阈值改动到
-`state/runtime/b5_alerts_threshold/<date>.md`, 用户在 SessionStart inject 时拍板.
+Runs over historical compliance + shadow logs to compute per-rule fire rates, and writes
+suggested threshold changes to `state/runtime/b5_alerts_threshold/<date>.md`, which the user
+approves at SessionStart inject time.
 
-绝不私自改 frontmatter — 只输出建议. 用户跑 `apply_threshold.py` 接受.
+Never edits frontmatter silently — only emits suggestions. The user runs `apply_threshold.py` to accept.
 
 Algorithm (per HANDOFF §8 Step 3, conservative):
-  - 假阳率 > 5% → 建议升阈值 0.05
-  - 假阳率 = 0% AND miss 率 > 50% → 建议降阈值 0.05
-  - 否则 → 保持 (no-suggestion)
+  - false-positive rate > 5% → suggest raising threshold by 0.05
+  - false-positive rate = 0% AND miss rate > 50% → suggest lowering threshold by 0.05
+  - otherwise → keep (no-suggestion)
 
-Miss 率定义: shadow judge 投 violated 但 deterministic 没拦的比例.
-            如果 shadow log 不存在 / 数据 < 5 condition, 跳过该 rule.
-假阳率定义: deterministic 触发但同条 message 后 user 没修正 — heuristic, 默认 0
-            (没显式 ground truth source 时 conservative).
+Miss rate definition: fraction where the shadow judge voted violated but deterministic didn't block.
+            If the shadow log is missing / has < 5 conditions of data, skip that rule.
+False-positive rate definition: deterministic fired but the user didn't correct after the same
+            message — heuristic, default 0 (conservative when there's no explicit ground-truth source).
 
-Per `code-pref-287` 路径解耦; 此模块用 path_config.get_*().
-Per `wf-pref-027` versioned 备份 — apply_threshold.py 写 frontmatter 前备份.
+Per `code-pref-287` path decoupling; this module uses path_config.get_*().
+Per `wf-pref-027` versioned backup — apply_threshold.py backs up before writing frontmatter.
 Per `tool-pit-130` state lives in <project>/.copilot/preference-tracker-state/, not /tmp.
 """
 import json

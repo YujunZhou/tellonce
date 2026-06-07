@@ -184,9 +184,9 @@ fi
 #      AND action.confirmation_text non-empty
 # ══════════════════════════════════════════════════════════════════════════
 RUN_SOFT_CHECK=false  # legacy text-scan permanently disabled (per 2026-04-19 robustness rewrite).
-# 下面 line 153-227 SOFT check 段历史保留作 legacy reference (per `wf-pref-027` 永不
-# overwrite). 若想用 grep-based 文本 marker 检查请: (a) RUN_SOFT_CHECK=true; 或 (b)
-# 删除 line 153-227 那段 (Phase 9 fix per I4 review). 当前版**绝不会执行**该段.
+# The SOFT check section at lines 153-227 below is kept for legacy reference (per `wf-pref-027`,
+# never overwrite). To use the grep-based text marker check: (a) set RUN_SOFT_CHECK=true; or (b)
+# delete the lines 153-227 block (Phase 9 fix per I4 review). The current version **never runs** that block.
 
 QUALITY_WARNINGS=""
 if [ -f "$OBS_LOG" ]; then
