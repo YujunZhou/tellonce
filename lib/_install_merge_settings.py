@@ -118,25 +118,11 @@ def _hook_already_registered(settings: dict, event: str, command_path: str) -> b
 def cmd_add(settings_path: str, hooks_dir: str):
     """Add PT hooks to settings.local.json (idempotent).
 
-    Codex review C1 (2026-05-01): hooks_dir now points to ~/.claude/skills/preference-tracker/hooks/
-    (skill dir), no longer a project-local copy. So the sanity-check allows two valid layouts:
-      (a) hooks_dir under ~/.claude/skills/preference-tracker/ (new design)
-      (b) hooks_dir under the settings parent (old design, for --remove compatibility)
-    Other paths emit a warning to guard against misuse.
+    The hook .sh files self-locate their skill lib via ${BASH_SOURCE[0]}, so
+    hooks_dir may live anywhere (relocated clone, shared HOME, CI, container).
+    The only correctness requirement is that the hook .sh files actually exist
+    in hooks_dir — checked below.
     """
-    home = os.path.expanduser('~')
-    skill_hooks = os.path.realpath(os.path.join(home, '.claude/skills/preference-tracker/hooks'))
-    settings_parent = os.path.realpath(os.path.dirname(os.path.abspath(settings_path)))
-    hd_real = os.path.realpath(os.path.abspath(hooks_dir))
-    in_skill = (hd_real == skill_hooks) or hd_real.startswith(skill_hooks + os.sep)
-    in_settings_parent = os.path.dirname(hd_real) == settings_parent
-    if not (in_skill or in_settings_parent):
-        print(
-            f'⚠ hooks_dir ({hooks_dir}) 既不在 skill dir ({skill_hooks}) 下也不在 '
-            f'settings parent ({settings_parent}) 下',
-            file=sys.stderr,
-        )
-        print('  注册可成功但 hooks 跑不起来. 用 install.sh 自动处理路径.', file=sys.stderr)
     missing = [h for h in PT_HOOKS if not os.path.isfile(os.path.join(hooks_dir, h))]
     if missing:
         print(

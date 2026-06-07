@@ -26,6 +26,8 @@ if ! command -v jq > /dev/null 2>&1; then
     exit 0
 fi
 
+_PT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"
+
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || echo "")
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
@@ -33,7 +35,7 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null 
 # Detect OBS_LOG via path_config (single source of truth). Use env-channel argv
 # rather than string-interpolated `sys.path.insert(0, '${HOME}...')` to avoid
 # breaking when HOME contains a single quote. (H14 fix.)
-OBS_LOG=$(env PT_LIB="${HOME}/.claude/skills/preference-tracker/lib" \
+OBS_LOG=$(env PT_LIB="${_PT_LIB}" \
               PYTHONIOENCODING=utf-8 \
               python3 -c '
 import os, sys
@@ -56,9 +58,9 @@ if [[ "${B5_TRACE:-0}" == "1" ]]; then
     TRACE_LOG="${B5_TRACE_LOG}"
   else
     # Default to state_dir (path_config), private to current user / project
-    _PT_STATE_DIR_FOR_TRACE=$(python3 -c '
+    _PT_STATE_DIR_FOR_TRACE=$(env PT_LIB="${_PT_LIB}" python3 -c '
 import os, sys
-sys.path.insert(0, os.path.expanduser("~/.claude/skills/preference-tracker/lib"))
+sys.path.insert(0, os.environ["PT_LIB"])
 try:
     import path_config
     print(path_config.get_state_dir())
@@ -119,7 +121,7 @@ if [ -f "$OBS_LOG" ]; then
 
   if [ "$AGE" -gt "$OBS_AGE_THRESHOLD" ]; then
     if [ "$AUTO_FALLBACK" = "1" ]; then
-      VERIFY_PY="${HOME}/.claude/skills/preference-tracker/lib/verify_compliance.py"
+      VERIFY_PY="${_PT_LIB}/verify_compliance.py"
       if [ -f "$VERIFY_PY" ]; then
         # Best-effort invocation; defensive (never block hook on its failure).
         FB_OUT=$(python3 "$VERIFY_PY" --auto-light-fallback \

@@ -6,4 +6,6 @@
 # 24h TTL on alerts.
 # Defensive: any error → exit 0 silently.
 
-exec python3 "${HOME}/.claude/skills/preference-tracker/lib/shadow_alert_inject.py"
+_PT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"
+
+exec python3 "${_PT_LIB}/shadow_alert_inject.py"

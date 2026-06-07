@@ -14,7 +14,7 @@
 
 set -uo pipefail  # don't -e; we count fails
 
-SKILL_DIR="${HOME}/.claude/skills/preference-tracker"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${B5_PROJECT_ROOT:-$(pwd)}"
 HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"

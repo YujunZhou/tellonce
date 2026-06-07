@@ -476,7 +476,7 @@ def evaluate(stdin_data):
     """Main shadow judge logic. Returns (status_str, log_entry_dict).
 
     Status one of: 'disabled' / 'no_credit' / 'cost_capped' / 'skip_short' /
-                   'compliant' / 'violation' / 'judge_error'
+                   'compliant' / 'violation' / 'no_rules' / 'judge_error'
     """
     session_id = stdin_data.get('session_id', '')
     log_entry = {
@@ -521,8 +521,11 @@ def evaluate(stdin_data):
         if rule_text:
             rules.append({'rule_id': atomic_id, 'rule_text': rule_text})
     if not rules:
-        log_entry['b5_check'] = {'shadow_judge_status': 'no_rules_loaded'}
-        return 'judge_error', log_entry
+        # Distinct from judge_error: there was nothing to judge (no shadow rules
+        # loaded for this project), NOT a judge failure. Common with the empty-seed
+        # default — the shadow judge has no rules until you add some.
+        log_entry['b5_check'] = {'shadow_judge_status': 'no_rules'}
+        return 'no_rules', log_entry
 
     # Run judge
     verdicts, cost_usd, latency_ms, err = _judge_call(rules, last_user, response)

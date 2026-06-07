@@ -3,7 +3,8 @@
 # Reads pending_queue.jsonl; if non-empty, emits additionalContext warning new
 # session about unfinalized memory entries from prior session(s).
 # Non-destructive: any failure → exit 0 silently.
-out=$(python3 "${HOME}/.claude/skills/preference-tracker/lib/pending_queue_manager.py" inject 2>/dev/null)
+_PT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"
+out=$(python3 "${_PT_LIB}/pending_queue_manager.py" inject 2>/dev/null)
 if [ -n "$out" ]; then
     # Emit JSON-formatted hookSpecificOutput so the harness injects this as
     # additionalContext (matching memory-retrieve-inject.sh contract).
