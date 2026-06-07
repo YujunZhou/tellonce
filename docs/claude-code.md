@@ -11,10 +11,12 @@ injection.
 
 ## How it works
 
-On every `Stop` (end of a reply), three deterministic rules run in the
-background plus an LLM shadow judge. When a hard-block fires, Claude rewrites the
-correction in the same turn; a soft violation produces an alert that is injected
-into the next turn's `additionalContext` as a "you violated X last turn" reminder.
+The public build ships with **no built-in deterministic rules** (they were the
+maintainer's personal preferences and were removed). On every `Stop` (end of a
+reply) the deterministic hook runs but, by default, has nothing to enforce; the
+optional LLM shadow judge (`full` mode) checks the reply against the preferences
+you have recorded. The sections below describe the deterministic layer as an
+opt-in extension point (and how it behaved when rules were present).
 
 ## Install
 

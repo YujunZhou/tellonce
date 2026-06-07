@@ -69,6 +69,10 @@ semantics to dedupe (idempotent) and won't add the same hook twice.
 
 ## False positives
 
+> Note: the public build ships **no built-in rules**, so the language/`/tmp`
+> false-positives below no longer occur by default. They are kept as reference
+> for anyone who adds their own deterministic rules.
+
 ### Q5: A Chinese reply using `PostgreSQL`/`Redis`/`React` got blocked!
 
 The global 219-entry whitelist already covers mainstream DBs / frameworks. If one

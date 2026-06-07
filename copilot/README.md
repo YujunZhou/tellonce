@@ -70,8 +70,8 @@ the full path is printed at the end of install.
 | Mode | Hard block | LLM judge | Description |
 |------|------------|-----------|-------------|
 | **observe** (default) | off | off | Records preferences and reminds you; never interrupts. |
-| **enforce** | on | off | Replies that violate a saved rule are blocked and rewritten. |
-| **full** | on | on | `enforce` plus a small-model semantic judge (costs time / credit). |
+| **enforce** | on | off | Deterministic hard-block layer — ships with **no built-in rules** (opt-in extension point). |
+| **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against your recorded preferences (costs time / credit). |
 
 **Privacy:** `observe` / `enforce` stay entirely on your machine. Only `full`
 sends the last message and reply (redacted) to `copilot -p`.

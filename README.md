@@ -73,8 +73,8 @@ and runs through a wrapper instead. See
 | Mode | Hard block | LLM judge | What it does |
 |---|---|---|---|
 | **observe** (default) | off | off | Records preferences and reminds you. Never interrupts. |
-| **enforce** | on | off | Replies that violate a saved rule are blocked and rewritten. |
-| **full** | on | on | `enforce` plus a small-model semantic judge (costs time / credit). |
+| **enforce** | on | off | Deterministic hard-block layer. Ships with **no built-in rules** (an opt-in extension point), so on its own it blocks nothing. |
+| **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against your recorded preferences (costs time / credit). |
 
 Switch at any time (Copilot variant):
 
@@ -95,9 +95,10 @@ subscription.
    injected into the agent's context.
 2. **Each turn ends (`Stop`)** — the turn is scanned for new preference / pitfall
    / friction signals, which are recorded to an observation log.
-3. **In `enforce` / `full`** — deterministic checks (and optionally an LLM judge)
-   block replies that violate your rules; the agent must fix the violation before
-   it can stop.
+3. **In `full`** — a small-model LLM judge checks each reply against your recorded
+   preferences and flags violations for the agent to fix. (The `enforce`
+   deterministic layer ships with **no built-in rules** — it is an opt-in
+   extension point, so by itself it blocks nothing.)
 
 ## Self-check & uninstall (Copilot variant)
 
