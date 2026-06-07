@@ -36,6 +36,11 @@ import re
 import sys
 import time
 import traceback
+import contextlib
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 from datetime import datetime, timezone, timedelta
 
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -116,6 +121,50 @@ def _read_response_and_last_user(stdin_data):
     return response, last_user
 
 
+@contextlib.contextmanager
+def _cost_lock():
+    """Cross-process exclusive lock for the daily-cost RMW (M4).
+
+    Best-effort: if flock is unsupported, proceed unlocked rather than break.
+    """
+    try:
+        os.makedirs(COST_LOG_DIR, exist_ok=True)
+    except Exception:
+        pass
+    lock_path = os.path.join(COST_LOG_DIR, '.daily_cost.lock')
+    fh = None
+    try:
+        try:
+            fh = open(lock_path, 'a+')
+            if fcntl:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            else:
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        except (OSError, ValueError):
+            if fh is not None:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            fh = None
+        yield
+    finally:
+        if fh is not None:
+            try:
+                if fcntl:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                else:
+                    import msvcrt
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except Exception:
+                pass
+            try:
+                fh.close()
+            except Exception:
+                pass
+
+
 def _read_daily_cost():
     """Read today's accumulated judge cost (USD)."""
     path = os.path.join(COST_LOG_DIR, f'{_today_str()}.json')
@@ -130,16 +179,24 @@ def _read_daily_cost():
 
 
 def _bump_daily_cost(extra_usd):
-    """Add extra_usd to today's cost log."""
+    """Add extra_usd to today's cost log.
+
+    M4 fix: the read-modify-write is wrapped in a cross-process lock so two
+    concurrent shadow-judge calls can't each read the same prior total and
+    overwrite each other (which would undercount spend and let the daily cost
+    cap be exceeded). Best-effort lock — falls through unlocked if the
+    filesystem doesn't support flock, matching `_queue_lock` semantics.
+    """
     os.makedirs(COST_LOG_DIR, exist_ok=True)
     path = os.path.join(COST_LOG_DIR, f'{_today_str()}.json')
-    cur = _read_daily_cost()
-    new = cur + extra_usd
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump({'date': _today_str(), 'total_usd': new}, f)
-    except Exception:
-        pass
+    with _cost_lock():
+        cur = _read_daily_cost()
+        new = cur + extra_usd
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'date': _today_str(), 'total_usd': new}, f)
+        except Exception:
+            pass
     return new
 
 
