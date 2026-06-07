@@ -141,18 +141,18 @@ python3 ~/.claude/skills/preference-tracker/lib/path_config.py
 ```
 UserPromptSubmit chain (5):
   preemptive-scan-reminder.sh
-  memory-retrieve-inject.sh       [B1 fingerprint retrieve, atomic_id injection]
+  memory-retrieve-inject.sh       [retrieve relevant saved rules, inject by atomic_id]
   memory-pending-inject.sh        [cross-session pending-memory reminder]
-  memory-shadow-alert-inject.sh   [B5 soft injection: "you violated X last turn"]
+  memory-shadow-alert-inject.sh   [soft injection: "you violated X last turn"]
   skill-autoload-gate.sh
 
 → Claude generates a response
 
 Stop chain (5):
   check-observation-log.sh        [Iron Law: the obs log must be appended]
-  memory-deterministic-block.sh   [B5 Tier A item 1: 3 regex hard-blocks]
-  memory-verify-compliance.sh     [B3-lite + B4 refuse-to-stop gate]
-  memory-shadow-judge.sh          [B5 Tier A item 2: LLM judge, log-only]
+  memory-deterministic-block.sh   [3 regex hard-blocks]
+  memory-verify-compliance.sh     [compliance + refuse-to-stop gate]
+  memory-shadow-judge.sh          [LLM judge, log-only]
   memory-pending-promote.sh       [pending obs → queue]
 ```
 

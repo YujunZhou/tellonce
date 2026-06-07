@@ -2,7 +2,7 @@
 
 Tracks and blocks, in real time, preferences your Claude Code agent keeps
 violating (for example a Chinese reply mixing in plain English loanwords, or
-`/tmp/` in production code), together with the Phase-7 adaptive-threshold advisor.
+`/tmp/` in production code), together with an adaptive-threshold advisor.
 
 Environment: Linux / macOS (POSIX), Python 3.7+, Claude Code CLI.
 
@@ -118,7 +118,7 @@ bash ~/.claude/skills/preference-tracker/codex/uninstall.sh --purge-state   # de
 
 If you installed an older version (which registered project-local paths like
 `<project>/.claude/hooks/...`), upgrading is strongly recommended — the old paths
-carry a hostile-repo RCE risk (Round-4 C1 fix); the new version only registers
+carry a hostile-repo RCE risk; the new version only registers
 `~/.claude/skills/preference-tracker/hooks/...`, which a project can't override.
 
 ```bash
@@ -177,7 +177,7 @@ keeps them by default in case you have a same-named hook of your own):
 
 ---
 
-## Retrieve backend (defaults to `cli` since Round-10)
+## Retrieve backend (defaults to `cli`)
 
 The UserPromptSubmit hook defaults to **CLI small-model semantic matching**
 (`B5_RETRIEVE_BACKEND=cli`):
@@ -195,7 +195,7 @@ paper experiments).
 
 | Mode | Hit rate | Latency | Cost | Maintenance |
 |---|---|---|---|---|
-| `cli` (default since Round-10) | semantic; synonyms covered automatically | 1-2s/prompt | 0 (subscription quota) | no trigger keywords to write |
+| `cli` (default) | semantic; synonyms covered automatically | 1-2s/prompt | 0 (subscription quota) | no trigger keywords to write |
 | `keyword` (legacy) | depends on how complete your triggers are | <10ms | 0 | write `triggers` per rule |
 
 ### Switch back to keyword (if you want a fast, LLM-free path)
@@ -238,7 +238,7 @@ data flows:**
      through Anthropic.
    - Disable: `export B5_SHADOW_DISABLED=1`.
 
-2. **Local on-disk** (default `chmod 600` — readable only by you, H10 fix):
+2. **Local on-disk** (default `chmod 600` — readable only by you):
    - `<state>/runtime/b5_shadow_alerts/b5_shadow_log.jsonl` — evidence + feedback excerpts
    - `<state>/obs_log/compliance_log.jsonl` — `response_excerpt[:400]`
    - `<state>/runtime/b5_shadow_alerts/B5_SHADOW_ALERT.md` — full text of the latest 3 violations
@@ -248,8 +248,8 @@ data flows:**
    channel above); no email / Slack / GitHub.
 
 4. **API-key billing:**
-   - `lib/detect_user_prefer.py` is OFF by default (`PT_PREFER_BACKEND=off`, C6
-     fix). It calls no LLM and always returns 'urgent'. To enable adaptive
+   - `lib/detect_user_prefer.py` is OFF by default (`PT_PREFER_BACKEND=off`).
+     It calls no LLM and always returns 'urgent'. To enable adaptive
      classification: `export PT_PREFER_BACKEND=cli` (subscription) or `=sdk`
      (charges `ANTHROPIC_API_KEY`).
 
