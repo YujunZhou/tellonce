@@ -52,10 +52,10 @@ def _mode_label():
     except Exception:
         shadow = False
     if enforce and shadow:
-        return 'full     (硬拦截 + AI 判官)', enforce, shadow
+        return 'full     (hard block + LLM judge)', enforce, shadow
     if enforce:
-        return 'enforce  (硬拦截，无 AI 判官)', enforce, shadow
-    return 'observe  (安全默认：只记录+提醒，不拦不调 LLM)', enforce, shadow
+        return 'enforce  (hard block, no LLM judge)', enforce, shadow
+    return 'observe  (safe default: record + remind only; no block, no LLM)', enforce, shadow
 
 
 def _registered():
@@ -127,11 +127,11 @@ def build_dashboard():
     pending = _pending_count()
 
     if reg is True:
-        reg_label = 'yes (Copilot 会加载 hook)'
+        reg_label = 'yes (Copilot will load the hooks)'
     elif reg is False:
-        reg_label = 'NO — 未注册，hook 不会触发！跑 register_plugin.py 或重装'
+        reg_label = 'NO — not registered; hooks will not fire! run register_plugin.py or reinstall'
     else:
-        reg_label = '? (无法读取 ~/.copilot/config.json)'
+        reg_label = '? (could not read ~/.copilot/config.json)'
 
     lines = [
         '═══ preference-tracker dashboard ═══',

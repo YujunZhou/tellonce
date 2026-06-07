@@ -66,15 +66,15 @@ def _print_status(cfg):
     enforce = bool(cfg.get('enforce', False))
     shadow = bool(cfg.get('shadow', False))
     if enforce and shadow:
-        mode = 'full     (硬拦截 + AI 判官)'
+        mode = 'full     (hard block + LLM judge)'
     elif enforce:
-        mode = 'enforce  (硬拦截，无 AI 判官)'
+        mode = 'enforce  (hard block, no LLM judge)'
     else:
-        mode = 'observe  (安全默认：只记录+提醒，不拦不调 LLM)'
-    print(f'preference-tracker 当前模式: {mode}')
-    print(f'  enforce(硬拦截) = {enforce}')
-    print(f'  shadow(AI判官)  = {shadow}')
-    print(f'  配置文件: {CONFIG_PATH}')
+        mode = 'observe  (safe default: record + remind only; no block, no LLM)'
+    print(f'preference-tracker current mode: {mode}')
+    print(f'  enforce (hard block) = {enforce}')
+    print(f'  shadow  (LLM judge)  = {shadow}')
+    print(f'  config file: {CONFIG_PATH}')
 
 
 def _apply(cfg, enforce=None, shadow=None):
@@ -97,24 +97,24 @@ def main(argv):
     cmd = args[0]
     if cmd == 'observe':
         cfg = _apply(cfg, enforce=False, shadow=False)
-        print('✅ 已切到 observe（安全默认：只记录+提醒，不拦截、不调用 LLM）。')
+        print('Switched to observe (safe default: record + remind only; no blocking, no LLM).')
     elif cmd == 'enforce':
         cfg = _apply(cfg, enforce=True, shadow=False)
-        print('✅ 已开启 enforce（硬拦截）。AI 判官仍关闭。')
+        print('enforce is ON (hard blocking). The LLM judge stays off.')
     elif cmd == 'full':
         cfg = _apply(cfg, enforce=True, shadow=True)
-        print('✅ 已开启 full（硬拦截 + AI 判官）。注意：AI 判官会把对话发给 copilot -p 判分。')
+        print('full is ON (hard blocking + LLM judge). Note: the judge sends the exchange to copilot -p for scoring.')
     elif cmd in ('block', 'shadow') and len(args) >= 2 and args[1] in ('on', 'off', 'true', 'false', '1', '0', 'yes', 'no'):
         val = _on(args[1])
         if cmd == 'block':
             cfg = _apply(cfg, enforce=val)
-            print(f'✅ 硬拦截(enforce) = {val}')
+            print(f'hard block (enforce) = {val}')
         else:
             cfg = _apply(cfg, shadow=val)
-            print(f'✅ AI 判官(shadow) = {val}')
+            print(f'LLM judge (shadow) = {val}')
     else:
         print(__doc__)
-        print(f'\n无法识别的命令: {" ".join(argv)}')
+        print(f'\nUnrecognized command: {" ".join(argv)}')
         return 2
 
     print()
