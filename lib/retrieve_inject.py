@@ -35,6 +35,9 @@ _sys.path.insert(0, _LIB_DIR)
 import path_config  # Phase 4.1 解耦
 
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
+# Private overlay: the shipped fingerprints.yaml is empty by default. Users keep
+# their own rules in fingerprints.user.yaml (gitignored), merged at load.
+FP_USER_YAML = os.path.join(_LIB_DIR, 'fingerprints.user.yaml')
 MEMORY_DIR = path_config.get_memory_dir()
 MAX_SHOW = 10
 PROMPT_TRUNCATE = 4000
@@ -720,16 +723,21 @@ def main():
     except ImportError:
         sys.exit(0)
 
-    if not os.path.exists(FP_YAML):
+    if not (os.path.exists(FP_YAML) or os.path.exists(FP_USER_YAML)):
         sys.exit(0)
 
-    try:
-        with open(FP_YAML) as f:
-            fp_data = yaml.safe_load(f)
-    except Exception:
-        sys.exit(0)
-
-    fps = (fp_data or {}).get('fingerprints', {}) or {}
+    fps = {}
+    for _p in (FP_YAML, FP_USER_YAML):
+        if not os.path.exists(_p):
+            continue
+        try:
+            with open(_p, encoding='utf-8') as f:
+                _d = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        _fps = (_d or {}).get('fingerprints', {}) or {}
+        if isinstance(_fps, dict):
+            fps.update(_fps)
 
     # Round-10/10b: backend dispatch. cli/api both fall back to keyword
     # on any failure so the user never loses retrieval.

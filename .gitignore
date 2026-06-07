@@ -56,3 +56,6 @@ I18N_AUDIT.md
 copilot/lib/fingerprints.user.yaml
 copilot/seed_memory.user/
 **/fingerprints.user.yaml
+
+# root (Claude Code) personal seed overlay (kept local, never shipped)
+/seed_memory.user/
