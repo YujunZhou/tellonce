@@ -77,7 +77,7 @@ the language rules on normal tool input.
 
 ```bash
 # Feed the hook a normal tool call (e.g. a Chinese commit message or a plain bash command)
-echo '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"修复登录 bug\""},"tool_response":{"output":"ok"},"cwd":"."}' \
+echo '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"refactor auth module\""},"tool_response":{"output":"ok"},"cwd":"."}' \
   | python -m codex_preftrack.codex_posttooluse_block
 ```
 
