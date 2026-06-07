@@ -153,49 +153,49 @@ def make_transcript_file(messages):
 def run_main(stdin_data, env_overrides=None):
     """Invoke deterministic_block.py main() as subprocess."""
     env = dict(os.environ)
+    env.setdefault('PYTHONIOENCODING', 'utf-8')  # UTF-8 stdout so the block reason prints on any host
     if env_overrides:
         env.update(env_overrides)
     proc = subprocess.run(
-        ['python3', os.path.join(LIB_DIR, 'deterministic_block.py')],
+        [sys.executable, os.path.join(LIB_DIR, 'deterministic_block.py')],
         input=json.dumps(stdin_data),
-        capture_output=True, text=True, env=env, timeout=10,
+        capture_output=True, text=True, encoding='utf-8', env=env, timeout=10,
     )
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def test_main_blocks_lang_pit_130():
-    """B.2 main: response 中文 majority + 'stub'/'merge' inline → exit 2 + JSON decision."""
-    # chinese_ratio 必须 >= 0.7 + length > 50 才触发. 用 chinese-heavy response 含 inline english:
-    response = "好的我来修复这个 stub 的问题。我们需要把它 merge 进主分支,然后处理一下相关的依赖关系,完成后通知所有相关的团队成员。"
+def test_main_blocks_on_forced_violation():
+    """main: with a (test-forced) violation → exit 2 + JSON block decision.
+    The public release ships no built-in rules, so PT_TEST_FORCE_VIOLATION drives
+    the block / exit-code path."""
     transcript = make_transcript_file([
-        {'type': 'user', 'message': {'content': '帮我修复一下'}},
-        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': response}]}},
+        {'type': 'user', 'message': {'content': 'help'}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'some response'}]}},
     ])
-    # M-fix: 用唯一会话标识防 doctor 反复跑累积连击放行 (per Phase 8 streak pollution caveat)
     import time as _time
-    unique_sid = f'test-lang-pit-130-{int(_time.time() * 1000000)}'
-    rc, stdout, stderr = run_main({'session_id': unique_sid, 'transcript_path': transcript})
+    unique_sid = f'test-forced-{int(_time.time() * 1000000)}'
+    rc, stdout, stderr = run_main({'session_id': unique_sid, 'transcript_path': transcript},
+                                  env_overrides={'PT_TEST_FORCE_VIOLATION': '1'})
     os.unlink(transcript)
     assert rc == 2, f'expected exit 2 (block), got {rc}; stderr={stderr[:300]}'
     try:
         decision = json.loads(stdout.strip())
-    except Exception as e:
+    except Exception:
         raise AssertionError(f'expected JSON decision in stdout, got: {stdout!r}')
     assert decision.get('decision') == 'block', f'expected block, got {decision}'
-    assert 'lang-pit-130' in decision.get('reason', ''), f'expected lang-pit-130 in reason'
+    assert 'test-synthetic' in decision.get('reason', ''), 'expected test-synthetic in reason'
     return True
 
 
 def test_main_no_block_disabled_env():
-    """B5_DETERMINISTIC_DISABLED=1 → exit 0 even with violation."""
-    response = "好的, 这是 stub 的 fix"
+    """B5_DETERMINISTIC_DISABLED=1 → exit 0 even with a (forced) violation."""
     transcript = make_transcript_file([
         {'type': 'user', 'message': {'content': 'help'}},
-        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': response}]}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'some response'}]}},
     ])
     rc, stdout, stderr = run_main(
         {'session_id': f'test-disabled-{int(__import__("time").time() * 1000000)}', 'transcript_path': transcript},
-        env_overrides={'B5_DETERMINISTIC_DISABLED': '1'},
+        env_overrides={'B5_DETERMINISTIC_DISABLED': '1', 'PT_TEST_FORCE_VIOLATION': '1'},
     )
     os.unlink(transcript)
     assert rc == 0, f'expected exit 0 (disabled), got {rc}'
@@ -218,7 +218,7 @@ def main():
         ('last_user_prompt explicit english', test_last_user_prompt_explicit_english_request),
         ('last_user_prompt paper context bypass', test_last_user_prompt_paper_context_bypass),
         ('last_user_prompt no english request', test_last_user_prompt_no_english_request),
-        ('main blocks lang-pit-130 (subprocess)', test_main_blocks_lang_pit_130),
+        ('main blocks on forced violation (subprocess)', test_main_blocks_on_forced_violation),
         ('main no block when DETERMINISTIC_DISABLED env', test_main_no_block_disabled_env),
     ]
     passed = 0

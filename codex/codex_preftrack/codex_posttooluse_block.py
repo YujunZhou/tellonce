@@ -319,37 +319,17 @@ def main() -> int:
 
     text = _extract_agent_text(payload)
 
-    # Round-7 codex-review P0-2 fix (High, 2026-05-02): bib drift check must
-    # run FIRST, before the short-text guard. A common .bib edit is just
-    # renaming a citation key (`x` -> `y`): new_string is <30 chars and the
-    # old short-text guard returned 0, completely bypassing drift detection.
-    # Order now: bib check -> short-text guard -> deterministic regex.
-    bib_violations: list[dict] = []
-    try:
-        bib_violations = _check_bib_drift(payload)
-    except Exception:
-        pass
-
+    # The public release ships NO built-in personal rules (including the
+    # maintainer's BibTeX/citation workflow). This just runs the shared
+    # deterministic rules — empty by default. Tool input (file content / shell
+    # command) is not a user-facing reply, so language rules never apply here.
     if not text or len(text) < 30:
-        # Skip the deterministic regex pass on short inputs (noise), but
-        # keep bib_violations from above — those are length-independent.
-        if bib_violations:
-            violations = bib_violations
-        else:
-            return 0
-    else:
-        try:
-            violations = db.evaluate_rules(text, [])
-        except Exception:
-            violations = []
-        # Tool input (a file's content or a shell command) is NOT a user-facing
-        # reply, so the language rules (lang-pit-130 chinese-purity, lang-pref-001
-        # all-English-long-reply) do not apply — they would false-positive and, in
-        # blocking mode, reject a perfectly valid English file write. Keep only
-        # content/path-class rules (e.g. oth-pref-001 /tmp).
-        violations = [v for v in violations if not str(v.get('rule_id', '')).startswith('lang-')]
-        if bib_violations:
-            violations = list(violations) + bib_violations
+        return 0
+    try:
+        violations = db.evaluate_rules(text, [])
+    except Exception:
+        violations = []
+    violations = [v for v in violations if not str(v.get('rule_id', '')).startswith('lang-')]
 
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

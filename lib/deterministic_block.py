@@ -297,90 +297,57 @@ def _extract_response_and_transcript_lines(stdin_data):
 
 
 def evaluate_rules(response, transcript_lines):
-    """Evaluate 3 deterministic rules. Returns list of violation dicts.
-
-    Each violation dict: {rule_id, reason, evidence_excerpt}
-    """
+    """Return deterministic-rule violations for a response. Ships empty (no
+    built-in rules); see the body. Each violation: {rule_id, reason, evidence_excerpt}."""
     violations = []
     if not response:
         return violations
 
-    cr = chinese_ratio(response)
-    n = len(response)
-
-    # Rule 1: lang-pit-130 (chinese majority + inline english word) — Phase 7 阈值从 frontmatter 读
-    if cr >= _CHINESE_RATIO_PIT_130() and n > _LANG_PIT_130_MIN_LENGTH():
-        if has_inline_english_word(response):
-            # Find first 3 non-whitelisted english words for evidence
-            wl = _load_whitelist()
-            prose = _strip_code_blocks(response)
-            prose = _strip_inline_code(prose)
-            prose = _strip_atomic_ids(prose)
-            words = re.findall(r'\b[a-zA-Z]{3,}\b', prose)
-            offenders = [w for w in words if w.lower() not in wl][:3]
-            violations.append({
-                'rule_id': 'lang-pit-130',
-                'reason': '中文 reply 混入 inline 普通英文词',
-                'evidence_excerpt': f'chinese_ratio={cr:.2f}, found english words: {offenders}',
-            })
-
-    # Rule 2: oth-pref-001 (path /tmp/ in active code block)
-    if has_active_code_block_with_tmp_path(response):
-        # Snip first /tmp/ occurrence in code block for evidence
-        m = re.search(r'```[a-zA-Z0-9_\-]*\n.{0,500}?/tmp/[^\n]*', response, re.DOTALL)
-        excerpt = m.group(0)[-200:] if m else '/tmp/...'
+    # The public release ships with NO built-in deterministic rules: preference-
+    # tracker must not hard-block anyone on a maintainer's personal preferences.
+    # Deterministic enforcement is opt-in and driven by the user's own recorded
+    # rules / the shadow judge. This is the extension point where rules would be
+    # evaluated; by default it adds nothing.
+    #
+    # Test affordance: PT_TEST_FORCE_VIOLATION=1 emits one synthetic violation so
+    # the block / exit-code mechanism stays testable without shipping a real rule.
+    if os.environ.get('PT_TEST_FORCE_VIOLATION'):
         violations.append({
-            'rule_id': 'oth-pref-001',
-            'reason': 'active code block 含 /tmp/ path (per `tool-pit-130` 不持久)',
-            'evidence_excerpt': excerpt,
+            'rule_id': 'test-synthetic',
+            'reason': 'forced violation for mechanism testing',
+            'evidence_excerpt': (response or '')[:120],
         })
-
-    # Rule 3: lang-pref-001 relaxed (全英文长 reply + 用户没明显要 english) — Phase 7 阈值从 frontmatter 读
-    if n > _LANG_PREF_001_MIN_LENGTH() and cr < _CHINESE_RATIO_PREF_001():
-        if not last_user_prompt_explicit_english_request(transcript_lines):
-            violations.append({
-                'rule_id': 'lang-pref-001',
-                'reason': 'response 几乎全英文但 user 上 prompt 没明 explicit ask English / paper context',
-                'evidence_excerpt': f'chinese_ratio={cr:.3f}, length={n}',
-            })
 
     return violations
 
 
 def build_block_reason(violations):
-    """Build block reason text. v2 (post 续写重复 brainstorm 思路 A+C+F):
-    显式禁令(不道歉/不重述/不铺垫) + 只列触发的 rule + 强制 `[修正]` 前缀.
-    """
+    """Build the block-reason text shown to the agent: list the triggered rules
+    and a terse continuation protocol. No built-in fix hints — each violation
+    carries its own reason/fix."""
     if not violations:
         return ''
-    # 思路 C: 只列触发的 rule, 不列全部 3 条
-    fix_hints = {
-        'lang-pit-130': '把英文借词换中文 (stub→占位代码 / merge→合并 / drift→漂移 / ship→上线)',
-        'oth-pref-001': '改 /tmp/ → 项目内 state/runtime/ 或 .claude/preference-tracker-state/',
-        'lang-pref-001': '改中文回复. 若给外部 reviewer, 在下条 prompt 明示 in english 触发 bypass',
-        'bib-pref-001': '撤回对 .bib 的修改 (git checkout / 手动还原), 或 (a) 用 resolve_bib.py --append-to 重新从 DOI 拉权威 raw BibTeX 覆盖 + 同步 bib_sources.jsonl, (b) 不要重命名 citation key / 不要改字段',
-        'bib-pref-002': '每个 orphan key 必须二选一: (a) 从 DOI 重 resolve: `python3 scripts/resolve_bib.py "<title>" --append-to references.bib` (写 ledger), 或 (b) 加进 bib_trusted_keys.txt (一行一 key, 仅给你 100% 确定来源的条目, 比如自己 Google Scholar 发表的论文)',
-    }
     triggered_lines = []
     for v in violations:
-        rid = v['rule_id']
+        rid = v.get('rule_id', 'rule')
+        hint = v.get('fix') or v.get('reason') or ''
         triggered_lines.append(
-            f"  • [{rid}] {v['evidence_excerpt'][:120]}\n"
-            f"    → {fix_hints.get(rid, v['reason'])}"
+            f"  • [{rid}] {str(v.get('evidence_excerpt', ''))[:120]}\n"
+            f"    → {hint}"
         )
     triggered = '\n'.join(triggered_lines)
 
-    # 思路 A+F: 禁令清单 + 强制前缀
     reason = (
-        f"⛔ {', '.join(v['rule_id'] for v in violations)} 触发\n\n"
+        f"⛔ {', '.join(v.get('rule_id', 'rule') for v in violations)} triggered\n\n"
         f"{triggered}\n\n"
-        f"🔧 续写规则 (严格遵守, 减少 transcript 回声):\n"
-        f"  ❌ 不要道歉 (\"抱歉/对不起/刚才\")\n"
-        f"  ❌ 不要重述上文 (用户已看到原回复)\n"
-        f"  ❌ 不要解释规则 (用户已看到本提示)\n"
-        f"  ❌ 不要写 \"补充修正/我注意到/上文我违反了\" 类铺垫\n"
-        f"  ✅ 直接以 `[修正]` 开头, 后接修正后的内容片段, 越短越好\n\n"
-        f"Override: env `B5_DETERMINISTIC_DISABLED=1` 全关; `B5_STREAK_BYPASS=N` 调连续违规放行阈值 (默认 3)."
+        f"🔧 Continuation rules (follow strictly, minimize transcript echo):\n"
+        f"  ❌ Do not apologize\n"
+        f"  ❌ Do not restate the previous turn (the user already saw it)\n"
+        f"  ❌ Do not explain the rule (the user already saw this notice)\n"
+        f"  ❌ Do not add a preamble like \"correction / I noticed / I violated...\"\n"
+        f"  ✅ Start directly with `[fix]` then the corrected snippet, as short as possible\n\n"
+        f"Override: env `B5_DETERMINISTIC_DISABLED=1` disables all; `B5_STREAK_BYPASS=N` "
+        f"sets the consecutive-violation bypass threshold (default 3)."
     )
     return reason
 

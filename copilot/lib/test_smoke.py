@@ -72,12 +72,17 @@ def test_adapter_tail_caps_huge_transcript():
     os.remove(p)
 
 
-def test_tool_command_tmp_detected():
+def test_no_builtin_rules_ship_but_mechanism_works(monkeypatch):
+    # Public release ships NO built-in deterministic rules (no personal prefs).
     ev = [{'type': 'user.message', 'data': {'content': 'write a log'}},
           {'type': 'assistant.message', 'data': {'content': 'ok', 'toolRequests': [{'command': 'echo hi >> /tmp/x.log'}]}}]
     resp, last_user, tools, _ = ta.read_transcript({'transcriptPath': _write_transcript(ev)})
-    vio = [v['rule_id'] for v in db.evaluate_rules(resp, last_user=last_user, tool_commands=tools)]
-    assert 'oth-pref-001' in vio
+    monkeypatch.delenv('PT_TEST_FORCE_VIOLATION', raising=False)
+    assert db.evaluate_rules(resp, last_user=last_user, tool_commands=tools) == []
+    # The test hook still exercises the violation path.
+    monkeypatch.setenv('PT_TEST_FORCE_VIOLATION', '1')
+    vio = db.evaluate_rules(resp, last_user=last_user, tool_commands=tools)
+    assert [v['rule_id'] for v in vio] == ['test-synthetic']
 
 
 # ---------------------------------------------------------------- config bool parsing
@@ -132,8 +137,11 @@ def test_pt_mode_roundtrip_preserves_keys_and_strips_bom(monkeypatch, tmp_path):
 # ---------------------------------------------------------------- gating via subprocess
 def _run_block(enforce, child=False, exit_env=None, transcript=None):
     env = os.environ.copy()
-    for k in ('PT_ENFORCE', 'PT_SHADOW', 'PT_CHILD_SESSION', 'PT_STOP_BLOCK_EXIT', 'PYTHONIOENCODING'):
+    for k in ('PT_ENFORCE', 'PT_SHADOW', 'PT_CHILD_SESSION', 'PT_STOP_BLOCK_EXIT', 'PT_TEST_FORCE_VIOLATION', 'PYTHONIOENCODING'):
         env.pop(k, None)
+    # No built-in rules ship, so force a synthetic violation to exercise the
+    # block / exit-code mechanism.
+    env['PT_TEST_FORCE_VIOLATION'] = '1'
     if enforce:
         env['PT_ENFORCE'] = '1'
     if child:
@@ -150,8 +158,10 @@ def _run_block(enforce, child=False, exit_env=None, transcript=None):
 
 @pytest.fixture
 def tmp_violation():
-    ev = [{'type': 'user.message', 'data': {'content': 'write to /tmp'}},
-          {'type': 'assistant.message', 'data': {'content': 'ok', 'toolRequests': [{'command': 'echo>>/tmp/a'}]}}]
+    # A transcript with a non-empty assistant response (content is irrelevant now;
+    # the block is driven by PT_TEST_FORCE_VIOLATION in _run_block).
+    ev = [{'type': 'user.message', 'data': {'content': 'do a thing'}},
+          {'type': 'assistant.message', 'data': {'content': 'ok done'}}]
     p = _write_transcript(ev)
     yield p
     try:
@@ -161,9 +171,11 @@ def tmp_violation():
 
 
 def test_observe_never_blocks(tmp_violation):
-    # Env-forced observe (PT_ENFORCE=0) must never block, even on a clear violation.
+    # Env-forced observe (PT_ENFORCE=0) must never block, even when a violation
+    # is forced — observe gates out before rules are even evaluated.
     env = os.environ.copy()
     env['PT_ENFORCE'] = '0'
+    env['PT_TEST_FORCE_VIOLATION'] = '1'
     env.pop('PYTHONIOENCODING', None)
     stdin = json.dumps({'sessionId': 's-' + uuid.uuid4().hex[:8], 'transcriptPath': tmp_violation})
     p = subprocess.run([sys.executable, 'deterministic_block.py'],
