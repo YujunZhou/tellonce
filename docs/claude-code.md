@@ -105,14 +105,24 @@ See [`../FAQ.md`](../FAQ.md) for more.
 ## Uninstall
 
 ```bash
+# Removes the hook registration (both project-local AND user-global
+# ~/.claude/settings.json) so the hooks actually STOP firing, then prompts about
+# the skill dir. Your memory/state is kept.
 bash ~/.claude/skills/preference-tracker/uninstall.sh
 
-# Full removal (including state + obs_log):
+# Full removal (also state + obs_log):
 bash ~/.claude/skills/preference-tracker/uninstall.sh --purge-state
 
 # Keep the skill directory (easier reinstall):
 bash ~/.claude/skills/preference-tracker/uninstall.sh --keep-skill-dir
+
+# Keep the user-global registration (only uninstall this project):
+bash ~/.claude/skills/preference-tracker/uninstall.sh --keep-global
 ```
+
+> Note: deleting the skill files alone does NOT stop the hooks — they keep firing
+> as long as they're registered in `~/.claude/settings.json`. The uninstaller
+> removes that registration first (by default, both global and project-local).
 
 By default uninstall leaves memory + state + obs_log untouched (your data is kept
 and restored on reinstall).

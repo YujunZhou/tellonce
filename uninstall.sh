@@ -30,12 +30,14 @@ CONFIG_FILE="${HOME}/.preference-tracker.config.json"
 KEEP_SKILL_DIR=false
 PURGE_STATE=false
 KEEP_CONFIG=false
+KEEP_GLOBAL=false
 PURGE_LEGACY_HOOKS=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --keep-skill-dir) KEEP_SKILL_DIR=true; shift ;;
         --purge-state) PURGE_STATE=true; shift ;;
         --keep-config) KEEP_CONFIG=true; shift ;;
+        --keep-global) KEEP_GLOBAL=true; shift ;;
         --purge-legacy-project-hooks) PURGE_LEGACY_HOOKS=true; shift ;;
         *) shift ;;
     esac
@@ -103,6 +105,19 @@ if [[ -f "${SETTINGS}" ]]; then
     fi
 else
     echo "[1/5] settings.local.json 不存在, skip"
+fi
+
+# 1b. Also remove the USER-GLOBAL registration (~/.claude/settings.json). The
+# recommended install (option A) registers hooks THERE, and a project-local
+# uninstall alone leaves them firing in EVERY project. Remove it by default so
+# the hooks actually stop. (Use --keep-global to keep it.)
+GLOBAL_SETTINGS="${HOME}/.claude/settings.json"
+if [[ "${KEEP_GLOBAL}" != true && -f "${GLOBAL_SETTINGS}" ]]; then
+    echo "[1b] removing hooks from user-global settings.json:"
+    python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
+        --settings "${GLOBAL_SETTINGS}" \
+        --hooks-dir "${SKILL_DIR}/hooks" \
+        --remove || true
 fi
 
 # 2. project-local hook .sh 处理

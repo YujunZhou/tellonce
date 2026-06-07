@@ -45,3 +45,21 @@ Internally the package records a project-local audit ledger and uses wrapper-bas
 ## Claude Code Parity
 
 See `CC_PARITY_MATRIX.md`. No Claude Code capability should be dropped; features may be staged internally but must keep a parity row and a replacement path.
+
+## Uninstall
+
+```bash
+# Per-project disable only (keeps the global runtime + ~/.codex/hooks.json entries
+# so other projects keep working):
+bash ~/.codex/skills/preference-tracker/codex/uninstall.sh
+
+# FULL uninstall — also removes the hook registrations from ~/.codex/hooks.json
+# (so the hooks stop firing everywhere) and the global runtime:
+bash ~/.codex/skills/preference-tracker/codex/uninstall.sh --purge-hooks --purge-skill
+```
+
+> Note: the hooks keep firing as long as they're registered in
+> `~/.codex/hooks.json`. The default uninstall intentionally keeps that
+> registration (the global runtime is shared across projects); pass
+> `--purge-hooks` to remove it and fully stop the hooks.
+
