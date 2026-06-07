@@ -21,6 +21,7 @@ python <plugin>/lib/pt_mode.py enforce     # 开硬拦截
 python <plugin>/lib/pt_mode.py full        # 硬拦截 + AI 判官
 python <plugin>/lib/pt_mode.py observe      # 回到安全默认
 python <plugin>/lib/pt_mode.py status       # 看当前模式
+python <plugin>/lib/dashboard.py            # 一眼看状态（模式/注册/规则数/记录数）
 ```
 
 > 安装时也能直接选：`install.ps1 -Mode enforce`（或 `--mode enforce` for bash）。下文 Infrastructure / Gate 等章节描述的是**强制模式开启后**的行为。

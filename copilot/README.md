@@ -63,6 +63,7 @@ python "<plugin>\lib\pt_mode.py" status      # 看当前模式
 
 ```
 python "<plugin>\lib\doctor.py"                 # 自检（python / 注册 / 模式 / 钩子）
+python "<plugin>\lib\dashboard.py"              # 一眼看状态（模式/注册/规则数/记录数）
 python "<plugin>\lib\uninstall.py"              # 看会删什么（dry-run）
 python "<plugin>\lib\uninstall.py --all"        # 删 state+memory+config 键+反注册
 copilot plugin uninstall preference-tracker     # 删插件代码本身

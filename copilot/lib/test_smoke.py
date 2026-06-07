@@ -185,3 +185,15 @@ def test_enforce_exit2_when_overridden(tmp_violation):
 def test_child_session_guard_suppresses_block(tmp_violation):
     rc, blocked = _run_block(enforce=True, child=True, transcript=tmp_violation)
     assert rc == 0 and not blocked  # child session must not block
+
+
+# ---------------------------------------------------------------- dashboard
+def test_dashboard_builds_without_crashing():
+    import dashboard
+    out = dashboard.build_dashboard()
+    assert isinstance(out, str) and out
+    # structural labels are always present regardless of install state
+    for label in ('mode:', 'registered:', 'rules:', 'observations:'):
+        assert label in out
+    assert dashboard.main() == 0
+
