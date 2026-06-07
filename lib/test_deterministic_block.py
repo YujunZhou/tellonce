@@ -17,7 +17,7 @@ import deterministic_block as db
 # ---------------------------- Helper-level tests ----------------------------
 
 def test_chinese_ratio_majority_chinese():
-    """中文为主 response → ratio > 0.7."""
+    """Mostly-Chinese response → ratio > 0.7."""
     text = "你好这是一个完整的中文句子用于测试 hello"
     r = db.chinese_ratio(text)
     assert r >= 0.7, f'expected >= 0.7, got {r}'
@@ -25,7 +25,7 @@ def test_chinese_ratio_majority_chinese():
 
 
 def test_chinese_ratio_pure_english():
-    """全英文 → ratio ≈ 0."""
+    """All English → ratio ≈ 0."""
     text = "hello world this is a test, all in english 800 chars long....." * 10
     r = db.chinese_ratio(text)
     assert r < 0.1, f'expected < 0.1, got {r}'
@@ -33,7 +33,7 @@ def test_chinese_ratio_pure_english():
 
 
 def test_has_inline_english_word_whitelist_proper_noun():
-    """ChromaDB/Sonnet 4-6 等 proper noun 在 whitelist → no inline english word flagged."""
+    """Proper nouns like ChromaDB/Sonnet 4-6 in the whitelist → no inline english word flagged."""
     text = "我用 ChromaDB 跑 Sonnet 4-6, 数据存在向量库里"
     flagged = db.has_inline_english_word(text)
     assert not flagged, f'expected False (whitelist), got True with flagged={flagged}'
@@ -41,7 +41,7 @@ def test_has_inline_english_word_whitelist_proper_noun():
 
 
 def test_has_inline_english_word_real_violation():
-    """中文混 stub/drift/merge 等普通英文词 → flagged."""
+    """Chinese mixed with ordinary English words like stub/drift/merge → flagged."""
     text = "好的, 这是 stub 的 fix, 我会 merge 一下"
     flagged = db.has_inline_english_word(text)
     assert flagged, f'expected flagged, got False'
@@ -50,7 +50,7 @@ def test_has_inline_english_word_real_violation():
 
 
 def test_has_inline_english_word_in_code_block_skipped():
-    """代码块内英文不算 inline english word."""
+    """English inside a code block does not count as an inline english word."""
     text = """好的, 这是修复:
 
 ```python
@@ -65,7 +65,7 @@ def stub_function():
 
 
 def test_has_inline_english_word_cited_atomic_id_skipped():
-    """atomic_id reference 例 lang-pref-001 不算 inline english."""
+    """An atomic_id reference like lang-pref-001 does not count as inline english."""
     text = "请按 `lang-pref-001` 改, 这个规则要求中文回复"
     flagged = db.has_inline_english_word(text)
     assert not flagged, f'expected False (atomic_id), got flagged={flagged}'
@@ -73,7 +73,7 @@ def test_has_inline_english_word_cited_atomic_id_skipped():
 
 
 def test_has_active_code_block_with_tmp_path_in_code():
-    """active bash 代码块 cd /tmp/ → True."""
+    """An active bash code block with cd /tmp/ → True."""
     text = """这是修复:
 
 ```bash
@@ -88,7 +88,7 @@ ls *.md
 
 
 def test_has_active_code_block_with_tmp_path_prose_skipped():
-    """prose 提到 /tmp/ 不算 active write."""
+    """Prose mentioning /tmp/ does not count as an active write."""
     text = "上次 /tmp/skill_library wipe 了, 损失惨重. 应该改用 state/runtime/."
     flagged = db.has_active_code_block_with_tmp_path(text)
     assert not flagged, f'expected False (prose mention), got True'
@@ -96,7 +96,7 @@ def test_has_active_code_block_with_tmp_path_prose_skipped():
 
 
 def test_has_active_code_block_with_tmp_path_comment_skipped():
-    """代码块内 comment 提 /tmp/ 不算 active write."""
+    """A /tmp/ mention inside a code-block comment does not count as an active write."""
     text = """```python
 # old default was /tmp/foo, now state/runtime/foo
 PATH = '/var/state/runtime/foo'
@@ -107,7 +107,7 @@ PATH = '/var/state/runtime/foo'
 
 
 def test_last_user_prompt_explicit_english_request():
-    """user 上 prompt 说 'reply in english' → True."""
+    """The user's previous prompt says 'reply in english' → True."""
     transcript_lines = [
         json.dumps({'type': 'user', 'message': {'content': '请用中文回复'}}),
         json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '好的'}]}}),
@@ -119,7 +119,7 @@ def test_last_user_prompt_explicit_english_request():
 
 
 def test_last_user_prompt_paper_context_bypass():
-    """user 上 prompt 含 'paper' / 'abstract' / 'rebuttal' 等学术写作 keyword → bypass."""
+    """The user's previous prompt contains academic-writing keywords like 'paper' / 'abstract' / 'rebuttal' → bypass."""
     transcript_lines = [
         json.dumps({'type': 'user', 'message': {'content': 'help draft the abstract for the paper'}}),
     ]
@@ -129,7 +129,7 @@ def test_last_user_prompt_paper_context_bypass():
 
 
 def test_last_user_prompt_no_english_request():
-    """user 上 prompt 中文且无 english/paper 信号 → False."""
+    """The user's previous prompt is Chinese with no english/paper signal → False."""
     transcript_lines = [
         json.dumps({'type': 'user', 'message': {'content': '帮我 debug 一下这个函数'}}),
     ]

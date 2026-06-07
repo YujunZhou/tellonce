@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Phase 7 简易自适应阈值 — 读规则 frontmatter 的 `params:` 块, 没设走代码默认值.
+"""Simple adaptive thresholds — read a rule's frontmatter `params:` block, fall back to code defaults.
 
-用户改 memory `.md` frontmatter 等于改阈值, 不需要重启 hook.
+Editing the memory `.md` frontmatter changes the threshold; no hook restart needed.
 
-例:
+Example:
 ```yaml
 ---
 atomic_id: lang-pit-130
 params:
-  chinese_ratio_threshold: 0.55   # 默认 0.7, 混杂多英文借词的项目可调低
-  min_length: 80                  # 默认 50
+  chinese_ratio_threshold: 0.55   # default 0.7; lower it for projects with many English loanwords
+  min_length: 80                  # default 50
 ---
 ```
 
-规则文件没写 `params:` 块时, 调用方拿默认值.
+When a rule file has no `params:` block, the caller gets the default value.
 
-Per `code-pref-287` 路径解耦; 此模块用 `path_config.get_memory_dir()`.
-Per `wf-pref-292` 自适应阈值机制 (用户拍板, 不私自改).
+Per `code-pref-287`: path decoupling; this module uses `path_config.get_memory_dir()`.
+Per `wf-pref-292`: adaptive threshold mechanism (user decides, never changed autonomously).
 """
 import os
 import re
@@ -30,7 +30,7 @@ import path_config
 
 @lru_cache(maxsize=64)
 def read_rule_params(atomic_id):
-    """读规则 .md 的 frontmatter `params:` 块, 返字典. 不存在 / 解析失败 → {}."""
+    """Read a rule .md's frontmatter `params:` block, return a dict. Missing / parse failure → {}."""
     memory_dir = path_config.get_memory_dir()
     if not os.path.isdir(memory_dir):
         return {}
@@ -53,9 +53,10 @@ def read_rule_params(atomic_id):
 
 
 def _parse_params_block(content):
-    """从 markdown 文件 (含 frontmatter `--- ... ---`) 取 `params:` 块.
+    """Extract the `params:` block from a markdown file (with frontmatter `--- ... ---`).
 
-    手写最小解析器 (不依赖 PyYAML). 仅支持简单 key: value 对 (int / float / 字符串).
+    Hand-written minimal parser (no PyYAML dependency). Only supports simple key: value
+    pairs (int / float / string).
     """
     parts = re.split(r'^---\s*$', content, maxsplit=2, flags=re.MULTILINE)
     if len(parts) < 3:
@@ -100,7 +101,7 @@ def _parse_params_block(content):
 
 
 def get_param(atomic_id, key, default):
-    """便捷函数: 读 rule[key], 返 default 若没设."""
+    """Convenience function: read rule[key], return default if unset."""
     params = read_rule_params(atomic_id)
     if key not in params:
         return default
@@ -108,7 +109,7 @@ def get_param(atomic_id, key, default):
 
 
 def _clear_cache():
-    """test only — reset lru_cache after frontmatter 改动."""
+    """test only — reset lru_cache after frontmatter changes."""
     try:
         read_rule_params.cache_clear()
     except AttributeError:
@@ -116,7 +117,7 @@ def _clear_cache():
 
 
 if __name__ == '__main__':
-    """Debug: 列 3 个 enforce 规则当前 params."""
+    """Debug: list current params for the 3 enforce rules."""
     for rid in ['lang-pit-130', 'lang-pref-001', 'oth-pref-001']:
         p = read_rule_params(rid)
         print(rid + ': ' + str(p))

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""CLI: 应用 threshold_advisor 建议到 memory rule frontmatter.
+"""CLI: apply threshold_advisor suggestions to memory rule frontmatter.
 
-Per `wf-pref-292`: 用户拍板才改, 不私自. CLI 接受 --rule / --param / --value 三参数,
-versioned 备份原文件, atomic write (tmp + rename), 修 `params:` 块只动指定 key.
+Per `wf-pref-292`: only change when the user decides, never autonomously. The CLI accepts
+--rule / --param / --value, makes a versioned backup of the original file, writes atomically
+(tmp + rename), and modifies only the specified key in the `params:` block.
 
 Usage:
   python3 apply_threshold.py --rule lang-pit-130 --param chinese_ratio_threshold --value 0.55
   python3 apply_threshold.py --snooze lang-pit-130 --days 7
   python3 apply_threshold.py --list
 
-Per `wf-pref-027` versioned 备份, 永不 overwrite — 写 `<rule>.pre_threshold_<TS>.bak`.
-Per `code-pref-287` 路径解耦.
+Per `wf-pref-027`: versioned backup, never overwrite — writes `<rule>.pre_threshold_<TS>.bak`.
+Per `code-pref-287`: path decoupling.
 """
 import argparse
 import datetime

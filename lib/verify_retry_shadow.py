@@ -6,13 +6,14 @@ LLM judge runs on every Stop event, identifies violations of 3 enforce rules
 block covers, but using semantic LLM judge to catch what regex missed.
 
 IMPORTANT (per `exp-proj-285` per-runtime judge dispatch):
-  此实施仅 Claude Code 运行时. Codex / OpenClaw 运行时各走自己额度通道:
-    - Claude Code: `claude -p` 子进程 (本文件 _judge_call_cli, 当前默认)
-    - Codex: 待 `exp-proj-114` Codex hook 兼容联通后写 _judge_call_codex
-    - OpenClaw: 待 OpenClaw 完全搭好后写 _judge_call_openclaw, 复用 OpenClaw
-                部署模型 (Gemma via DeepInfra / DeepSeek 等), 不另起 Anthropic
-  统一 Anthropic SDK 路径 (_judge_call_sdk) 仅作 fallback, paper 实验场景或
-  CLI 调用失败兜底用. 默认 B5_USE_SDK=False 走运行时本地通道.
+  This implementation targets the Claude Code runtime only. The Codex / OpenClaw runtimes
+  each use their own quota channel:
+    - Claude Code: `claude -p` subprocess (this file's _judge_call_cli, the current default)
+    - Codex: write _judge_call_codex once `exp-proj-114` Codex hook compatibility lands
+    - OpenClaw: write _judge_call_openclaw once OpenClaw is fully set up, reusing OpenClaw's
+                deployed models (Gemma via DeepInfra / DeepSeek etc.), not spinning up Anthropic
+  The unified Anthropic SDK path (_judge_call_sdk) is only a fallback, used for paper
+  experiments or when the CLI call fails. Defaults to B5_USE_SDK=False (local runtime channel).
 
 **ALWAYS exits 0** — shadow mode never blocks. Side effects:
   - Append violations to b5_shadow_log.jsonl (history)
@@ -41,7 +42,7 @@ from datetime import datetime, timezone, timedelta
 
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
-import path_config  # Phase 4.1 解耦中央
+import path_config  # central path config
 import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
 import deterministic_block  # local guard for language-related shadow false positives
 
@@ -54,7 +55,7 @@ COST_LOG_DIR = path_config.get_cost_log_dir()
 
 # Env opt-out and gates
 B5_SHADOW_DISABLED = os.environ.get('B5_SHADOW_DISABLED', '').lower() in ('1', 'true', 'yes')
-# 2026-04-26 update: user 已充 credit, 默认 True; 仅当显式 set ANTHROPIC_CREDIT_OK=0/false 才禁
+# Defaults to True (assumes credit available); only disabled when ANTHROPIC_CREDIT_OK=0/false is set explicitly
 ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1', 'true', 'yes')
 B5_DAILY_COST_CAP = float(os.environ.get('B5_DAILY_COST_CAP', '0.50'))
 B5_USE_DEEPINFRA = os.environ.get('B5_USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
@@ -264,15 +265,15 @@ def _update_alert_md(violation_alerts):
 
 
 def _judge_call_cli(rules, last_user, response):
-    """Invoke claude -p CLI subprocess judge. 0 API charge (走 CLI 订阅).
+    """Invoke claude -p CLI subprocess judge. 0 API charge (uses the CLI subscription).
 
-    Default per `tool-pit-004`: 有 CLI 订阅 + SDK 两条路时优先 CLI.
-    Default model: claude-haiku-4-5 (per `exp-pref-022` preflight tier — 影子 judge 不需 paper-main Sonnet).
+    Default per `tool-pit-004`: prefer the CLI when both CLI subscription and SDK are available.
+    Default model: claude-haiku-4-5 (per `exp-pref-022` preflight tier — the shadow judge does not need paper-main Sonnet).
     Returns (verdicts_list, cost_usd=0.0, latency_ms, error_str_or_None).
     """
     import subprocess
     t0 = time.time()
-    # Minimal context per user '不需要给太长 context'
+    # Minimal context per the user's "don't give too much context"
     rules_text = '\n'.join(
         f'- {r["rule_id"]}: {r["rule_text"][:200]}'
         for r in rules
@@ -323,7 +324,7 @@ Rules:
                 'evidence': v_dict.get('evidence', '')[:300],
                 'feedback': v_dict.get('feedback', '')[:300],
             })
-        # 0 cost — CLI 走订阅
+        # 0 cost — CLI uses the subscription
         return verdicts, 0.0, latency_ms, None
     except subprocess.TimeoutExpired:
         return [], 0.0, 60000.0, 'CLI timeout 60s'
@@ -448,7 +449,7 @@ def _shadow_suppression_reason(verdict, last_user, response):
 def _just_blocked_by_deterministic(within_sec=5):
     """I1 fix: check if deterministic_block just fired within `within_sec` seconds.
 
-    若刚被确定性阻断, shadow judge skip — already hard-blocked, no need to log violation again
+    If it was just deterministically blocked, the shadow judge skips — already hard-blocked, no need to log violation again
     (saves ~1 CLI call per blocked Stop).
     """
     if not os.path.exists(COMPLIANCE_LOG):
@@ -536,9 +537,9 @@ def evaluate(stdin_data):
     if cost_usd > 0:
         _bump_daily_cost(cost_usd)
 
-    # Pre-collect violation rule_ids 给主 compliance log 用 (M2 fix per Phase 8 review):
-    # 主 entry 写 shadow_violation_rule_ids list, 让 analyze_b5_compliance.py 直接做 per-rule
-    # 分桶, 不需读 b5_shadow_log.jsonl 双 source.
+    # Pre-collect violation rule_ids for the main compliance log:
+    # the main entry writes a shadow_violation_rule_ids list so analyze_b5_compliance.py can
+    # bucket per-rule directly, without reading b5_shadow_log.jsonl as a second source.
     raw_violations = [v for v in verdicts
                       if v.get('applicable', True) and not v.get('compliant', True)]
     violations = []

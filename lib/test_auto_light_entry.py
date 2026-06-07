@@ -5,15 +5,15 @@ Run: python3 test_auto_light_entry.py
 Expects: 7/7 PASS (kickoff §Step 1 asked for 5+; we cover the 5 listed cases plus
 2 extra schema/edge tests).
 
-测试覆盖:
-  1. 空文件写第一条 (empty obs_log 创建 + 单 entry)
-  2. 正常写后追加 (existing entries 保留 + 新 entry 末尾)
-  3. atomic 中断重试 (.tmp 残留 cleanup; 重跑不 corrupt)
-  4. age 计算正确 (age_sec / threshold_sec 进 entry 完整)
-  5. session_id propagate (顶层 session_id + entry_id 含 sid prefix)
-  6. schema 满足 hook validation (detection.detected boolean, trigger excerpt
-     non-empty, self_observations.uncertainty_notes non-empty — CHECK 2 关键)
-  7. existing 没结尾 newline 时不破坏 (健壮性)
+Tests cover:
+  1. Write the first entry to an empty file (empty obs_log creation + single entry)
+  2. Append after a normal write (existing entries preserved + new entry at the end)
+  3. Atomic interruption retry (.tmp residue cleanup; re-run does not corrupt)
+  4. Correct age computation (age_sec / threshold_sec fully written into the entry)
+  5. session_id propagate (top-level session_id + entry_id contains sid prefix)
+  6. schema satisfies hook validation (detection.detected boolean, trigger excerpt
+     non-empty, self_observations.uncertainty_notes non-empty — CHECK 2 is key)
+  7. Does not break when existing file has no trailing newline (robustness)
 """
 import json
 import os
@@ -34,7 +34,7 @@ def _read_jsonl(path):
 # ---------------------------- Tests ----------------------------
 
 def test_empty_file_first_write():
-    """空 obs_log 写第一条 entry, 文件创建 + 1 行 valid JSON."""
+    """Write the first entry to an empty obs_log; file created + 1 line of valid JSON."""
     with tempfile.TemporaryDirectory() as d:
         obs = os.path.join(d, 'sub', 'observations.jsonl')
         path = vc.generate_auto_light_entry(
@@ -50,16 +50,16 @@ def test_empty_file_first_write():
         e = entries[0]
         assert e['auto_generated'] is True
         assert e['session_id'] == 'sid-empty-001'
-        # 父目录 mkdir -p 也要 work (sub/ 不存在前)
+        # parent dir mkdir -p must work too (before sub/ exists)
         assert os.path.isdir(os.path.dirname(obs))
     print('  ✓ test_empty_file_first_write')
 
 
 def test_append_to_existing():
-    """已有 entry 时追加, 不丢老 entry."""
+    """Append when entries exist, without losing old entries."""
     with tempfile.TemporaryDirectory() as d:
         obs = os.path.join(d, 'observations.jsonl')
-        # seed 2 老 entry
+        # seed 2 old entries
         with open(obs, 'w') as f:
             f.write(json.dumps({'entry_id': 'old-1', 'detection': {'detected': True}}) + '\n')
             f.write(json.dumps({'entry_id': 'old-2', 'detection': {'detected': False}}) + '\n')
@@ -79,16 +79,16 @@ def test_append_to_existing():
 
 
 def test_tmp_residue_does_not_corrupt():
-    """模拟前次 crash 留下 .tmp 残留, 新 call 不应 import 残留 + 不 corrupt obs."""
+    """Simulate .tmp residue left by a previous crash; a new call should not import the residue + not corrupt obs."""
     with tempfile.TemporaryDirectory() as d:
         obs = os.path.join(d, 'observations.jsonl')
         with open(obs, 'w') as f:
             f.write(json.dumps({'entry_id': 'real-1'}) + '\n')
-        # 残留 .tmp 含垃圾 (前次 process 中断)
+        # residue .tmp contains garbage (previous process interrupted)
         residue = obs + '.tmp.99999.99999999999999'
         with open(residue, 'w') as f:
             f.write('CORRUPT-RESIDUE-DO-NOT-MERGE\n')
-        # 新 call
+        # new call
         vc.generate_auto_light_entry(
             session_id='sid-tmp-003',
             age_sec=1900,
@@ -96,19 +96,19 @@ def test_tmp_residue_does_not_corrupt():
             obs_log_path=obs,
         )
         entries = _read_jsonl(obs)
-        # 老 entry 保留 + 新 entry 加, 残留不进 obs
+        # old entry preserved + new entry added, residue does not enter obs
         contents = open(obs).read()
         assert 'CORRUPT-RESIDUE-DO-NOT-MERGE' not in contents, \
             'residue tmp file leaked into obs_log'
         assert len(entries) == 2, f'expected 2 entries, got {len(entries)}'
         assert entries[0]['entry_id'] == 'real-1'
         assert entries[1]['auto_generated'] is True
-        # 残留 tmp 文件可以仍存在 (function 不主动清同 dir 的 unrelated tmp); 仅测 obs 完整
+        # residue tmp file may still exist (the function does not proactively clean unrelated tmp in the same dir); only test obs integrity
     print('  ✓ test_tmp_residue_does_not_corrupt')
 
 
 def test_age_and_threshold_propagate():
-    """age_sec 和 threshold_sec 完整入 entry, int cast 正确."""
+    """age_sec and threshold_sec are written into the entry in full, with correct int cast."""
     with tempfile.TemporaryDirectory() as d:
         obs = os.path.join(d, 'observations.jsonl')
         vc.generate_auto_light_entry(
@@ -121,7 +121,7 @@ def test_age_and_threshold_propagate():
         e = entries[0]
         assert e['auto_age_sec'] == 2456, f'age_sec int cast wrong: {e["auto_age_sec"]}'
         assert e['auto_threshold_sec'] == 1800
-        # uncertainty_notes 必须包含 age + threshold 数字 (hook validation 要 non-empty)
+        # uncertainty_notes must contain the age + threshold numbers (hook validation requires non-empty)
         notes = e['self_observations']['uncertainty_notes']
         assert '2456' in notes, f'age missing from notes: {notes}'
         assert '1800' in notes, f'threshold missing from notes: {notes}'
@@ -129,7 +129,7 @@ def test_age_and_threshold_propagate():
 
 
 def test_session_id_propagate_and_entry_id_format():
-    """session_id 顶层字段正确 + entry_id slug 含 sid prefix (8 char)."""
+    """session_id top-level field correct + entry_id slug contains sid prefix (8 char)."""
     with tempfile.TemporaryDirectory() as d:
         obs = os.path.join(d, 'observations.jsonl')
         vc.generate_auto_light_entry(
@@ -141,11 +141,11 @@ def test_session_id_propagate_and_entry_id_format():
         entries = _read_jsonl(obs)
         e = entries[0]
         assert e['session_id'] == 'claude-session-abcdef0123456789'
-        # entry_id 形如 "<iso>-auto-fallback-<sid_slug>"
+        # entry_id looks like "<iso>-auto-fallback-<sid_slug>"
         assert 'auto-fallback' in e['entry_id'], f'entry_id missing slug: {e["entry_id"]}'
-        # sid_slug 是前 8 char (re.sub 不改 'claude-s'), entry_id 末尾应含
+        # sid_slug is the first 8 chars (re.sub does not change 'claude-s'), entry_id should end with it
         assert e['entry_id'].endswith('-claude-s'), f'entry_id should end with sid prefix: {e["entry_id"]}'
-        # unknown session_id 不 crash
+        # unknown session_id does not crash
         vc.generate_auto_light_entry(
             session_id=None,
             age_sec=2000, threshold_sec=1800,
@@ -157,9 +157,9 @@ def test_session_id_propagate_and_entry_id_format():
 
 
 def test_schema_satisfies_hook_validation():
-    """新 entry 必须过 check-observation-log.sh 的 4-check structured validation:
+    """New entries must pass check-observation-log.sh's 4-check structured validation:
     detection.detected boolean / trigger.user_message_excerpt non-empty /
-    self_observations.uncertainty_notes non-empty / detected=false 时 skip 严格 sub-check."""
+    self_observations.uncertainty_notes non-empty / when detected=false skip the strict sub-check."""
     with tempfile.TemporaryDirectory() as d:
         obs = os.path.join(d, 'observations.jsonl')
         vc.generate_auto_light_entry(
@@ -176,17 +176,17 @@ def test_schema_satisfies_hook_validation():
         # 3. self_observations.uncertainty_notes non-empty
         notes = e['self_observations']['uncertainty_notes']
         assert notes and len(notes) > 0, 'uncertainty_notes empty'
-        # 4. detected=false → skip signal_type/content/conf_text check (依赖 hook code)
-        # 但 schema 规整应该 None
+        # 4. detected=false → skip signal_type/content/conf_text check (depends on hook code)
+        # but the schema should normalize it to None
         assert e['detection']['signal_type'] is None
-        # auto_* 标记 hook trace + 后续 analysis 用
+        # auto_* markers for hook trace + later analysis
         assert e['auto_generated'] is True
         assert e['auto_reason'] == 'hook_fallback_due_to_age_exceeded'
     print('  ✓ test_schema_satisfies_hook_validation')
 
 
 def test_existing_no_trailing_newline():
-    """老 obs_log 末尾没 newline (异常 corrupt 状态), 新 entry 应自动加 newline 修."""
+    """When the old obs_log has no trailing newline (abnormal corrupt state), the new entry should auto-add a newline to fix it."""
     with tempfile.TemporaryDirectory() as d:
         obs = os.path.join(d, 'observations.jsonl')
         with open(obs, 'w') as f:
@@ -200,7 +200,7 @@ def test_existing_no_trailing_newline():
         assert len(entries) == 2, f'expected 2 entries after newline-fix, got {len(entries)}'
         assert entries[0]['entry_id'] == 'no-newline'
         assert entries[1]['auto_generated'] is True
-        # 文件内容应该 2 行, 都带 \n 结尾
+        # file contents should be 2 lines, both ending with \n
         contents = open(obs).read()
         assert contents.endswith('\n'), 'file should end with newline after fix'
     print('  ✓ test_existing_no_trailing_newline')

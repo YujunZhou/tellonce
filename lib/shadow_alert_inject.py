@@ -2,7 +2,7 @@
 """Phase B5 Tier A item 3 — Soft injection (UserPromptSubmit hook).
 
 Read B5_SHADOW_ALERT.md (rolling cap N=3 violations from shadow judge), inject
-"上 turn 你违反 X" notice into next-turn additionalContext.
+"last turn you violated X" notice into next-turn additionalContext.
 
 Defenses:
   - B5_INJECT_DISABLED=1 env opt-out
@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - Windows fallback
 import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
-import path_config  # Phase 4.1 解耦
+import path_config
 
 SHADOW_ALERT_MD = path_config.get_shadow_alert_md_path()
 SHADOW_LOG = path_config.get_shadow_log_path()
@@ -150,8 +150,8 @@ def _read_recent_alerted_violations(hours=24):
 
 
 def build_inject_context(alerts):
-    """Build additionalContext markdown from alert list. v2 (post 续写重复 brainstorm 思路 G):
-    内化提醒, 不鼓励本轮前置铺垫/道歉/声明遵守.
+    """Build additionalContext markdown from alert list. v2: internalize the reminder, do not
+    encourage front-loaded preamble / apology / declarations of compliance in this turn.
     """
     if not alerts:
         return None

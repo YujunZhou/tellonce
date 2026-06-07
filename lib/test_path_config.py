@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Tests for path_config.py — 路径解耦中央 (Phase 4.1).
+"""Tests for path_config.py — central path detection.
 
 Run: python3 test_path_config.py
 Expects: 12/12 PASS.
 
-测试覆盖三层 detect:
-  1. Env var (B5_*) 最高优先
-  2. ~/.preference-tracker.config.json 第二优先
-  3. 自动 detect 兜底
-+ escape 规则, ensure_dirs 幂等, corrupt config 不 crash 等.
+Tests cover the three-layer detection:
+  1. Env var (B5_*) highest priority
+  2. ~/.preference-tracker.config.json second priority
+  3. Auto-detect fallback
++ escape rules, ensure_dirs idempotency, corrupt config does not crash, etc.
 """
 import json
 import os
@@ -21,7 +21,7 @@ import path_config as pc
 
 
 def _reset_env_and_cache(env_vars: dict = None):
-    """test fixture: 清掉 env, 设新 env, 重置 cache."""
+    """test fixture: clear env, set new env, reset cache."""
     for v in ['B5_STATE_DIR', 'B5_MEMORY_DIR', 'B5_OBS_LOG_DIR', 'B5_PROJECT_ROOT',
               'B5_WHITELIST_USER']:
         os.environ.pop(v, None)
@@ -32,7 +32,7 @@ def _reset_env_and_cache(env_vars: dict = None):
 
 
 def _write_config(d: dict):
-    """test only: 写 ~/.preference-tracker.config.json. caller must restore via _reset_config()."""
+    """test only: write ~/.preference-tracker.config.json. caller must restore via _reset_config()."""
     pc.CONFIG_PATH = os.path.join(tempfile.gettempdir(), 'test_preference-tracker.config.json')
     with open(pc.CONFIG_PATH, 'w') as f:
         json.dump(d, f)
@@ -53,7 +53,7 @@ def _reset_config():
 # ---------------------------- Tests ----------------------------
 
 def test_env_var_state_dir_highest_priority():
-    """B5_STATE_DIR env var 应覆盖 config 跟 default."""
+    """B5_STATE_DIR env var should override config and default."""
     _write_config({'state_dir': '/from/config'})
     _reset_env_and_cache({'B5_STATE_DIR': '/from/env'})
     try:
@@ -66,7 +66,7 @@ def test_env_var_state_dir_highest_priority():
 
 
 def test_config_file_second_priority():
-    """config file 应优先于 default (env 不 set 时)."""
+    """config file should take priority over default (when env is not set)."""
     _write_config({'state_dir': '/from/config/state'})
     _reset_env_and_cache()
     try:
@@ -79,7 +79,7 @@ def test_config_file_second_priority():
 
 
 def test_auto_detect_default_when_no_env_no_config():
-    """env 跟 config 都没 → auto-detect (cwd-based)."""
+    """neither env nor config set → auto-detect (cwd-based)."""
     _reset_env_and_cache({'B5_PROJECT_ROOT': '/test/proj'})
     pc.CONFIG_PATH = '/nonexistent/.config'
     pc._read_config_file.cache_clear()
@@ -94,7 +94,7 @@ def test_auto_detect_default_when_no_env_no_config():
 
 
 def test_memory_dir_cwd_escape():
-    """memory_dir 应按 Claude Code escape 规则: cwd.replace('/', '-')."""
+    """memory_dir should follow the Claude Code escape rule: cwd.replace('/', '-')."""
     _reset_env_and_cache({'B5_PROJECT_ROOT': '/foo/bar/baz'})
     pc.CONFIG_PATH = '/nonexistent/.config'
     pc._read_config_file.cache_clear()
@@ -109,7 +109,7 @@ def test_memory_dir_cwd_escape():
 
 
 def test_corrupt_config_not_crash():
-    """config 是非法 JSON → 返空 dict, 不 crash."""
+    """config is invalid JSON → return empty dict, do not crash."""
     pc.CONFIG_PATH = os.path.join(tempfile.gettempdir(), 'test_corrupt_pt.config.json')
     with open(pc.CONFIG_PATH, 'w') as f:
         f.write('{ this is invalid json ]]]')
@@ -127,7 +127,7 @@ def test_corrupt_config_not_crash():
 
 
 def test_missing_config_not_crash():
-    """config 文件不存在 → 返空 dict, 不 crash."""
+    """config file does not exist → return empty dict, do not crash."""
     pc.CONFIG_PATH = '/nonexistent/path/never_exists.json'
     pc._read_config_file.cache_clear()
     try:
@@ -139,7 +139,7 @@ def test_missing_config_not_crash():
 
 
 def test_compliance_log_path_built_from_obs_log_dir():
-    """get_compliance_log_path 应是 obs_log_dir/compliance_log.jsonl."""
+    """get_compliance_log_path should be obs_log_dir/compliance_log.jsonl."""
     _reset_env_and_cache({'B5_OBS_LOG_DIR': '/test/obs'})
     pc.CONFIG_PATH = '/nonexistent/.config'
     pc._read_config_file.cache_clear()
@@ -153,7 +153,7 @@ def test_compliance_log_path_built_from_obs_log_dir():
 
 
 def test_shadow_log_path_built_from_state_dir():
-    """get_shadow_log_path 应是 state_dir/b5_shadow_alerts/b5_shadow_log.jsonl."""
+    """get_shadow_log_path should be state_dir/b5_shadow_alerts/b5_shadow_log.jsonl."""
     _reset_env_and_cache({'B5_STATE_DIR': '/test/state'})
     pc.CONFIG_PATH = '/nonexistent/.config'
     pc._read_config_file.cache_clear()
@@ -167,7 +167,7 @@ def test_shadow_log_path_built_from_state_dir():
 
 
 def test_whitelist_paths_returns_two():
-    """get_whitelist_paths 返 [base, user] 长度 2."""
+    """get_whitelist_paths returns [base, user] of length 2."""
     _reset_env_and_cache()
     pc.CONFIG_PATH = '/nonexistent/.config'
     pc._read_config_file.cache_clear()
@@ -183,7 +183,7 @@ def test_whitelist_paths_returns_two():
 
 
 def test_whitelist_user_env_override():
-    """B5_WHITELIST_USER env 应覆盖 default user whitelist path."""
+    """B5_WHITELIST_USER env should override the default user whitelist path."""
     _reset_env_and_cache({'B5_WHITELIST_USER': '/custom/my_whitelist.txt'})
     pc.CONFIG_PATH = '/nonexistent/.config'
     pc._read_config_file.cache_clear()
@@ -197,7 +197,7 @@ def test_whitelist_user_env_override():
 
 
 def test_ensure_dirs_idempotent():
-    """ensure_dirs 重跑应不 crash, 创全 state subdirs."""
+    """ensure_dirs should not crash on re-run, and creates all state subdirs."""
     tmp = tempfile.mkdtemp()
     _reset_env_and_cache({
         'B5_STATE_DIR': os.path.join(tmp, 'state'),
@@ -209,9 +209,9 @@ def test_ensure_dirs_idempotent():
     pc._read_config_file.cache_clear()
     try:
         pc.ensure_dirs()
-        # 重跑不破
+        # re-run does not break
         pc.ensure_dirs()
-        # 验关键 subdirs 都创了
+        # verify all key subdirs were created
         for subdir in ['state', 'obs', 'mem',
                         os.path.join('state', 'b5_cost'),
                         os.path.join('state', 'b5_deterministic_streak'),

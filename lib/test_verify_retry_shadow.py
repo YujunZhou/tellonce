@@ -138,7 +138,7 @@ def test_shadow_violation_with_mock():
     orig_log = shadow.SHADOW_LOG
     orig_alert = shadow.SHADOW_ALERT_MD
     orig_cost = shadow.COST_LOG_DIR
-    orig_compliance = shadow.COMPLIANCE_LOG  # I1 isolation: 防真 production 日志干扰 _just_blocked_by_deterministic
+    orig_compliance = shadow.COMPLIANCE_LOG  # I1 isolation: prevent real production logs from interfering with _just_blocked_by_deterministic
     shadow.SHADOW_LOG = os.path.join(state, 'b5_shadow_log.jsonl')
     shadow.SHADOW_ALERT_MD = os.path.join(state, 'B5_SHADOW_ALERT.md')
     shadow.COST_LOG_DIR = os.path.join(state, 'cost')
@@ -179,7 +179,7 @@ def test_shadow_low_confidence_no_alert():
     orig_log = shadow.SHADOW_LOG
     orig_alert = shadow.SHADOW_ALERT_MD
     orig_cost = shadow.COST_LOG_DIR
-    orig_compliance = shadow.COMPLIANCE_LOG  # I1 isolation: 防真 production 日志干扰 _just_blocked_by_deterministic
+    orig_compliance = shadow.COMPLIANCE_LOG  # I1 isolation: prevent real production logs from interfering with _just_blocked_by_deterministic
     shadow.SHADOW_LOG = os.path.join(state, 'b5_shadow_log.jsonl')
     shadow.SHADOW_ALERT_MD = os.path.join(state, 'B5_SHADOW_ALERT.md')
     shadow.COST_LOG_DIR = os.path.join(state, 'cost')
@@ -218,7 +218,7 @@ def test_shadow_compliant_no_alert():
     orig_log = shadow.SHADOW_LOG
     orig_alert = shadow.SHADOW_ALERT_MD
     orig_cost = shadow.COST_LOG_DIR
-    orig_compliance = shadow.COMPLIANCE_LOG  # I1 isolation: 防真 production 日志干扰 _just_blocked_by_deterministic
+    orig_compliance = shadow.COMPLIANCE_LOG  # I1 isolation: prevent real production logs from interfering with _just_blocked_by_deterministic
     shadow.SHADOW_LOG = os.path.join(state, 'b5_shadow_log.jsonl')
     shadow.SHADOW_ALERT_MD = os.path.join(state, 'B5_SHADOW_ALERT.md')
     shadow.COST_LOG_DIR = os.path.join(state, 'cost')

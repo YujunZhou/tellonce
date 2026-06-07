@@ -17,8 +17,8 @@ import verify_compliance as v
 import path_config
 
 # Step 4 fix (per Phase 8 review I5 / kickoff §3 Step 4):
-# fixture path 走 path_config 以便跨环境跑 (之前硬编码 developer-machine path,
-# doctor.sh 在其他 home 上 skip 该 test). prod verify_compliance 已用 path_config.
+# fixture path goes through path_config so it runs across environments (previously a hardcoded
+# developer-machine path made doctor.sh skip this test on other homes). prod verify_compliance already uses path_config.
 _B4_RETRY_DIR = path_config.get_b4_retry_dir()
 _B4_ALERT_DIR = path_config.get_b4_alert_dir()
 

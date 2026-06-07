@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""Central path detection — Phase 4.1 解耦中央 (per `code-pref-287`).
+"""Central path detection (per `code-pref-287`).
 
-所有 lib `.py` import 这个模块, 不写硬编码常量. 装包用 env / config / auto-detect
-三层兜底.
+Every lib `.py` imports this module instead of hardcoding constants. Path resolution falls
+back through three layers: env / config / auto-detect.
 
-优先级 (高 → 低):
+Priority (high → low):
   1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT /
               B5_WHITELIST_USER)
   2. ~/.preference-tracker.config.json (key: state_dir / memory_dir / obs_log_dir /
               project_root / whitelist_user)
-  3. 自动 detect:
-     - skill_dir = Path(__file__).parent.parent (preference-tracker 包根)
+  3. Auto-detect:
+     - skill_dir = Path(__file__).parent.parent (preference-tracker package root)
      - project_root = os.getcwd()
      - state_dir = <project_root>/.claude/preference-tracker-state/runtime
      - obs_log_dir = <project_root>/.claude/preference-tracker-state/obs_log
      - memory_dir = ~/.claude/projects/<cwd_escaped>/memory
                     cwd_escaped = cwd.replace('/', '-')
 
-Per `wf-pref-027` versioned 备份 — 此文件 additive 新文件, 不动现有.
-Per `tool-pit-130` state 走 .claude/preference-tracker-state/, 不 /tmp.
+Per `wf-pref-027`: versioned backup — this is an additive new file, existing files untouched.
+Per `tool-pit-130`: state lives under .claude/preference-tracker-state/, not /tmp.
 """
 import json
 import os
@@ -63,7 +63,7 @@ def chmod_or_warn(path, mode, critical=True):
 def _clear_cache():
     """test only — reset all lru_cache decorators in this module.
 
-    用于测试 (修改 env / config 后 re-eval); 不在 production hot path 用.
+    For tests (re-eval after changing env / config); not used on the production hot path.
     """
     for fn in [_read_config_file, get_skill_dir, get_project_root, get_state_dir,
                get_obs_log_dir, get_memory_dir, get_b5_summary_dir,
@@ -76,19 +76,19 @@ def _clear_cache():
 
 @lru_cache(maxsize=1)
 def _read_config_file() -> dict:
-    """读 ~/.preference-tracker.config.json. 不存在或 corrupt 返空 dict."""
+    """Read ~/.preference-tracker.config.json. Return empty dict if missing or corrupt."""
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:
         with open(CONFIG_PATH) as f:
             return json.load(f)
     except Exception:
-        # corrupt JSON / 权限错都返空; 不 crash
+        # corrupt JSON / permission error both return empty; do not crash
         return {}
 
 
 def _resolve(env_var: str, config_key: str, default_func):
-    """三层优先级 detect: env > config file > default_func()."""
+    """Three-layer priority detection: env > config file > default_func()."""
     v = os.environ.get(env_var)
     if v:
         return v
@@ -100,7 +100,7 @@ def _resolve(env_var: str, config_key: str, default_func):
 
 @lru_cache(maxsize=1)
 def get_skill_dir() -> str:
-    """preference-tracker 包根. Path(__file__).parent.parent.
+    """preference-tracker package root. Path(__file__).parent.parent.
 
     e.g. /users/<user>/.claude/skills/preference-tracker/
     """
@@ -109,16 +109,16 @@ def get_skill_dir() -> str:
 
 @lru_cache(maxsize=1)
 def get_project_root() -> str:
-    """项目根 (用户调用 hook 时的 cwd).
+    """Project root (the cwd when the user invokes the hook).
 
-    Stop hook fire 时 process cwd = 用户 Claude Code session 的 cwd.
+    When the Stop hook fires, the process cwd = the user's Claude Code session cwd.
     """
     return _resolve('B5_PROJECT_ROOT', 'project_root', os.getcwd)
 
 
 @lru_cache(maxsize=1)
 def get_state_dir() -> str:
-    """state runtime 根. 默认 <cwd>/.claude/preference-tracker-state/runtime."""
+    """State runtime root. Defaults to <cwd>/.claude/preference-tracker-state/runtime."""
     return _resolve(
         'B5_STATE_DIR', 'state_dir',
         lambda: os.path.join(get_project_root(), '.claude', 'preference-tracker-state', 'runtime')
@@ -127,9 +127,9 @@ def get_state_dir() -> str:
 
 @lru_cache(maxsize=1)
 def get_obs_log_dir() -> str:
-    """observation log + compliance log + pending queue 根.
+    """observation log + compliance log + pending queue root.
 
-    默认 <cwd>/.claude/preference-tracker-state/obs_log.
+    Defaults to <cwd>/.claude/preference-tracker-state/obs_log.
     """
     return _resolve(
         'B5_OBS_LOG_DIR', 'obs_log_dir',
@@ -139,7 +139,7 @@ def get_obs_log_dir() -> str:
 
 @lru_cache(maxsize=1)
 def get_memory_dir() -> str:
-    """memory rules 目录. Claude Code 标准: ~/.claude/projects/<cwd_escaped>/memory.
+    """memory rules directory. Claude Code standard: ~/.claude/projects/<cwd_escaped>/memory.
 
     cwd_escaped = cwd.replace('/', '-')
     e.g. /home/alice/projects/foo → -home-alice-projects-foo
@@ -210,11 +210,11 @@ def get_b5_alerts_threshold_dir() -> str:
 
 
 def get_whitelist_paths() -> list:
-    """返 [全局基础, per-user 增量]. lib 加载 whitelist 合并两者.
+    """Return [global base, per-user additions]. lib merges both when loading the whitelist.
 
-    全局: <skill_dir>/lib/deterministic_block_whitelist.txt (装时一致)
+    global: <skill_dir>/lib/deterministic_block_whitelist.txt (consistent at install time)
     per-user: <skill_dir>/lib/deterministic_block_whitelist_user.txt
-              (env B5_WHITELIST_USER 可 override)
+              (env B5_WHITELIST_USER can override)
     """
     skill_dir = get_skill_dir()
     base = os.path.join(skill_dir, 'lib', 'deterministic_block_whitelist.txt')
@@ -226,9 +226,9 @@ def get_whitelist_paths() -> list:
 
 
 def ensure_dirs():
-    """install.sh 跑时 + lib 自检时调一次, 创全 state subdirs.
+    """Called once by install.sh and by lib self-checks to create all state subdirs.
 
-    幂等 (mkdir -p), 重跑不破.
+    Idempotent (mkdir -p), safe to re-run.
     """
     for d in [
         get_state_dir(),
@@ -246,7 +246,7 @@ def ensure_dirs():
         try:
             os.makedirs(d, exist_ok=True)
         except OSError:
-            # 权限 / 磁盘满 等失败 → defensive skip, 由调用方处理
+            # permission / disk-full etc. → defensive skip, handled by caller
             pass
 
 

@@ -4,12 +4,12 @@
 Used by install.sh / uninstall.sh / doctor.sh.
 
 Modes:
-  --add: 加 hooks 到 settings (idempotent, additive, 不删现有)
-  --remove: 撤 preference-tracker hooks 从 settings (uninstall)
-  --verify: 列已注册的 hook (doctor)
+  --add: add hooks to settings (idempotent, additive, does not remove existing)
+  --remove: remove preference-tracker hooks from settings (uninstall)
+  --verify: list registered hooks (doctor)
 
-Per `wf-pref-027` versioned 备份 — 改前 cp settings.local.json.v3_pre_pt_<ts>.json.
-Per `code-pref-291` Python merge (非 jq) — 通用, 不依赖 module load.
+Per `wf-pref-027`: versioned backup — cp settings.local.json.v3_pre_pt_<ts>.json before editing.
+Per `code-pref-291`: Python merge (not jq) — portable, no module-load dependency.
 """
 import argparse
 import json
@@ -19,7 +19,7 @@ import sys
 from datetime import datetime
 
 
-# Hooks 定义 (name → (event, timeout, desc)).
+# Hooks definition (name → (event, timeout, desc)).
 # H15 fix (2026-05-01): order matches README architecture diagram. Claude Code
 # Stop hooks run sequentially; if an earlier hook returns exit 2, later ones
 # don't run. The README declared:
@@ -87,7 +87,7 @@ def _versioned_backup(settings_path: str) -> str:
 
 
 def _load_settings(settings_path: str) -> dict:
-    """Load settings.local.json (空文件 / 不存在 → 默认 dict)."""
+    """Load settings.local.json (empty file / missing → default dict)."""
     if not os.path.exists(settings_path):
         return {'permissions': {'allow': [], 'defaultMode': 'auto'}, 'hooks': {}}
     try:
@@ -107,7 +107,7 @@ def _save_settings(settings_path: str, data: dict):
 
 
 def _hook_already_registered(settings: dict, event: str, command_path: str) -> bool:
-    """Check 是否 hook 已在 settings.<event>[].hooks[] 注册."""
+    """Check whether a hook is already registered in settings.<event>[].hooks[]."""
     for entry in settings.get('hooks', {}).get(event, []):
         for h in entry.get('hooks', []):
             if h.get('command') == command_path:
@@ -118,11 +118,11 @@ def _hook_already_registered(settings: dict, event: str, command_path: str) -> b
 def cmd_add(settings_path: str, hooks_dir: str):
     """Add PT hooks to settings.local.json (idempotent).
 
-    Codex review C1 (2026-05-01): hooks_dir 现在指 ~/.claude/skills/preference-tracker/hooks/
-    (skill dir), 不再走 project-local copy. 因此 sanity-check 改成允许两种合法 layout:
-      (a) hooks_dir 在 ~/.claude/skills/preference-tracker/ 下 (新设计)
-      (b) hooks_dir 在 settings parent 下 (老设计, 给 --remove 兼容)
-    其它路径打 warning 防误用.
+    Codex review C1 (2026-05-01): hooks_dir now points to ~/.claude/skills/preference-tracker/hooks/
+    (skill dir), no longer a project-local copy. So the sanity-check allows two valid layouts:
+      (a) hooks_dir under ~/.claude/skills/preference-tracker/ (new design)
+      (b) hooks_dir under the settings parent (old design, for --remove compatibility)
+    Other paths emit a warning to guard against misuse.
     """
     home = os.path.expanduser('~')
     skill_hooks = os.path.realpath(os.path.join(home, '.claude/skills/preference-tracker/hooks'))
@@ -221,7 +221,7 @@ def cmd_remove(settings_path: str, hooks_dir: str):
 
 
 def cmd_verify(settings_path: str, hooks_dir: str):
-    """List PT hooks 注册情况."""
+    """List PT hook registration status."""
     settings = _load_settings(settings_path)
     pt_commands = {os.path.join(hooks_dir, h): h for h in PT_HOOKS}
 

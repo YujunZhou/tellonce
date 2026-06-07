@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Phase 7 简易自适应阈值 — rule_params 读 frontmatter `params:` 块测试.
+"""Simple adaptive thresholds — tests for rule_params reading the frontmatter `params:` block.
 
 Run: python3 test_rule_params.py
 Expects: 6/6 PASS.
 
-测试覆盖:
-  T1 真规则 lang-pit-130 读到 params
-  T2 没设 params 块的规则返空字典 (oth-pref-001)
-  T3 get_param 默认值 fallback
-  T4 _parse_params_block 处理 注释 + 引号
-  T5 缺失文件不 crash
-  T6 改 frontmatter 后 _clear_cache 重读
+Tests cover:
+  T1 a real rule lang-pit-130 reads params
+  T2 a rule with no params block returns empty dict (oth-pref-001)
+  T3 get_param default fallback
+  T4 _parse_params_block handles comments + quotes
+  T5 missing file does not crash
+  T6 _clear_cache re-reads after frontmatter change
 """
 import os
 import sys
@@ -24,18 +24,40 @@ import rule_params
 
 
 def test_T1_real_rule_reads_params():
-    """seed rule lang-pit-130 frontmatter ships with `params:`; should parse to dict."""
-    rule_params._clear_cache()
-    p = rule_params.read_rule_params('lang-pit-130')
-    assert isinstance(p, dict), '应返字典 got ' + str(type(p))
-    assert p.get('chinese_ratio_threshold') == 0.7, \
-        'lang-pit-130 chinese_ratio_threshold 应 0.7 got ' + str(p)
-    assert p.get('min_length') == 50, 'lang-pit-130 min_length 应 50 got ' + str(p)
+    """A rule whose frontmatter has a `params:` block parses to a dict.
+
+    Self-contained: creates its own rule file in a temp memory dir (the public
+    release ships no built-in rules, so this no longer relies on a seeded one)."""
+    import tempfile, shutil
+    td = tempfile.mkdtemp(prefix='pt_rp_')
+    old_env = os.environ.get('B5_MEMORY_DIR')
+    try:
+        os.environ['B5_MEMORY_DIR'] = td
+        with open(os.path.join(td, 'lang-pit-130.md'), 'w', encoding='utf-8') as f:
+            f.write("---\natomic_id: lang-pit-130\nparams:\n"
+                    "  chinese_ratio_threshold: 0.7\n  min_length: 50\n---\nbody\n")
+        if hasattr(path_config, '_clear_cache'):
+            path_config._clear_cache()
+        rule_params._clear_cache()
+        p = rule_params.read_rule_params('lang-pit-130')
+        assert isinstance(p, dict), 'expected dict, got ' + str(type(p))
+        assert p.get('chinese_ratio_threshold') == 0.7, \
+            'chinese_ratio_threshold should be 0.7, got ' + str(p)
+        assert p.get('min_length') == 50, 'min_length should be 50, got ' + str(p)
+    finally:
+        if old_env is None:
+            os.environ.pop('B5_MEMORY_DIR', None)
+        else:
+            os.environ['B5_MEMORY_DIR'] = old_env
+        if hasattr(path_config, '_clear_cache'):
+            path_config._clear_cache()
+        rule_params._clear_cache()
+        shutil.rmtree(td, ignore_errors=True)
     return True
 
 
 def test_T2_rule_without_params_returns_empty():
-    """没设 params 块的规则返空字典."""
+    """A rule with no params block returns an empty dict."""
     rule_params._clear_cache()
     p = rule_params.read_rule_params('oth-pref-001')
     assert p == {}, 'oth-pref-001 没 params 应返 {} got ' + str(p)
@@ -43,18 +65,18 @@ def test_T2_rule_without_params_returns_empty():
 
 
 def test_T3_get_param_fallback_default():
-    """get_param 没找到 key 返默认值."""
+    """get_param returns the default when the key is not found."""
     rule_params._clear_cache()
     v = rule_params.get_param('lang-pit-130', 'nonexistent_key', 999)
     assert v == 999, '没设 key 应返 default 999 got ' + str(v)
-    # 已设 key 返 frontmatter 值, 不是 default
+    # a set key returns the frontmatter value, not the default
     v2 = rule_params.get_param('lang-pit-130', 'min_length', 50)
     assert v2 == 50, 'min_length 应返 frontmatter 50 got ' + str(v2)
     return True
 
 
 def test_T4_parser_handles_comments_and_quotes():
-    """_parse_params_block 解析注释 / 引号 / 不同类型."""
+    """_parse_params_block parses comments / quotes / different types."""
     content = """---
 name: Test
 atomic_id: test-rule
@@ -79,7 +101,7 @@ body
 
 
 def test_T5_missing_file_no_crash():
-    """memory_dir 不存在或规则 atomic_id 找不到 → 返空字典不 crash."""
+    """memory_dir missing or rule atomic_id not found → return empty dict without crashing."""
     rule_params._clear_cache()
     p = rule_params.read_rule_params('nonexistent-rule-id-9999')
     assert p == {}, '找不到规则应返 {} got ' + str(p)
@@ -87,13 +109,13 @@ def test_T5_missing_file_no_crash():
 
 
 def test_T6_clear_cache_rereads_frontmatter():
-    """改 frontmatter 后 _clear_cache 让下次 read 拿新值."""
+    """After changing frontmatter, _clear_cache makes the next read get the new value."""
     rule_params._clear_cache()
     p1 = rule_params.read_rule_params('lang-pit-130')
-    # 同 atomic_id 第二次拿 cached
+    # second call with the same atomic_id gets the cached value
     p2 = rule_params.read_rule_params('lang-pit-130')
     assert p1 == p2, 'cache hit 应 deterministic'
-    # _clear_cache 后再 read, 仍能拿到 (fresh disk read)
+    # after _clear_cache, reading again still works (fresh disk read)
     rule_params._clear_cache()
     p3 = rule_params.read_rule_params('lang-pit-130')
     assert p3 == p1, '_clear_cache 后重读应一致'

@@ -32,7 +32,7 @@ import json, sys, re, os, glob, subprocess, tempfile, time
 import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
-import path_config  # Phase 4.1 解耦
+import path_config
 
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
 # Private overlay: the shipped fingerprints.yaml is empty by default. Users keep

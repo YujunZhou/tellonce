@@ -4,11 +4,12 @@
 Run: python3 test_chaos_fault_injection.py
 Expects: 12/12 PASS.
 
-第一优先级 "鲁棒系统" 验证: 故障下 hook 不挂, 不阻断 production work, 数据持久, 装-卸-重装幂等.
+Top-priority "robust system" validation: under faults the hook does not hang, does not block
+production work, data persists, and install-uninstall-reinstall is idempotent.
 
-Per `wf-pref-290` chaos 测试是 production-quality skill 必须.
+Per `wf-pref-290`: chaos testing is required for a production-quality skill.
 Per `wf-pref-036` defensive fallbacks (judge timeout / disk full / permission denied → exit 0).
-Per `tool-pit-130` state 走 .claude/preference-tracker-state/, 不 /tmp.
+Per `tool-pit-130`: state lives under .claude/preference-tracker-state/, not /tmp.
 """
 import json
 import os
@@ -50,13 +51,13 @@ def reset_state(tmp):
 # ---------------------------- Chaos tests ----------------------------
 
 def test_T1_shadow_judge_cli_raises():
-    """T1: shadow judge CLI 抛 ConnectionError → exit 0 + status='judge_error'."""
+    """T1: shadow judge CLI raises ConnectionError → exit 0 + status='judge_error'."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
-        os.environ['B5_TEST_MOCK_VERDICT'] = ''  # 关 mock
+        os.environ['B5_TEST_MOCK_VERDICT'] = ''  # disable mock
         os.environ['B5_USE_SDK'] = ''  # CLI path
-        # mock subprocess.run 抛 ConnectionError
+        # mock subprocess.run to raise ConnectionError
         import subprocess as sp
         orig_run = sp.run
         def bad_run(*args, **kwargs):
@@ -72,8 +73,8 @@ def test_T1_shadow_judge_cli_raises():
             ])
             try:
                 status, log_entry = vrs.evaluate({'session_id': 'T1', 'transcript_path': tr})
-                # 期望 judge_error (CLI 抛 → catch → status='judge_error') OR 'no_credit'/'cost_capped'
-                # 主要是 evaluate() 不 crash
+                # expect judge_error (CLI raises → catch → status='judge_error') OR 'no_credit'/'cost_capped'
+                # the main point is that evaluate() does not crash
                 assert status in ('judge_error', 'cost_capped', 'no_credit', 'skip_short', 'no_rules_loaded'), f'unexpected: {status}'
                 return True
             finally:
@@ -87,21 +88,21 @@ def test_T1_shadow_judge_cli_raises():
 
 
 def test_T2_disk_full_open_oserror():
-    """T2: 模拟磁盘满 (open w raise OSError 28) → log_check exit 0 (defensive)."""
+    """T2: simulate disk full (open w raises OSError 28) → log_check exit 0 (defensive)."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
         import deterministic_block as db
-        # log_check 内 try/except, 不 crash
+        # log_check has internal try/except, does not crash
         try:
-            # 直接 mock open, 但 builtins.open 太广; 用 monkey patch on log_check 的 file write
+            # mock open directly, but builtins.open is too broad; monkey-patch the file write in log_check
             real_open = open
             def mock_open(p, mode='r', *args, **kwargs):
                 if 'w' in mode or 'a' in mode:
                     raise OSError(28, 'No space left')
                 return real_open(p, mode, *args, **kwargs)
             db.log_check('test_T2', 'pass', [], 5.0)
-            # log_check 内 try/except 兜底, 不该 raise
+            # log_check's internal try/except is a fallback, should not raise
             return True
         except Exception as e:
             raise AssertionError(f'log_check raised on disk full: {e}')
@@ -110,7 +111,7 @@ def test_T2_disk_full_open_oserror():
 
 
 def test_T3_state_dir_chmod_000():
-    """T3: state dir chmod 000 → _bump_streak 兜底 (defensive)."""
+    """T3: state dir chmod 000 → _bump_streak fallback (defensive)."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -119,7 +120,7 @@ def test_T3_state_dir_chmod_000():
         os.makedirs(streak_dir, exist_ok=True)
         os.chmod(streak_dir, 0o000)
         try:
-            # _bump_streak 内 try/except, 不 crash
+            # _bump_streak has internal try/except, does not crash
             result = db._bump_streak('T3', ['lang-pit-130'])
             assert isinstance(result, dict), f'expected dict, got {type(result)}'
             return True
@@ -130,7 +131,7 @@ def test_T3_state_dir_chmod_000():
 
 
 def test_T4_corrupt_settings_install_early_detect():
-    """T4: corrupt settings.local.json → _install_merge_settings.py exit 1 + 友好 error."""
+    """T4: corrupt settings.local.json → _install_merge_settings.py exit 1 + friendly error."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -152,7 +153,7 @@ def test_T4_corrupt_settings_install_early_detect():
 
 
 def test_T5_install_idempotent_rerun():
-    """T5: _install_merge_settings.py --add 重跑 idempotent (不重复注册)."""
+    """T5: _install_merge_settings.py --add re-run is idempotent (no duplicate registration)."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -160,7 +161,7 @@ def test_T5_install_idempotent_rerun():
         hooks_dir = os.path.join(tmp, '.claude', 'hooks')
         os.makedirs(os.path.dirname(settings_path))
         os.makedirs(hooks_dir)
-        # 跑 --add 两次
+        # run --add twice
         for _ in range(2):
             subprocess.run(
                 ['python3', os.path.join(LIB_DIR, '_install_merge_settings.py'),
@@ -171,7 +172,7 @@ def test_T5_install_idempotent_rerun():
             )
         with open(settings_path) as f:
             d = json.load(f)
-        # 验 hook 不重复 (期望 8 unique commands)
+        # verify no duplicate hooks (expect 8 unique commands)
         all_cmds = []
         for chain in d['hooks'].values():
             for entry in chain:
@@ -186,7 +187,7 @@ def test_T5_install_idempotent_rerun():
 
 
 def test_T6_streak_isolated_per_session_id():
-    """T6: streak 文件 per-sid 隔离, 新 sid 计数从 0 起."""
+    """T6: streak files are isolated per-sid, a new sid counts from 0."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -199,7 +200,7 @@ def test_T6_streak_isolated_per_session_id():
         db._bump_streak('sid_a', ['lang-pit-130'])
         streak_a = db._load_streak('sid_a')
         assert streak_a['lang-pit-130'] == 3, f'sid_a streak: {streak_a}'
-        # sid_b streak 0 (新 sid)
+        # sid_b streak 0 (new sid)
         streak_b = db._load_streak('sid_b')
         assert streak_b == {}, f'sid_b should start empty, got {streak_b}'
         return True
@@ -208,7 +209,7 @@ def test_T6_streak_isolated_per_session_id():
 
 
 def test_T7_cost_cap_triggered():
-    """T7: pre-fill 今日 cost > cap → shadow status='cost_capped' + 不调 LLM."""
+    """T7: pre-fill today's cost > cap → shadow status='cost_capped' + does not call LLM."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -235,7 +236,7 @@ def test_T7_cost_cap_triggered():
 
 
 def test_T8_fingerprint_no_falsepositive_postgresql():
-    """T8: 中文 reply + PostgreSQL/Redis/Sonnet → deterministic 不阻断 (whitelist hit)."""
+    """T8: Chinese reply + PostgreSQL/Redis/Sonnet → deterministic does not block (whitelist hit)."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -243,7 +244,7 @@ def test_T8_fingerprint_no_falsepositive_postgresql():
         import deterministic_block as db
         importlib.reload(db)
         db._WHITELIST_CACHE = None
-        # 全是 whitelist proper noun (PostgreSQL/Redis/Sonnet/Docker/FastAPI/Pinecone)
+        # all are whitelist proper nouns (PostgreSQL/Redis/Sonnet/Docker/FastAPI/Pinecone)
         text = '我们用 PostgreSQL 跟 Redis 做缓存, Docker 跑 FastAPI 和 Pinecone, Sonnet 模型跑得很顺'
         flagged = db.has_inline_english_word(text)
         assert flagged == False, f'whitelist hit failed: 全 proper noun 应被 skip, got flagged={flagged}'
@@ -253,7 +254,7 @@ def test_T8_fingerprint_no_falsepositive_postgresql():
 
 
 def test_T9_streak_bypass_after_3():
-    """T9: 同 rule 连续 3 次后第 4 次 status='streak_bypass' + 不 block."""
+    """T9: after the same rule fires 3 times, the 4th gets status='streak_bypass' + does not block."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -264,7 +265,7 @@ def test_T9_streak_bypass_after_3():
         db._bump_streak('T9', ['lang-pit-130'])
         db._bump_streak('T9', ['lang-pit-130'])
         db._bump_streak('T9', ['lang-pit-130'])
-        # 第 4 次 violation 应 bypass
+        # the 4th violation should be bypassed
         violations = [{'rule_id': 'lang-pit-130', 'reason': '中文混英文', 'evidence_excerpt': 'stub'}]
         streak = db._load_streak('T9')
         filtered, bypassed = db._filter_bypass_streaked(violations, streak)
@@ -276,7 +277,7 @@ def test_T9_streak_bypass_after_3():
 
 
 def test_T10_all_env_opt_out():
-    """T10: 三 env disable 同时 set → 三层全跳过 (deterministic+shadow+inject)."""
+    """T10: three disable envs set at once → all three layers skipped (deterministic+shadow+inject)."""
     tmp = tempfile.mkdtemp()
     try:
         reset_state(tmp)
@@ -289,7 +290,7 @@ def test_T10_all_env_opt_out():
                 {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '中文 stub merge violation 长长长 reply'}]}},
             ])
             try:
-                # deterministic disabled → exit 0 不 block
+                # deterministic disabled → exit 0, does not block
                 stdin_json = json.dumps({'session_id': 'T10', 'transcript_path': tr})
                 proc = subprocess.run(
                     ['python3', os.path.join(LIB_DIR, 'deterministic_block.py')],
@@ -302,13 +303,13 @@ def test_T10_all_env_opt_out():
                     input=stdin_json, capture_output=True, text=True, timeout=10
                 )
                 assert proc2.returncode == 0, f'shadow 应 exit 0, got {proc2.returncode}'
-                # inject disabled → exit 0 silent + stdout 没 hookSpecificOutput (M12 fix)
+                # inject disabled → exit 0 silent + no hookSpecificOutput in stdout (M12 fix)
                 proc3 = subprocess.run(
                     ['python3', os.path.join(LIB_DIR, 'shadow_alert_inject.py')],
                     input=stdin_json, capture_output=True, text=True, timeout=5
                 )
                 assert proc3.returncode == 0, f'inject 应 exit 0, got {proc3.returncode}'
-                # M12 fix: 真 assert stdout 不含 hookSpecificOutput (否则 harness 仍会注入)
+                # M12 fix: actually assert stdout has no hookSpecificOutput (otherwise the harness still injects)
                 assert 'hookSpecificOutput' not in proc3.stdout, \
                     f'inject disabled 时 stdout 不应有 hookSpecificOutput, got: {proc3.stdout[:200]}'
                 return True
@@ -323,10 +324,10 @@ def test_T10_all_env_opt_out():
 
 
 def test_T11_install_uninstall_reinstall_state_persistent():
-    """T11: 装-卸-重装 流程 — state 持久不丢 (用 _install_merge_settings.py + handcraft simulate).
+    """T11: install-uninstall-reinstall flow — state persists (using _install_merge_settings.py + handcrafted simulate).
 
-    简化: 不真跑 install.sh / uninstall.sh (subprocess 太重), 只验 _install_merge_settings.py
-    add → remove → add idempotent + state subdirs 不重创.
+    Simplified: do not actually run install.sh / uninstall.sh (subprocess too heavy), only verify _install_merge_settings.py
+    add → remove → add idempotent + state subdirs are not recreated.
     """
     tmp = tempfile.mkdtemp()
     try:
@@ -345,7 +346,7 @@ def test_T11_install_uninstall_reinstall_state_persistent():
         n1 = sum(len(e.get('hooks', [])) for chain in d1['hooks'].values() for e in chain)
         assert n1 == 8, f'add 后期望 8 hooks, got {n1}'
 
-        # 写 state file (simulate user data)
+        # write state file (simulate user data)
         import path_config
         path_config._clear_cache()
         state_file = os.path.join(path_config.get_state_dir(), 'b5_cost', 'sentinel.json')
@@ -361,7 +362,7 @@ def test_T11_install_uninstall_reinstall_state_persistent():
             d2 = json.load(f)
         n2 = sum(len(e.get('hooks', [])) for chain in d2['hooks'].values() for e in chain)
         assert n2 == 0, f'remove 后期望 0 hooks, got {n2}'
-        # state file 仍在 (uninstall 不动 state)
+        # state file still present (uninstall does not touch state)
         assert os.path.exists(state_file), 'state 不该被 remove 删'
 
         # cycle 3: re-add
@@ -372,7 +373,7 @@ def test_T11_install_uninstall_reinstall_state_persistent():
             d3 = json.load(f)
         n3 = sum(len(e.get('hooks', [])) for chain in d3['hooks'].values() for e in chain)
         assert n3 == 8, f'重 add 后期望 8 hooks, got {n3}'
-        # state file 仍在
+        # state file still present
         assert os.path.exists(state_file), 'state 持久不丢'
         with open(state_file) as f:
             d_state = json.load(f)
@@ -383,8 +384,8 @@ def test_T11_install_uninstall_reinstall_state_persistent():
 
 
 def test_T12_cwd_with_special_chars():
-    """T12: cwd 含特殊字符 (空格 / 中文) → path escape OK 不 crash."""
-    tmp = tempfile.mkdtemp(prefix='chaos_test ')  # 含空格
+    """T12: cwd with special characters (space / Chinese) → path escape OK, does not crash."""
+    tmp = tempfile.mkdtemp(prefix='chaos_test ')  # contains a space
     try:
         os.environ['B5_PROJECT_ROOT'] = tmp
         os.environ['B5_STATE_DIR'] = os.path.join(tmp, 'state')
@@ -392,9 +393,9 @@ def test_T12_cwd_with_special_chars():
         os.environ['B5_MEMORY_DIR'] = os.path.join(tmp, 'mem')
         import path_config
         path_config._clear_cache()
-        # ensure_dirs 不 crash
+        # ensure_dirs does not crash
         path_config.ensure_dirs()
-        # memory dir 用 cwd escape
+        # memory dir uses cwd escape
         md = path_config.get_memory_dir()
         assert os.path.exists(md), f'memory dir 应已创: {md}'
         return True
