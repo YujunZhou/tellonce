@@ -20,7 +20,7 @@ Preference Tracker status: local=PASS, skill=PASS, state=PASS, plain_codex_hooks
 ## Basic Smoke
 
 ```bash
-python -m codex_preftrack scan --project-root . --message "以后都用中文回答我"
+python -m codex_preftrack scan --project-root . --message "from now on, always use tabs not spaces"
 python -m codex_preftrack dashboard --project-root .
 python -m codex_preftrack exec --project-root . -- definitely-missing-codex-binary
 ```

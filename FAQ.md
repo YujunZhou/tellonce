@@ -1,103 +1,124 @@
 # FAQ — Preference-Tracker
 
-15 条常见问题. 详细架构见 `README.md` + `SKILL.md`.
+15 common questions. For the full architecture see
+[`docs/claude-code.md`](docs/claude-code.md) + `SKILL.md`.
 
 ---
 
-## 装包 / 卸载
+## Install / uninstall
 
-### Q1: 装到一半失败怎么办?
+### Q1: What if the install fails partway through?
 
-`install.sh` 用 `set -euo pipefail` + `trap ERR`, 失败自动 rollback settings 备份 (但 hooks .sh / state / memory 保留留 debug). 重跑 `install.sh` 是幂等的, 不会重复注册 hook 或重创 state.
+`install.sh` uses `set -euo pipefail` + `trap ERR`, so on failure it
+auto-rolls-back the settings backup (but keeps the hooks `.sh` / state / memory
+for debugging). Re-running `install.sh` is idempotent — it won't double-register
+hooks or recreate state.
 
-如果 settings 回滚没成功, 手动:
+If the settings rollback didn't succeed, do it manually:
+
 ```bash
 ls -t ~/your-project/.claude/settings.local.json.v3_pre_pt_*.json | head -1
-# cp 那个 latest backup 回 settings.local.json
+# cp that latest backup back to settings.local.json
 ```
 
-或:
+Or:
+
 ```bash
 bash ~/.claude/skills/preference-tracker/doctor.sh --rollback
 ```
 
 ---
 
-### Q2: 装好了但 Claude 不阻断, 怎么 verify?
+### Q2: Installed, but Claude doesn't block — how do I verify?
 
 ```bash
-# 跑 doctor 自检
+# Run the doctor self-check
 bash ~/.claude/skills/preference-tracker/doctor.sh
 
-# 验 hooks 在 settings.local.json 注册:
+# Verify the hooks are registered in settings.local.json:
 python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py \
     --settings ~/your-project/.claude/settings.local.json \
     --hooks-dir ~/your-project/.claude/hooks \
     --verify
 
-# Manual smoke: 故意触发违规
+# Manual smoke: deliberately trigger a violation
 echo '{"session_id":"test","transcript_path":"/tmp/t.jsonl"}' | \
     python3 ~/.claude/skills/preference-tracker/lib/deterministic_block.py
-# (期望 exit 2 / 0 取决于 transcript 内容)
+# (exit 2 / 0 depends on the transcript content)
 ```
 
 ---
 
-### Q3: 卸载干净吗? memory 会丢吗?
+### Q3: Is uninstall clean? Will I lose my memory?
 
-`uninstall.sh` 默认**不动** memory + state + obs_log. 只撤 hooks 注册 + rm hooks .sh. 重装可恢复全部状态.
+`uninstall.sh` by default **does not touch** memory + state + obs_log. It only
+removes the hook registration and the hooks `.sh`. Reinstalling restores all
+state.
 
-完全删用 `--purge-state` flag.
-
----
-
-### Q4: 装了影响别的 hook / skill 吗?
-
-`install.sh` 改 settings.local.json 是 **additive** (追加, 不删现有). 改前 versioned cp. 重跑用 set 语义去重 (idempotent), 不重复加同一 hook.
+Use the `--purge-state` flag to delete everything.
 
 ---
 
-## 误杀
+### Q4: Does installing affect my other hooks / skills?
 
-### Q5: 中文回复用 `PostgreSQL`/`Redis`/`React` 被错杀!
+`install.sh` edits settings.local.json **additively** (appends, doesn't delete
+existing entries), with a versioned copy beforehand. Re-running uses set
+semantics to dedupe (idempotent) and won't add the same hook twice.
 
-全局 219 条 whitelist 已含主流 DB / framework. 若漏了:
+---
+
+## False positives
+
+### Q5: A Chinese reply using `PostgreSQL`/`Redis`/`React` got blocked!
+
+The global 219-entry whitelist already covers mainstream DBs / frameworks. If one
+is missing:
+
 ```bash
-echo "新词" >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
-```
-一行一个, # 开头注释行 skip, 不区分大小写. 不需 reload.
-
-或临时 disable:
-```bash
-export B5_DETERMINISTIC_DISABLED=1
+echo "NewTerm" >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
 ```
 
----
+One per line; lines starting with `#` are skipped; case-insensitive; no reload
+needed.
 
-### Q6: 我贴 stack trace / log 给 Claude debug, 它 reply 全英文被错杀
+Or temporarily disable:
 
-`lang-pref-001` 触发 (chinese_ratio<0.1 + length>200). 在 prompt 里明示就 bypass:
-- "请帮我看这个 log, in english 也行" → bypass (`in english` 关键词)
-- "draft the abstract for the paper" → bypass (paper 关键词)
-
-或 hook level:
 ```bash
 export B5_DETERMINISTIC_DISABLED=1
 ```
 
 ---
 
-### Q7: 同一 rule 反复触发, transcript 越来越长
+### Q6: I paste a stack trace / log for Claude to debug and its all-English reply gets blocked
 
-Streak 安全阀: 同 rule 连续 3 次后该 rule 在剩余 session 自动 bypass. 不需手动. 阈值 `B5_STREAK_BYPASS=3` 可调.
+`lang-pref-001` fired (chinese_ratio < 0.1 + length > 200). State it in the prompt
+to bypass:
+- "help me read this log, in english is fine" → bypass (the `in english` keyword)
+- "draft the abstract for the paper" → bypass (the `paper` keyword)
+
+Or at the hook level:
+
+```bash
+export B5_DETERMINISTIC_DISABLED=1
+```
 
 ---
 
-## 配置 / 阈值
+### Q7: The same rule fires over and over and the transcript keeps growing
 
-### Q8: 怎么改阈值?
+Streak safety valve: after a rule fires 3 times in a row it auto-bypasses for the
+rest of the session. No manual action needed. The threshold `B5_STREAK_BYPASS=3`
+is tunable.
 
-**简易版** (Phase 7 已实施): 改 enforce rule 的 memory `.md` frontmatter `params:` 块:
+---
+
+## Configuration / thresholds
+
+### Q8: How do I change a threshold?
+
+**Simple version** (Phase 7, already shipped): edit the `params:` block in the
+enforce rule's memory `.md` frontmatter:
+
 ```yaml
 ---
 atomic_id: lang-pit-130
@@ -106,103 +127,122 @@ params:
   min_length: 80                   # default 50
 ---
 ```
-不需 reload. 下次 hook 调用读 frontmatter.
 
-**完整版 threshold_advisor.py**: 跑数据建议改阈值, 用户拍板. 见 `lib/threshold_advisor.py` 顶端 docstring.
+No reload needed. The next hook call reads the frontmatter.
+
+**Full version, `threshold_advisor.py`:** runs on your data to suggest threshold
+changes for you to approve. See the docstring at the top of
+`lib/threshold_advisor.py`.
 
 ---
 
-### Q9: 影子判官花我多少 API 钱?
+### Q9: How much API money does the shadow judge cost me?
 
-默认走 `claude -p` CLI (订阅, 0 额度). 设 `B5_USE_SDK=1` 切 SDK (按 token 收费).
+It defaults to the `claude -p` CLI (subscription, no credit). Set `B5_USE_SDK=1`
+to switch to the SDK (charged per token).
 
-cost cap default `$0.50/天`, 触发后当天 disable. 改:
+The cost cap defaults to `$0.50/day`; once hit it disables for the day. Change it:
+
 ```bash
 export B5_DAILY_COST_CAP=1.00
 ```
 
 ---
 
-### Q10: 没装 Claude CLI 怎么办?
+### Q10: What if I don't have the Claude CLI installed?
 
-shadow judge 跑不了, deterministic 仍 work. 在 `.bashrc` set:
+The shadow judge can't run, but the deterministic layer still works. Set in
+`.bashrc`:
+
 ```bash
 export B5_SHADOW_DISABLED=1
 ```
-或装 Claude Code: https://claude.com/code
+
+Or install Claude Code: https://claude.com/code
 
 ---
 
-### Q11: 阻断后 Claude 续写很啰嗦怎么办?
+### Q11: After a block, Claude's follow-up is too wordy — what can I do?
 
-`build_block_reason` 已含禁令:
-- 不道歉 / 不重述 / 不解释规则 / 不铺垫
-- 强制 `[修正]` 前缀
-- 软注入静默语气 (不鼓励本轮前置铺垫)
+`build_block_reason` already includes prohibitions:
+- no apologizing / no restating / no explaining the rule / no preamble
+- forces a `[correction]` prefix
+- soft-injection keeps a quiet tone (doesn't encourage a preamble this turn)
 
-如果仍啰嗦, 报 issue, 我们调禁令文本. 测试期间 streak >= 3 就放行该 rule.
+If it's still wordy, file an issue and we'll tune the prohibition text. During
+testing, a streak of >= 3 bypasses that rule.
 
 ---
 
-## 跨平台 / 跨用户
+## Cross-platform / cross-user
 
-### Q12: 用户项目结构跟我不一样, 路径 detect 错怎么办?
+### Q12: My project layout differs from yours and a path is detected wrong
 
-`install.sh` 默认 detect: `<cwd>` 是项目根, hooks 装到 `<cwd>/.claude/hooks/`, state 在 `<cwd>/.claude/preference-tracker-state/runtime/`, memory 在 `~/.claude/projects/<cwd_escaped>/memory/`.
+`install.sh` detects by default: `<cwd>` is the project root, hooks install to
+`<cwd>/.claude/hooks/`, state lives in
+`<cwd>/.claude/preference-tracker-state/runtime/`, memory in
+`~/.claude/projects/<cwd_escaped>/memory/`.
 
-不对就 override:
+If that's wrong, override:
+
 ```bash
 B5_STATE_DIR=/custom/state bash install.sh
 B5_OBS_LOG_DIR=/custom/obs bash install.sh
 B5_PROJECT_ROOT=/custom/project bash install.sh
 ```
 
-或写 `~/.preference-tracker.config.json`（schema:
-`{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"...","whitelist_user":"..."}`，
-任一字段没设走自动 detect）.
+Or write `~/.preference-tracker.config.json` (schema:
+`{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"...","whitelist_user":"..."}`;
+any field left unset falls back to auto-detect).
 
 ---
 
-### Q13: macOS / Windows 兼容?
+### Q13: macOS / Windows compatibility?
 
-- macOS: `~/.claude/` 路径相同, bash + python3 通. install.sh 直接 work.
-- Windows: 没测. WSL 可能 work (POSIX 兼容). 不保证 native PowerShell.
-- Linux (Ubuntu / RHEL / HPC clusters): 主测目标, work.
-
----
-
-### Q14: Codex / OpenClaw runtime 怎么用?
-
-Claude Code 是主线 (本仓库 lib/ + hooks/). Codex 用 wrapper-driven 适配器, 见 `codex/` 子目录 — 安装 `bash codex/install.sh`, 详见 `codex/SKILL.md`.
+- macOS: the `~/.claude/` paths are the same, bash + python3 work; install.sh
+  works directly.
+- Windows: untested. WSL probably works (POSIX-compatible). Native PowerShell is
+  not guaranteed. (For native Windows, use the Copilot variant.)
+- Linux (Ubuntu / RHEL / HPC clusters): the main test target; works.
 
 ---
 
-## 故障排查
+### Q14: How do I use the Codex / other runtime?
 
-### Q15: hooks 没被调用, settings 看起来对的
+Claude Code is the mainline (this repo's `lib/` + `hooks/`). Codex uses a
+wrapper-driven adapter — see the `codex/` subdirectory: install with
+`bash codex/install.sh`, details in `codex/SKILL.md`.
+
+---
+
+## Troubleshooting
+
+### Q15: Hooks aren't being called, but settings look correct
 
 ```bash
-# 1. 验 hooks 文件 executable
+# 1. Check the hook files are executable
 ls -la <project>/.claude/hooks/memory-*.sh
-# 应有 -rwxr-xr-x 权限. 不是的话 chmod +x
+# should be -rwxr-xr-x; if not, chmod +x
 
-# 2. 看 install.log:
+# 2. Read install.log:
 cat ~/.claude/skills/preference-tracker/install.log | tail -50
 
-# 3. 跑 doctor 全检:
+# 3. Run the full doctor check:
 bash ~/.claude/skills/preference-tracker/doctor.sh
 
-# 4. 手动跑 hook 看输出:
+# 4. Run a hook manually and watch the output:
 echo '{"session_id":"test","transcript_path":"/tmp/dummy.jsonl"}' | \
     bash <project>/.claude/hooks/memory-deterministic-block.sh
-# (应 exit 0, 因 transcript 不存在)
+# (should exit 0, since the transcript doesn't exist)
 
-# 5. 看现 path_config detect 出来什么 (env / config / default):
+# 5. See what path_config detects (env / config / default):
 python3 ~/.claude/skills/preference-tracker/lib/path_config.py
 ```
 
 ---
 
-更多 issue:
+More issues:
 - GitHub Issues: https://github.com/YujunZhou/preference-tracker/issues
-- bug / 误杀 / 想加 whitelist / 阈值不灵 → 开 issue 时附 doctor.sh 输出 + dashboard 7 天数据更易诊断
+- For a bug / false positive / whitelist request / threshold not working — attach
+  the `doctor.sh` output + 7 days of `dashboard` data to your issue for easier
+  diagnosis.
