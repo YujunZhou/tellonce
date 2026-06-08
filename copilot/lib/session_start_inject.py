@@ -106,8 +106,10 @@ def main() -> None:
         except json.JSONDecodeError:
             payload = {}
 
-    if payload.get('cwd'):
-        os.environ['B5_PROJECT_ROOT'] = str(payload['cwd'])
+    # Accept either key Copilot/Claude may send (mirrors transcript_adapter.get_cwd).
+    cwd = payload.get('cwd') or payload.get('workingDirectory')
+    if cwd:
+        os.environ['B5_PROJECT_ROOT'] = str(cwd)
 
     parts: list[str] = []
     forwarded_input = raw_input if raw_input.strip() else '{}'
