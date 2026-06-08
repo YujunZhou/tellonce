@@ -1,36 +1,29 @@
 #!/usr/bin/env python3
-"""Phase B5 Tier A item 2 — Shadow LLM judge (Stop hook).
+"""Shadow LLM judge (Stop hook).
 
-LLM judge runs on every Stop event, identifies violations of 3 enforce rules
-(lang-pit-130, oth-pref-001, lang-pref-001 relaxed) — same rules deterministic
-block covers, but using semantic LLM judge to catch what regex missed.
+An optional semantic judge that runs on Stop events to catch violations of the
+user's recorded rules that the deterministic checks miss. It NEVER blocks
+(always exits 0); it only logs and surfaces a rolling alert.
 
-IMPORTANT (per `exp-proj-285` per-runtime judge dispatch):
-  This implementation targets the Claude Code runtime only. The Codex / OpenClaw runtimes
-  each use their own quota channel:
-    - Claude Code: `claude -p` subprocess (this file's _judge_call_cli, the current default)
-    - Codex: write _judge_call_codex once `exp-proj-114` Codex hook compatibility lands
-    - OpenClaw: write _judge_call_openclaw once OpenClaw is fully set up, reusing OpenClaw's
-                deployed models (Gemma via DeepInfra / DeepSeek etc.), not spinning up Anthropic
-  The unified Anthropic SDK path (_judge_call_sdk) is only a fallback, used for paper
-  experiments or when the CLI call fails. Defaults to B5_USE_SDK=False (local runtime channel).
+Per-runtime dispatch: the Claude Code runtime uses a `claude -p` subprocess
+(_judge_call_cli, the default). An optional SDK path (_judge_call_sdk) is a
+fallback (B5_USE_SDK=1).
 
-**ALWAYS exits 0** — shadow mode never blocks. Side effects:
-  - Append violations to b5_shadow_log.jsonl (history)
-  - Update B5_SHADOW_ALERT.md (rolling cap N=3 latest violations, 24h TTL)
-  - Append b5_check entry to compliance_log.jsonl
+Side effects:
+  - Append violations to the shadow log (history)
+  - Update the rolling shadow-alert file (cap N=3, 24h TTL)
+  - Append a check entry to the compliance log
 
-Defenses:
-  - B5_SHADOW_DISABLED=1 env opt-out
-  - ANTHROPIC_CREDIT_OK=1 env required (default OFF until user verifies credit)
-  - B5_DAILY_COST_CAP=$0.50 (auto-disable if exceeded)
-  - judge_confidence threshold 0.85 (lower → log only, no alert)
-  - per-rule rate limit (same rule_id within 24h → no alert)
+Privacy + gates (the judge sends the last user message + assistant reply to an LLM):
+  - OFF by default for public installs — gated by path_config.shadow_enabled()
+    (enable with PT_SHADOW=1 or config {"shadow": true}).
+  - B5_SHADOW_DISABLED=1 hard opt-out
+  - B5_DAILY_COST_CAP daily budget (auto-disable if exceeded)
+  - judge_confidence threshold (lower -> log only, no alert)
+  - per-rule rate limit (same rule_id within 24h -> no alert)
 
-Per `code-pref-101` JSON for reward-hack-resistant verdict.
-Per `wf-pref-036` defensive fallbacks (judge timeout/error → log warning, exit 0).
-Per `tool-pit-130` state lives in <project>/.claude/preference-tracker-state/, not /tmp.
-Per `exp-pref-022` Anthropic Sonnet 4-6 default judge model.
+Verdicts are emitted as one-line JSON. On judge timeout/error the hook logs a
+warning and exits 0.
 """
 import json
 import os
@@ -59,8 +52,8 @@ B5_SHADOW_DISABLED = os.environ.get('B5_SHADOW_DISABLED', '').lower() in ('1', '
 ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1', 'true', 'yes')
 B5_DAILY_COST_CAP = float(os.environ.get('B5_DAILY_COST_CAP', '0.50'))
 B5_USE_DEEPINFRA = os.environ.get('B5_USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
-B5_USE_SDK = os.environ.get('B5_USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = CLI per `tool-pit-004`
-B5_JUDGE_MODEL = os.environ.get('B5_JUDGE_MODEL', 'claude-haiku-4-5')  # default haiku per `exp-pref-022` preflight tier
+B5_USE_SDK = os.environ.get('B5_USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = use the CLI channel
+B5_JUDGE_MODEL = os.environ.get('B5_JUDGE_MODEL', 'claude-haiku-4-5')  # small/cheap default model
 B5_CONFIDENCE_THRESHOLD = float(os.environ.get('B5_CONFIDENCE_THRESHOLD', '0.85'))
 ALERT_ROLLING_CAP = int(os.environ.get('B5_ALERT_ROLLING_CAP', '3'))
 RATE_LIMIT_HOURS = float(os.environ.get('B5_RATE_LIMIT_HOURS', '24'))
@@ -69,8 +62,10 @@ TTL_HOURS = float(os.environ.get('B5_TTL_HOURS', '24'))
 # Test mock — when set, skip real LLM call, return canned verdict from env
 B5_TEST_MOCK_VERDICT = os.environ.get('B5_TEST_MOCK_VERDICT', '')
 
-# Rules under shadow judge (same 3 as deterministic, plus optional)
-SHADOW_RULE_IDS = ['lang-pit-130', 'oth-pref-001', 'lang-pref-001']
+# Rule IDs the shadow judge evaluates. Empty by default (ship-empty): a public
+# install judges no rules until the user opts specific rules into shadow judging
+# via B5_SHADOW_RULE_IDS=id1,id2 (or their own config overlay).
+SHADOW_RULE_IDS = [s.strip() for s in os.environ.get('B5_SHADOW_RULE_IDS', '').split(',') if s.strip()]
 
 
 def _now():
@@ -267,18 +262,18 @@ def _update_alert_md(violation_alerts):
 def _judge_call_cli(rules, last_user, response):
     """Invoke claude -p CLI subprocess judge. 0 API charge (uses the CLI subscription).
 
-    Default per `tool-pit-004`: prefer the CLI when both CLI subscription and SDK are available.
-    Default model: claude-haiku-4-5 (per `exp-pref-022` preflight tier — the shadow judge does not need paper-main Sonnet).
+    Default: prefer the CLI when both CLI subscription and SDK are available.
+    Default model: claude-haiku-4-5 (a small/cheap model suffices for the shadow judge).
     Returns (verdicts_list, cost_usd=0.0, latency_ms, error_str_or_None).
     """
     import subprocess
     t0 = time.time()
-    # Minimal context per the user's "don't give too much context"
+    # Keep the judge prompt small.
     rules_text = '\n'.join(
         f'- {r["rule_id"]}: {r["rule_text"][:200]}'
         for r in rules
     )
-    prompt = f"""你是合规判官. 严格判断下面 response 是否违反任一 rule. 只输出一行 JSON 不要前言.
+    prompt = f"""You are a strict compliance judge. Decide whether the response below violates any rule. Output exactly one line of JSON, no preamble.
 
 Last user prompt (truncated):
 {(last_user or '')[:400]}
@@ -289,8 +284,8 @@ Response (truncated):
 Rules:
 {rules_text}
 
-输出严格 JSON 一行格式:
-{{"verdicts":[{{"rule_id":"<id>","applicable":true|false,"compliant":true|false,"judge_confidence":0.0-1.0,"evidence":"<10-30 字>","feedback":"<若 false 给修正指令>"}}]}}"""
+Output strict one-line JSON in this format:
+{{"verdicts":[{{"rule_id":"<id>","applicable":true|false,"compliant":true|false,"judge_confidence":0.0-1.0,"evidence":"<10-30 chars>","feedback":"<fix instruction if not compliant>"}}]}}"""
     try:
         proc = subprocess.run(
             ['claude', '-p', prompt, '--model', B5_JUDGE_MODEL,
@@ -486,7 +481,7 @@ def evaluate(stdin_data):
         'check_source': 'verify_retry_shadow',
     }
 
-    if B5_SHADOW_DISABLED:
+    if B5_SHADOW_DISABLED or not path_config.shadow_enabled():
         log_entry['b5_check'] = {'shadow_judge_status': 'disabled'}
         return 'disabled', log_entry
 

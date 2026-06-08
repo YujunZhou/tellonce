@@ -98,6 +98,45 @@ def _resolve(env_var: str, config_key: str, default_func):
     return default_func()
 
 
+def _bool_setting(env_var: str, config_key: str, default: bool) -> bool:
+    """Three-layer boolean: env > config file > default. Truthy = 1/true/yes/on."""
+    v = os.environ.get(env_var)
+    if v is not None:
+        return v.strip().lower() in ('1', 'true', 'yes', 'on')
+    cfg = _read_config_file()
+    if config_key in cfg:
+        cv = cfg[config_key]
+        if isinstance(cv, bool):
+            return cv
+        # Tolerate string/int forms a user might hand-edit ("true", "1", 1).
+        if isinstance(cv, (str, int)):
+            return str(cv).strip().lower() in ('1', 'true', 'yes', 'on')
+    return default
+
+
+def enforcement_enabled() -> bool:
+    """Master opt-in for hard-blocking gates (deterministic block + B4 pending-
+    finalize gate).
+
+    PUBLIC DEFAULT = False (observe-only). A freshly installed skill records
+    preferences and surfaces them, but NEVER hard-blocks a session — so a
+    stranger can't be locked out or have replies rejected by the author's
+    personal rules. Turn full enforcement on with env `PT_ENFORCE=1` or
+    config {"enforce": true}.
+    """
+    return _bool_setting('PT_ENFORCE', 'enforce', False)
+
+
+def shadow_enabled() -> bool:
+    """Opt-in for the shadow LLM judge, which sends the last user message +
+    assistant reply to an LLM (`claude -p`).
+
+    PUBLIC DEFAULT = False (privacy + cost). Turn on with env `PT_SHADOW=1`
+    or config {"shadow": true}.
+    """
+    return _bool_setting('PT_SHADOW', 'shadow', False)
+
+
 @lru_cache(maxsize=1)
 def get_skill_dir() -> str:
     """preference-tracker package root. Path(__file__).parent.parent.

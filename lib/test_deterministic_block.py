@@ -154,6 +154,7 @@ def run_main(stdin_data, env_overrides=None):
     """Invoke deterministic_block.py main() as subprocess."""
     env = dict(os.environ)
     env.setdefault('PYTHONIOENCODING', 'utf-8')  # UTF-8 stdout so the block reason prints on any host
+    env.setdefault('PT_ENFORCE', '1')  # tests exercise the block mechanism; enforcement is opt-in by default
     if env_overrides:
         env.update(env_overrides)
     proc = subprocess.run(

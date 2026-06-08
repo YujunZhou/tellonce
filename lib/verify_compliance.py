@@ -594,7 +594,7 @@ def main():
         pending_count > THRESHOLD_PENDING
         and session_age_min > THRESHOLD_DURATION_MIN
     )
-    should_block = would_block and not B4_DISABLED and not self_disabled
+    should_block = would_block and path_config.enforcement_enabled() and not B4_DISABLED and not self_disabled
     entry['b4_check']['would_block'] = would_block
 
     # Write compliance log first (always); H10 fix chmod 0600 on the log

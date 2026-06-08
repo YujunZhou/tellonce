@@ -52,6 +52,7 @@ def run_main(stdin_data, env_overrides=None, obs_path_override=None):
     """Invoke verify_compliance.py as subprocess with controlled env. Return
     (exit_code, stdout)."""
     env = dict(os.environ)
+    env.setdefault('PT_ENFORCE', '1')  # B4 tests exercise the block mechanism; enforcement is opt-in by default
     if env_overrides:
         env.update(env_overrides)
     if obs_path_override:

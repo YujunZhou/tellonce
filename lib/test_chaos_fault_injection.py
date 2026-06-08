@@ -22,6 +22,14 @@ from datetime import datetime, timezone, timedelta
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 
+# Shadow judge + hard enforcement are opt-in (PUBLIC DEFAULT = off); enable so
+# the fault-injection tests exercise the judge / enforcement paths. The shipped
+# default SHADOW_RULE_IDS is now empty (ship-empty); set the example IDs via env
+# so they survive importlib.reload(vrs) below.
+os.environ.setdefault('PT_SHADOW', '1')
+os.environ.setdefault('PT_ENFORCE', '1')
+os.environ.setdefault('B5_SHADOW_RULE_IDS', 'lang-pit-130,oth-pref-001,lang-pref-001')
+
 
 def make_transcript(messages):
     """Helper: write JSONL transcript file."""

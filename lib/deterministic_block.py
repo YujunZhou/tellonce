@@ -430,7 +430,7 @@ def main():
 
     session_id = data.get('session_id', '')
 
-    if B5_DETERMINISTIC_DISABLED:
+    if B5_DETERMINISTIC_DISABLED or not path_config.enforcement_enabled():
         log_check(session_id, 'disabled', [], (time.time() - t0) * 1000)
         sys.exit(0)
 

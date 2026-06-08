@@ -19,6 +19,13 @@ sys.path.insert(0, LIB_DIR)
 import verify_retry_shadow as shadow
 import shadow_alert_inject as inject
 
+# Shadow judge is opt-in (PUBLIC DEFAULT = off); enable it so these tests
+# exercise the judge path.
+os.environ.setdefault('PT_SHADOW', '1')
+# The shipped default SHADOW_RULE_IDS is now empty (ship-empty); these tests
+# exercise the judge against the maintainer's example rule IDs, so set them here.
+shadow.SHADOW_RULE_IDS = ['lang-pit-130', 'oth-pref-001', 'lang-pref-001']
+
 
 # ----------------------- Helper test fixtures -----------------------
 
