@@ -250,16 +250,35 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             self.assertEqual(report.sections["private_paths"], "FAIL")
 
     def test_verify_warns_on_tmp_artifact(self):
-        verdict = verify_output("write important output to /tmp/result.json")
+        os.environ["CODEX_PT_TMP_RULE"] = "1"
+        try:
+            verdict = verify_output("write important output to /tmp/result.json")
+        finally:
+            os.environ.pop("CODEX_PT_TMP_RULE", None)
         self.assertEqual(verdict.verdict, "warn_log")
         self.assertEqual(verdict.violations[0]["rule_id"], "tool-pit-130")
 
+    def test_verify_tmp_rule_off_by_default(self):
+        os.environ.pop("CODEX_PT_TMP_RULE", None)
+        verdict = verify_output("write important output to /tmp/result.json")
+        self.assertEqual(verdict.verdict, "pass")
+
     def test_verify_detects_chinese_inline_english_with_whitelist(self):
         text = "好的我来修复这个 stub 的问题，然后 merge 进主分支。"
-        verdict = verify_output(text, whitelist={"merge"})
+        os.environ["CODEX_PT_LANG_RULE"] = "zh"
+        try:
+            verdict = verify_output(text, whitelist={"merge"})
+        finally:
+            os.environ.pop("CODEX_PT_LANG_RULE", None)
         rule_ids = {v["rule_id"] for v in verdict.violations}
         self.assertIn("lang-pit-130", rule_ids)
         self.assertNotIn("merge", repr(verdict.violations))
+
+    def test_verify_lang_rule_off_by_default(self):
+        text = "好的我来修复这个 stub 的问题，然后 merge 进主分支。"
+        os.environ.pop("CODEX_PT_LANG_RULE", None)
+        verdict = verify_output(text, whitelist={"merge"})
+        self.assertEqual(verdict.verdict, "pass")
 
     def test_wrapper_records_missing_codex_as_degraded(self):
         with tempfile.TemporaryDirectory() as td:
@@ -563,7 +582,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 m = json.loads(mode_path.read_text())
                 m["mode"] = "blocking"
                 mode_path.write_text(json.dumps(m, indent=2))
-                # 高中文比例 + 几个英文借词以触发 lang-pit-130
+                # High Chinese ratio + a few English loanwords to trigger lang-pit-130
                 payload = {
                     "tool_name": "Write",
                     "tool_input": {"content": "我们今天要把这个 stub 占位代码全部处理干净, 然后 merge 进入主分支, 整个测试流程跑过一遍特别重要, 我们要保证中文比例足够高才能触发偏好规则的检查机制."},

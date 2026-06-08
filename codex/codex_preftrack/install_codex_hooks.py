@@ -110,12 +110,18 @@ def _is_pt_command(cmd: str) -> bool:
     PT hook commands always live under */preference-tracker/hooks/ AND have one
     of our known basenames. We use path-based identification (rather than a
     sentinel field on the entry) so hooks.json stays strictly schema-compliant.
+
+    CX-B5 fix: normalize separators before matching. Hook commands written on
+    Windows use backslashes (`...\\preference-tracker\\hooks\\foo.sh`), so the
+    old forward-slash-only `/hooks/` substring and `rsplit("/")` basename
+    extraction never matched and cleanup/verify silently missed PT entries.
     """
-    if "preference-tracker" not in cmd:
+    norm = cmd.replace("\\", "/")
+    if "preference-tracker" not in norm:
         return False
-    if "/hooks/" not in cmd:
+    if "/hooks/" not in norm:
         return False
-    basename = cmd.rsplit("/", 1)[-1]
+    basename = norm.rsplit("/", 1)[-1]
     known = {basename for lst in PT_HOOKS.values() for basename, _ in lst}
     return basename in known
 
@@ -123,7 +129,7 @@ def _is_pt_command(cmd: str) -> bool:
 def cmd_add(hooks_path: str, hooks_dir: str) -> int:
     hooks_dir_p = Path(hooks_dir).expanduser().resolve()
     if not hooks_dir_p.is_dir():
-        print(f"⚠ hooks_dir 不存在: {hooks_dir_p}", file=sys.stderr)
+        print(f"⚠ hooks_dir does not exist: {hooks_dir_p}", file=sys.stderr)
         # don't fail — install.sh may run --add before --copy in some flows
     backup = _versioned_backup(hooks_path)
     if backup:
@@ -236,7 +242,7 @@ def cmd_verify(hooks_path: str, hooks_dir: str) -> int:
                 if not cmd:
                     continue
                 cmd_to_events.setdefault(cmd, set()).add(event)
-    print(f"  Codex preference-tracker hooks 注册情况:")
+    print(f"  Codex preference-tracker hook registration status:")
     print(f"    hooks.json: {hooks_path}")
     print(f"    hooks dir:  {hooks_dir_p}")
     bad = 0

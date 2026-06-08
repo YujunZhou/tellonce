@@ -22,12 +22,21 @@ def classify(message: str) -> str:
     multi-character forms.
     """
     lowered = message.lower()
-    if any(token in message for token in ["以后", "以后都", "必须", "不要", "我希望", "我想"]):
+    # Heuristic seed tokens, language-neutral. We ship both English and Chinese
+    # forms so the classifier fires for English-only and Chinese-speaking users
+    # alike (the maintainer is a Chinese speaker; the public release targets
+    # English users too). These are deliberately small, illustrative seed sets —
+    # users extend behavior via their own fingerprints, not by editing this list.
+    preference_zh = ["以后", "以后都", "必须", "不要", "我希望", "我想"]
+    preference_en = ["from now on", "always", "never", "please don't", "i prefer", "i want", "make sure"]
+    if any(token in message for token in preference_zh) or any(token in lowered for token in preference_en):
         return "preference"
-    if any(token in lowered for token in ["again", "don't repeat", "frustrat"]) or "又" in message:
+    pitfall_en = ["again", "don't repeat", "frustrat"]
+    if any(token in lowered for token in pitfall_en) or "又" in message:
         return "pitfall"
-    friction_tokens = ["很卡", "好卡", "太卡", "卡顿", "麻烦", "太慢", "血压"]
-    if any(token in message for token in friction_tokens):
+    friction_zh = ["很卡", "好卡", "太卡", "卡顿", "麻烦", "太慢", "血压"]
+    friction_en = ["slow", "laggy", "annoying", "tedious", "keeps happening", "every time"]
+    if any(token in message for token in friction_zh) or any(token in lowered for token in friction_en):
         return "friction"
     return "none"
 

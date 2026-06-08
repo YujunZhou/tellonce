@@ -115,7 +115,14 @@ def write_memory_atomic(path: Path, data: dict, body: str) -> str:
     HX-8 fix: previously fsync'd only the file, leaving the rename's
     directory entry in page cache; a crash between rename and dirent
     flush could revert the change. Now also fsyncs the parent dir.
+
+    CX-B7 fix: previously used a fixed `.tmp` suffix, so two concurrent
+    promotes of the SAME atomic_id wrote to the same temp file and clobbered
+    each other before the rename. Use a per-pid + uuid8 suffix (mirroring
+    ledger.secure_write_text's M1 fix) so concurrent writers never collide.
     """
+    import uuid as _uuid
+
     from .ledger import secure_mkdir  # lazy: avoid circular at import
 
     secure_mkdir(path.parent)
@@ -124,14 +131,21 @@ def write_memory_atomic(path: Path, data: dict, body: str) -> str:
     text_without_hash = render_memory({k: v for k, v in data.items() if k != "content_sha256"}, body)
     data["content_sha256"] = content_hash_for_text(text_without_hash)
     text = render_memory(data, body)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}.{_uuid.uuid4().hex[:8]}")
     from .ledger import _chmod_or_warn
-    _chmod_or_warn(tmp, 0o600)
-    with tmp.open("r+", encoding="utf-8") as f:
-        f.flush()
-        os.fsync(f.fileno())
-    tmp.replace(path)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        _chmod_or_warn(tmp, 0o600)
+        with tmp.open("r+", encoding="utf-8") as f:
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(path)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     _chmod_or_warn(path, 0o600)
     # Persist the rename in the parent directory.
     try:

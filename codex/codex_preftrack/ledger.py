@@ -352,10 +352,31 @@ def repair_tail(state_root: Path) -> RepairResult:
     so subsequent reads still skipped corrupt lines and the next repair
     ran into the same data forever. Now we atomically rewrite events.jsonl
     to contain only valid lines after quarantining the bad ones.
+
+    CX-B6 fix: the read-modify-write below must hold the SAME `events.lock`
+    that append_event takes. Without it, a concurrent append between our
+    read_bytes() and tmp.replace() is silently clobbered (lost write). We
+    mirror append_event's lock acquisition (guarded by `fcntl is not None`
+    so Windows, which has no fcntl, still functions albeit without advisory
+    locking).
     """
     path = _events_path(state_root)
     if not path.is_file():
         return RepairResult(False)
+    lock_path = state_root / "events.lock"
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        _chmod_or_warn(lock_path, 0o600, critical=False)
+        if fcntl is not None:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            return _repair_tail_locked(state_root, path)
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _repair_tail_locked(state_root: Path, path: Path) -> RepairResult:
+    """Core of repair_tail; caller MUST hold events.lock (see repair_tail)."""
     data = path.read_bytes()
     if not data:
         return RepairResult(False)

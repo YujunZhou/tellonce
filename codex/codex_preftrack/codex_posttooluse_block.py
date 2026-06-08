@@ -168,7 +168,11 @@ def main() -> int:
     # maintainer's BibTeX/citation workflow). This just runs the shared
     # deterministic rules — empty by default. Tool input (file content / shell
     # command) is not a user-facing reply, so language rules never apply here.
-    if not text or len(text) < 30:
+    #
+    # CX-B2 fix: only skip genuinely empty/whitespace input. The previous
+    # `len(text) < 30` floor silently dropped short-but-dangerous tool inputs
+    # (e.g. `rm -rf /tmp/x`), so they were never scanned at all.
+    if not text or not text.strip():
         return 0
     try:
         violations = db.evaluate_rules(text, [])

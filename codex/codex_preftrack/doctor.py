@@ -23,6 +23,11 @@ _GENERIC_LEAK_HEURISTIC: tuple[re.Pattern, ...] = (
     # `/Users/<name>/...` (macOS) and `/users/<name>/...` (some Linux installs).
     # Case-insensitive so macOS `/Users/alice/` matches.
     re.compile(r"/[Uu]sers/[A-Za-z][A-Za-z0-9_\-]{1,32}/[A-Za-z]"),
+    # Windows user-home path: `C:\Users\<name>\...` (any drive letter).
+    # CX-B4 fix: POSIX-only patterns let Windows private-path leaks
+    # (`C:\Users\alice\...`) pass undetected. Match a drive letter + the
+    # backslash `Users` segment + a username component.
+    re.compile(r"[A-Za-z]:\\[Uu]sers\\[A-Za-z][A-Za-z0-9_\-. ]{1,32}\\"),
     # Hardcoded skill-dir paths under someone else's home — almost always a
     # leak from a fork-author's install script that shouldn't be in user state.
     re.compile(r"/home/[A-Za-z][A-Za-z0-9_\-]{1,32}/\.claude/skills"),
@@ -147,7 +152,7 @@ def _hooks_status() -> str:
                 if not _is_pt_command(cmd):
                     continue
                 found_any = True
-                basename = cmd.rsplit("/", 1)[-1]
+                basename = cmd.replace("\\", "/").rsplit("/", 1)[-1]
                 found_pairs.add((event, basename))
     if not found_any:
         return "NOT_INSTALLED"

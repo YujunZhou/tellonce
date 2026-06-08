@@ -118,7 +118,7 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         fi
     fi
 
-    # 1b. shared_lib = CC's lib/ (retrieve_inject + deterministic_block + 等)
+    # 1b. shared_lib = CC's lib/ (retrieve_inject + deterministic_block + etc.)
     if [[ "${SELF_INSTALL}" != true ]]; then
         if [[ -n "${SHARED_LIB_SRC}" && -d "${SHARED_LIB_SRC}" ]]; then
             SHARED_LIB_SRC_REAL="$(cd "${SHARED_LIB_SRC}" && pwd -P)"
@@ -139,8 +139,8 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
             fi
         else
             echo "  ⚠ shared_lib source not found (no lib/ next to install.sh and no shared_lib/ in skill dir)"
-            echo "    UserPromptSubmit retrieve / PostToolUse deterministic-block hooks 会 silently no-op"
-            echo "    (wrapper-driven enforcement via codex_preftrack exec 仍 work)"
+            echo "    UserPromptSubmit retrieve / PostToolUse deterministic-block hooks will silently no-op"
+            echo "    (wrapper-driven enforcement via codex_preftrack exec still works)"
         fi
     fi
 
@@ -255,5 +255,5 @@ echo "  global: ${GLOBAL_DIR}"
 echo "  hooks:  ${HOOKS_JSON}"
 echo "  project state: $(pwd)/.codex/preference-tracker/"
 echo ""
-echo "下一步: 在新 codex session 触发一个 prompt, 看"
-echo "  $(pwd)/.codex/preference-tracker/runtime/posttooluse_log.jsonl 有无写入."
+echo "Next step: trigger a prompt in a new codex session, then check whether"
+echo "  $(pwd)/.codex/preference-tracker/runtime/posttooluse_log.jsonl gets written to."

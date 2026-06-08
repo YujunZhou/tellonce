@@ -95,10 +95,27 @@ def _inline_english_tokens(text: str, whitelist: set[str]) -> list[str]:
 
 
 def verify_output(text: str, whitelist: set[str] | None = None) -> Verdict:
+    """Run deterministic output checks.
+
+    Public-release stance (matches root + copilot, whose evaluate_rules() ships
+    empty): verify_output ships NO built-in personal rules enabled by default.
+    Both checks below are personal-origin rules and are gated behind opt-in env
+    vars, so the default install is "ship-empty":
+
+      - CODEX_PT_TMP_RULE   — when set to a non-empty value, enable the generic
+                              `/tmp/` durable-path advisory (tool-pit-130).
+      - CODEX_PT_LANG_RULE  — when set to a non-empty value, enable the
+                              inline-English-in-Chinese advisory (lang-pit-130).
+                              The value may be any non-empty marker / language
+                              code; only its presence is checked here.
+
+    The _BASE_WHITELIST and inline-token helpers remain available and are used
+    only when CODEX_PT_LANG_RULE is enabled.
+    """
     if whitelist is None:
         whitelist = load_default_whitelist()
     violations = []
-    if re.search(r"/tmp/[^\s`'\"]+", text):
+    if os.environ.get("CODEX_PT_TMP_RULE", "").strip() and re.search(r"/tmp/[^\s`'\"]+", text):
         violations.append(
             {
                 "rule_id": "tool-pit-130",
@@ -107,14 +124,15 @@ def verify_output(text: str, whitelist: set[str] | None = None) -> Verdict:
                 "repair_instruction": "Use a durable project path for important artifacts.",
             }
         )
-    inline = _inline_english_tokens(text, whitelist)
-    if inline and _chinese_ratio(text) >= 0.35:
-        violations.append(
-            {
-                "rule_id": "lang-pit-130",
-                "severity": "warn",
-                "evidence": inline[:10],
-                "repair_instruction": "Avoid ordinary English filler in Chinese user-facing replies unless whitelisted.",
-            }
-        )
+    if os.environ.get("CODEX_PT_LANG_RULE", "").strip():
+        inline = _inline_english_tokens(text, whitelist)
+        if inline and _chinese_ratio(text) >= 0.35:
+            violations.append(
+                {
+                    "rule_id": "lang-pit-130",
+                    "severity": "warn",
+                    "evidence": inline[:10],
+                    "repair_instruction": "Avoid ordinary English filler in Chinese user-facing replies unless whitelisted.",
+                }
+            )
     return Verdict(verdict="warn_log" if violations else "pass", violations=violations)

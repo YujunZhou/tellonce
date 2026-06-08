@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import os
+import tempfile
 from pathlib import Path
 
 from .ledger import secure_mkdir, secure_write_text
@@ -30,6 +31,35 @@ def project_id_for(path: Path) -> str:
 _UNSAFE_TMP_PREFIXES = ("/tmp", "/private/tmp", "/var/tmp")
 
 
+def _norm_for_compare(p: str) -> str:
+    """Normalize a path string for prefix comparison across platforms.
+
+    Lowercases on case-insensitive filesystems (Windows), collapses `.`/`..`,
+    and unifies separators so both `/` and `\\` forms compare equal.
+    """
+    return os.path.normcase(os.path.normpath(p))
+
+
+def _unsafe_tmp_prefixes() -> tuple[str, ...]:
+    """All temp-dir prefixes to reject, normalized for the current platform.
+
+    Includes the fixed POSIX list (so behavior on Linux/macOS is unchanged)
+    plus the platform temp dir reported by `tempfile.gettempdir()`, which on
+    Windows resolves to `%TEMP%` (e.g. C:\\Users\\<name>\\AppData\\Local\\Temp).
+
+    The platform temp dir is run through `Path.resolve()` so a Windows 8.3
+    short name (e.g. `C:\\Users\\T-YUJU~1\\...`) is canonicalized to the same
+    long form a resolved project root produces; otherwise the prefix compare
+    would miss.
+    """
+    prefixes = list(_UNSAFE_TMP_PREFIXES)
+    try:
+        prefixes.append(str(Path(tempfile.gettempdir()).resolve()))
+    except Exception:
+        pass
+    return tuple(_norm_for_compare(p) for p in prefixes)
+
+
 def resolve_project_root(path: Path, allow_unsafe: bool = False) -> Path:
     """Reject unsafe project roots (root, HOME, /tmp variants).
 
@@ -37,12 +67,21 @@ def resolve_project_root(path: Path, allow_unsafe: bool = False) -> Path:
     `startswith("/tmp")` check passed `/private/tmp/...` through. Now we
     check the resolved path against an explicit list of tmp prefixes plus
     `/var/tmp` (some distros).
+
+    CX-B3 fix: the prefix list was POSIX-only and compared with a forward-
+    slash separator, so on Windows `%TEMP%` was never blacklisted and
+    backslash paths never matched. We now include `tempfile.gettempdir()`
+    and normalize separators/case (via os.path.normcase/normpath) so both
+    `/` and `\\` forms are caught on every platform.
     """
     root = Path(path).resolve()
     home = Path(os.path.expanduser("~")).resolve()
     allow_unsafe = allow_unsafe or os.environ.get("CODEX_PREFTRACK_ALLOW_TEMP") == "1"
-    root_str = str(root)
-    is_tmp = any(root_str == p or root_str.startswith(p + "/") for p in _UNSAFE_TMP_PREFIXES)
+    root_norm = _norm_for_compare(str(root))
+    is_tmp = any(
+        root_norm == p or root_norm.startswith(p + os.sep)
+        for p in _unsafe_tmp_prefixes()
+    )
     if not allow_unsafe and (root == Path("/") or root == home or is_tmp):
         raise ProjectRootError(f"unsafe project root: {root}")
     return root
