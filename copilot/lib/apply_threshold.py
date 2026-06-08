@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """CLI: apply threshold_advisor suggestions to memory rule frontmatter.
 
-Per `wf-pref-292`: only change when the user approves, never silently. The CLI
+Changes are applied only when the user approves, never silently. The CLI
 accepts --rule / --param / --value, makes a versioned backup of the original file,
 does an atomic write (tmp + rename), and edits only the given key in the `params:` block.
 
 Usage:
-  python3 apply_threshold.py --rule lang-pit-130 --param chinese_ratio_threshold --value 0.55
-  python3 apply_threshold.py --snooze lang-pit-130 --days 7
+  python3 apply_threshold.py --rule <domain>-<kind>-NNN --param some_threshold --value 0.55
+  python3 apply_threshold.py --snooze <domain>-<kind>-NNN --days 7
   python3 apply_threshold.py --list
 
-Per `wf-pref-027` versioned backup, never overwrite — writes `<rule>.pre_threshold_<TS>.bak`.
-Per `code-pref-287` path decoupling.
+Writes a versioned backup `<rule>.pre_threshold_<TS>.bak`; never overwrites in place.
+Paths are derived via path_config (no hardcoded locations).
 """
 import argparse
 import datetime

@@ -6,13 +6,30 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 # Preference Tracker
 
-## Infrastructure (Phase B1/B2/B3)
+## 运行模式与默认值（公开发布版）
+
+**默认 = 观察模式（observe-only）**：本 skill 默认只做「扫描偏好 → 记录 → 告知用户」，**绝不硬阻断会话**，**绝不调用 LLM**。刚装上的新用户不会被任何硬规则拦截，也不会把对话内容发给第三方模型。
+
+- **硬阻断强制**（deterministic block / pending gate / observation-log gate）默认**关**，需显式设 `PT_ENFORCE=1` 才开启。
+- **影子 LLM 判官**（把对话发给外部模型做语义判分）默认**关**，需显式设 `PT_SHADOW=1` 才开启。隐私提示：开启后每轮会把「最后一条 user 消息 + 助手回复」（已脱敏 API key / 密码等）发给该模型。
+- `seed_memory/` 里的语言、路径规则只是**示例记忆**，默认不被强制；它们反映作者个人偏好，不代表使用者必须遵守。
+
+**切换模式**（环境变量；两者都不设 = 安全默认 observe-only）：
+
+```
+PT_ENFORCE=1   # 开硬拦截
+PT_SHADOW=1    # 开 AI 判官（影子模式）
+```
+
+> 下文 Infrastructure / Gate 等章节描述的是**强制模式开启后**的行为。默认观察模式下，这些 gate 只记录、不阻断。
+
+## Infrastructure
 
 这个 skill 不止是 Iron Law + Gate Function. 装了 3 层基础设施, 以**自动 hook** 形式运行, 不需要显式 Skill 调用就生效.
 
 > **路径占位说明**: 下文出现的 `<skill_dir>` 默认是 `~/.claude/skills/preference-tracker/`，`<project_root>` 是当前项目根，`<state_dir>` 是 `<project_root>/.claude/preference-tracker-state/`。所有路径在运行时由 `lib/path_config.py` 解析（env > `~/.preference-tracker.config.json` > 自动 detect 三层兜底），SKILL.md 不写绝对路径以免污染 Claude 输出。
 
-### B1 — Deterministic fingerprint retrieval (UserPromptSubmit hook)
+### Deterministic fingerprint retrieval (UserPromptSubmit hook)
 
 每次用户提交 message, `<project_root>/.claude/hooks/memory-retrieve-inject.sh` 会:
 1. 扫 user prompt 对 `<skill_dir>/lib/fingerprints.yaml` (18 条 trigger 规则)
@@ -21,30 +38,30 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 ```
 ### Fingerprint retrieval — memory rules auto-matched for this turn:
-- **[lang-pref-001]** (critical) 给用户看的用中文, 交付物外部读者用英文
-    • triggered by: paper
-- **[wrt-pref-015]** (critical) Session handoff 用 6-section 格式, 不省 token
-    • action: 写 handoff 必走 0-6 section 结构 + verbose
-    • applies_when: 写 SESSION_HANDOFF_v{N}.md; compact 前总结; 换 session 接手;
+- **[fmt-pref-001]** (critical) 缩进用 4 空格, 不用 tab
+    • triggered by: indent
+- **[tool-pref-002]** (critical) 装依赖优先用项目自带的包管理器 / lockfile
+    • action: 新增依赖走 lockfile, 不手动改版本号
+    • applies_when: 新增 / 升级依赖时;
 ```
 
-每条带 `applies_when` 字段的 — 这是 B2 加的 applicability gate. 我要**自己判断** applies_when 是否对当前 turn 成立, 不成立就 skip (例如 user 提 "paper" 但只是问 paper filename, 不写 paper, 就不触发 lang-pref-001 中/英 强制).
+每条带 `applies_when` 字段的 — 这是 applicability gate. 我要**自己判断** applies_when 是否对当前 turn 成立, 不成立就 skip (例如 user 只是顺带提到某个触发词, 但当前 turn 并不真的进入该 rule 的适用场景, 就不强制应用).
 
-### B2 — Applicability gate (soft, within B1 hook)
+### Applicability gate (soft, within the retrieval hook)
 
-B1 注入的每条 rule 后面带 `applies_when: ...` 和 `condition: ...` 从 memory .md frontmatter 里读出来. 我判断:
+retrieval hook 注入的每条 rule 后面带 `applies_when: ...` 和 `condition: ...` 从 memory .md frontmatter 里读出来. 我判断:
 - applies_when 条件成立 → apply rule
-- 条件不成立 → 明说"B2 gate filter out: <reason>"然后 skip
+- 条件不成立 → 明说"gate filter out: <reason>"然后 skip
 - 不明 → 保守 apply
 
-### B3-lite — Log-only compliance tracker (Stop hook)
+### Log-only compliance tracker (Stop hook)
 
 每轮我 stop 时, `<project_root>/.claude/hooks/memory-verify-compliance.sh` 读 transcript 取最后 assistant text, 往 `<state_dir>/obs_log/compliance_log.jsonl` append 一行:
 - `response_excerpt` (前 400 字)
 - `fp_rules_in_response` (response 里触发了哪些 rule 关键词)
 - `lang_ratio.chinese_ratio` (中英文比例)
 
-**不 blocking** (还不自动 retry). 收 2-3 天数据后, 如果 FP rate 低才开 Phase B4 blocking.
+**不 blocking** (还不自动 retry). 后续若 FP rate 足够低, 可再考虑开启 blocking.
 
 ### Infrastructure 文件清单
 
@@ -62,9 +79,9 @@ B1 注入的每条 rule 后面带 `applies_when: ...` 和 `condition: ...` 从 m
 
 ### 规则新增 / 更新时要同步动
 
-当 Gate Function record 了新 rule 到 memory, 如果是**高价值 deterministic rule** (例如用户明说 "以后都用中文" / "paper 用 LaTeX"), 要同时在 `fingerprints.yaml` 加一条 keyword trigger, 下 session retrieve 才能自动召回.
+当 Gate Function record 了新 rule 到 memory, 如果是**高价值 deterministic rule** (例如用户明说 "以后缩进都用 4 空格" / "commit message 用祈使句"), 要同时在 `fingerprints.yaml` 加一条 keyword trigger, 下 session retrieve 才能自动召回.
 
-**不需要 FP 的**: semantic / 场景依赖 / meta rule (如 wf-pref-022 inherited plan not trusted — 这类靠 model 判断, 不靠关键词).
+**不需要 FP 的**: semantic / 场景依赖 / meta rule (如「继承来的 plan 不能全信」这类靠 model 判断, 不靠关键词的规则).
 
 ---
 
@@ -138,7 +155,7 @@ If you catch yourself thinking any of these, STOP and do the scan:
 - "There's obviously nothing here"
 - "I'm in the middle of something complex"
 - "This message is too short to contain signals"
-- "NOOP / UPDATE doesn't need confirmation_text" → 错; detected=true 路径必填 (见 `## 确认策略 §⚠关键` 4-row 模板)
+- "NOOP / UPDATE doesn't need confirmation_text" → 错; detected=true 路径必填 confirmation (见 `## 确认策略`)
 
 ---
 
@@ -166,15 +183,15 @@ If you catch yourself thinking any of these, STOP and do the scan:
    - Regardless of whether it's phrased as instruction, reason, complaint, or aside
 
 2. **Any clause expressing frustration or correcting your behavior** → friction or pitfall
-   - Frustration markers: repetition ("又"/"还是"), exasperation ("怎么还"), rhetorical questions ("是不是说过了"), sarcasm ("算了")
-   - Even if softened ("其实"/"没事"/"算了"), the softener often masks a real signal
+   - Frustration markers: repetition ("又"/"还是" / "again"/"still"), exasperation ("怎么还" / "why is it still…"), rhetorical questions ("是不是说过了" / "didn't I already say…"), sarcasm ("算了" / "never mind")
+   - Even if softened ("其实"/"没事"/"算了" / "actually"/"it's fine"/"never mind"), the softener often masks a real signal
 
 3. **Any reason/justification clause in the message** → scan independently
    - User structure `[instruction] + [reason]` — the reason often states WHY they have this preference, which IS the preference content
-   - Markers: 因为/主要是/我想/我希望/因此/所以/这样/这里/其实
+   - Markers: 因为/主要是/我想/我希望/因此/所以/这样 — or English: because / mainly / I want / I'd like / so that
 
 4. **Any meta-question about your behavior** → friction (you did something they want reconsidered)
-   - "这个算 X 吗" / "你觉得 Y 怎样" / "为啥你这样做" / "这是不是 Z" — user is questioning your choice, not asking opinion
+   - "这个算 X 吗" / "你觉得 Y 怎样" / "为啥你这样做" / "这是不是 Z" (or "is this X?" / "what do you think of Y?" / "why did you do it this way?") — user is questioning your choice, not asking opinion
 
 5. **Silent acceptance of unusual approach or clean pivot after your suggestion** → validated preference
    - No pushback IS signal. Especially when you made a judgment call they could have corrected.
@@ -197,15 +214,15 @@ If message doesn't match any listed pattern but **any of the 5 principles** fire
 
 | User says | Surface meaning | Actual signal | Clue |
 |-----------|----------------|---------------|------|
-| "那你要不要看看别的" | Question | **friction**: you should have done this already | Follows your mistake |
-| "又..." / "还是..." / "怎么还..." | Frustration | **pitfall**: same error repeated | 2nd+ occurrence |
-| "我之前是不是说过了" | Rhetorical question | **friction**: rule exists but wasn't followed | References memory |
-| "对" + correction | Partial agreement | **preference**: strengthening existing rule | Subtle redirect |
+| "那你要不要看看别的" / "shouldn't you check elsewhere?" | Question | **friction**: you should have done this already | Follows your mistake |
+| "又..." / "还是..." / "怎么还..." (or "again…" / "still…" / "why is it still…") | Frustration | **pitfall**: same error repeated | 2nd+ occurrence |
+| "我之前是不是说过了" / "didn't I already tell you?" | Rhetorical question | **friction**: rule exists but wasn't followed | References memory |
+| "对"/"yes" + correction | Partial agreement | **preference**: strengthening existing rule | Subtle redirect |
 | Accepts unusual approach silently | No pushback | **preference**: validated judgment call | Absence of correction |
-| **"因为...我想..." / "主要是...我希望..."** | Justification for request | **preference**: the "because" clause states the rule itself | Rationalization clauses often contain the preference, not just context |
-| **"verify一下/验证一下，因为我想..."** | Task instruction | **preference**: preferred mode of answering (empirical > theoretical) | The "because" clause reveals a working-style preference, separate from the task |
-| **"我觉得有点算/这个算不算X"** | Meta-question about classification | **friction**: you misclassified something last turn | User is correcting your signal detection, not asking opinion |
-| **"我不是很懂...你自己尝试"** | Delegation | **preference**: grants autonomy for unfamiliar domain | User trusts you to experiment; don't ask follow-up Qs, just do |
+| **"因为...我想..." / "主要是...我希望..."** (or "because… I want…") | Justification for request | **preference**: the "because" clause states the rule itself | Rationalization clauses often contain the preference, not just context |
+| **"verify一下/验证一下，因为我想..."** (or "verify it, because I want to…") | Task instruction | **preference**: preferred mode of answering (empirical > theoretical) | The "because" clause reveals a working-style preference, separate from the task |
+| **"我觉得有点算/这个算不算X"** (or "does this count as X?") | Meta-question about classification | **friction**: you misclassified something last turn | User is correcting your signal detection, not asking opinion |
+| **"我不是很懂...你自己尝试"** (or "I don't really get this, you try it yourself") | Delegation | **preference**: grants autonomy for unfamiliar domain | User trusts you to experiment; don't ask follow-up Qs, just do |
 
 **Default**: When in doubt, detect. User saying "no" costs 1 second. Missing a signal costs it forever.
 
@@ -217,9 +234,9 @@ When user structures message as `[instruction] + [因为/主要是/reason]`, the
 - ✅ Right: scan "reason" clause independently for preference content
 
 Examples:
-- `"用qwen做judge，因为我想看看中文判分怎么样"` → task: use qwen + preference: interested in Chinese judging quality
-- `"先不跑实验了，主要是最近想把 paper outline 定下来"` → task: pause + preference: paper-outline priority period
-- `"这个不用 agent，你自己做，我想看你怎么处理"` → task: inline + preference: interested in your reasoning (this is what was missed in wf-pref-007)
+- `"先用 SQLite，因为我想本地快速验证一下"` → task: use SQLite + preference: 倾向先本地快速验证再上重型方案
+- `"这次先不加测试了，主要是想先把接口定下来"` → task: skip tests for now + preference: 接口设计优先于测试的阶段性偏好
+- `"这个不用 agent，你自己做，我想看你怎么处理"` → task: inline + preference: 用户想看你的推理过程, 别外包给 agent
 
 ---
 
@@ -238,17 +255,17 @@ Examples:
 用户明确表达希望如何做某事。面向未来的行为指导。
 
 示例：
-- "md文件要中英对照，先原文后翻译"
-- "用中文讨论，英文写交付物"
-- "preflight 要跑 2-3 个样本"
+- "函数名用 camelCase，常量用 UPPER_SNAKE"
+- "PR 描述要写清动机和测试方式"
+- "提交前先跑一遍 lint 和单测"
 
 ### pitfall（陷阱）
 反复出现的技术坑/错误模式。"别再犯"类。通常来自用户纠正或反复踩坑。
 
 示例：
 - "嵌套 ``` 会导致 markdown 结构乱，要用 4+ 反引号"
-- "LaTeX 表格不加 resizebox 会超宽"
-- "某版本 vLLM 和 transformers 不兼容"
+- "忘了 await 异步调用会静默吞掉错误"
+- "某两个依赖版本互不兼容，升级前要查 changelog"
 
 ### friction（摩擦）
 工作流中的持续痛点。不一定有解法，但需要意识到。
@@ -277,7 +294,7 @@ description: <一行描述，用于未来判断相关性，要具体>
 type: preference | pitfall | friction | user | project | reference
 domain: formatting | language | workflow | coding | tools | experiment | writing | communication | other
 scope: global | project:<project_name>
-condition: "<可选，适用条件，如 when writing LaTeX tables>"
+condition: "<可选，适用条件，如 when writing shell scripts>"
 confidence: high | medium | low
 atomic_id: <domain_abbrev>-<type_abbrev>-<3位序号>
 supersedes: []
@@ -316,12 +333,12 @@ updated: YYYY-MM-DD
 `<type_abbrev>_<descriptive_name>.md`
 
 示例：
-- `pref_md_bilingual.md`
+- `pref_indent_style.md`
 - `pit_md_nested_codeblock.md`
 - `fric_cross_session_memory.md`
 - `usr_role.md`
-- `proj_generalize_misalignment.md`
-- `ref_deepseek_thinking.md`
+- `proj_repo_layout.md`
+- `ref_api_pagination.md`
 
 ### Body 结构
 
@@ -343,14 +360,14 @@ updated: YYYY-MM-DD
 # Memory
 
 ## Formatting
-- [fmt-pref-001](pref_md_bilingual.md) — MD文件中英对照，先原文后翻译
+- [fmt-pref-001](pref_indent_style.md) — 缩进用4空格不用tab
 - [fmt-pit-001](pit_md_nested_codeblock.md) — 嵌套```用4+反引号包裹
 
 ## Language
-- [lang-pref-001](pref_language_context.md) — 讨论用中文，交付物用英文
+- [lang-pref-001](pref_doc_language.md) — 文档用中文，代码标识符用英文
 
 ## Workflow
-- [wf-pref-001](pref_preflight_check.md) — 大规模实验前跑2-3样本预检
+- [wf-pref-001](pref_preflight_check.md) — 大改动前先小范围验证
 - [wf-fric-001](fric_cross_session_memory.md) — 跨session memory粒度不对齐
 
 ## Experiment
@@ -471,18 +488,18 @@ DIFF=$((FILE_COUNT - INDEX_COUNT))
 5. 所有操作结果都更新 MEMORY.md 索引
 ```
 
-### ⚠ Pre-write verification checklist (强制, 2026-04-23/04-24 sprint 加, per `wf-pit-016`; P-2 code-review 2026-04-25 tightened)
+### ⚠ Pre-write verification checklist
 
-> **不与 §Gate mechanics 矛盾, 是分层**: §Gate mechanics (上文 L92-103) 把 SCAN 的 text-marker 关掉了, 因为 SCAN 每 turn 都跑 + wording 漂移 → 误报多. memory-write 是低频高风险事件 (~1-3 次/session, 不漂移), 这里**重新启用** text-marker, 仅限 memory-write 场景. SCAN gate 仍 only-HARD-check the structured log; Pre-write 是 memory-write 上的额外 layer.
+> **不与 §Gate mechanics 矛盾, 是分层**: §Gate mechanics 把 SCAN 的 text-marker 关掉了, 因为 SCAN 每 turn 都跑 + wording 漂移 → 误报多. memory-write 是低频高风险事件 (~1-3 次/session, 不漂移), 这里**重新启用** text-marker, 仅限 memory-write 场景. SCAN gate 仍 only-HARD-check the structured log; Pre-write 是 memory-write 上的额外 layer.
 
-写 memory 文件 (Write/Edit 任何 `memory/*.md` 新文件 / 改 atomic_id) **前**, 必须在 response 里**显式** paste 以下两行 (literal text, 严格格式):
+写 memory 文件 (Write/Edit 任何 `memory/*.md` 新文件 / 改 atomic_id) **前**, 在 response 里说明你**检查了哪些现有记忆**以及**做了什么决策** (NOOP / UPDATE / SUPERSEDE / NEW + 一句话理由). 措辞和语言不限; 下面是一种推荐示例格式 (开启强制模式时, 可选的 Stop-hook 会识别这个格式):
 
 ```
 **I checked**: memory/<domain>/*.md, candidates considered = [<atomic_id_1>, <atomic_id_2>, ...]
 **Decision**: NOOP | UPDATE existing <atomic_id> | SUPERSEDE existing <atomic_id> | NEW — because <one-sentence reason>
 ```
 
-**为啥强制**: 2026-04-23/04-24 sprint 中 4 次连续 miss verify-before-claim (含 N11/N12 redundant write, cover by `exp-proj-002` / 7 entries). `wf-pit-016` 已记录 default-NEW pattern, 但 advisory rule alone 不够 — Claude 在密集写入时仍会 short-circuit. 显式 paste = forcing function: response 里**没看到这两行 = 没走 conflict resolution = retry**.
+**为啥**: advisory rule alone 不够 — agent 在密集写入时容易 short-circuit conflict resolution. 显式写出"检查了什么 + 决策" = forcing function: 确保每次 memory write 前真的走了 dedup / conflict 判断.
 
 **适用 (applies_when)**:
 - 准备 Write 一个 `memory/*.md` 新文件
@@ -496,14 +513,14 @@ DIFF=$((FILE_COUNT - INDEX_COUNT))
 - MEMORY.md 索引 entry 增删 (这是 derived 操作, 不创建 atomic_id)
 
 **例外捷径 (legitimate skip)**:
-1. **多步 audit 显式预声明 (tightened 2026-04-25)**: 仅当本 turn 早期 paste 的 candidates list **显式覆盖当前要写的 atomic_id** — list 里 explicitly 列出 "X-pref-NNN: NEW because Y" 这条. 否则**每个新文件都要单独 paste**. 模糊"我之前 audit 过"不算 override.
-2. **User 显式 explicit-disable 措辞 (tightened)**: User 明确说 "不用 check" / "直接存别 verify" / "跳过 conflict resolution" 这种 explicit-disable. 隐式 OK ("存吧" / "go ahead" / "记下来" / "save it") **不算 override**, 仍要走 checklist.
+1. **多步 audit 显式预声明**: 仅当本 turn 早期已显式列出的 candidates list **覆盖当前要写的 atomic_id** — list 里 explicitly 列出 "X-pref-NNN: NEW because Y" 这条. 否则**每个新文件都要单独走一遍**. 模糊"我之前 audit 过"不算 override.
+2. **User 显式 explicit-disable 措辞**: User 明确说 "不用 check" / "直接存别 verify" / "跳过 conflict resolution" 这种 explicit-disable. 隐式 OK ("存吧" / "go ahead" / "记下来" / "save it") **不算 override**, 仍要走 checklist.
 
-**Stop hook 校验** (B3-lite-style, deferred 到 Phase 后续 work):
+**Stop hook 校验** (可选, 默认 advisory):
 
 当前 stop hook (`memory-verify-compliance.sh`) 在 turn 末扫 transcript. 若该 turn 写了 `memory/*.md` 但 response 文本里没出现 Pre-write 双行 → log warning into `compliance_log.jsonl` (advisory, 不 block). 收 1 周数据后决定是否升 blocking exit-2.
 
-**Hook 必用的 regex** (强制 spec, 防止 hook 实现漂移):
+**可选 Stop-hook 的 regex** (仅当开启强制模式时, hook 用它识别上述示例格式):
 
 ```regex
 ^\*\*I checked\*\*:.*candidates considered = \[.*\]$
@@ -524,8 +541,8 @@ DIFF=$((FILE_COUNT - INDEX_COUNT))
 ## 确认策略
 
 ### 高置信（用户明确说出 + 表述清晰 + scope 明确）
-简短通知，给用户纠正机会：
-> 记录偏好 [fmt-pref-002]：LaTeX表格必须用resizebox包裹。有误请说。
+用一句话告诉用户你记录了哪条偏好, 并邀请纠正 (措辞 / 语言自定). 例如:
+> 已记录偏好 [fmt-pref-002]: <一句话内容>. 如有误请指出. (Recorded preference [fmt-pref-002]: …; let me know if it's wrong.)
 
 ### 中置信（表述较清晰但 scope 或持久性不明确）
 简短询问：
@@ -548,14 +565,14 @@ DIFF=$((FILE_COUNT - INDEX_COUNT))
 
 **易踩陷阱**: 误把 "NOOP = 不写新 memory" 等价于 "silent = 不需 confirm". 这是错的. NOOP 表示**memory 层不写**, 但 user-facing **CONFIRM 层仍要走**.
 
-**每个 conflict_resolution 的 confirmation_text 模板**:
+**每个 conflict_resolution 的 confirmation_text 要传达的内容**（措辞 / 语言不限，下面的句子仅为示例）:
 
-| Resolution | 模板 (填到 action.confirmation_text + 同步说给 user) |
+| Resolution | confirmation_text 应传达的内容（示例措辞） |
 |------------|------------------------------------------------------|
-| **NEW**    | `记录偏好 [<atomic_id>]: <一句话内容>. 有误请说.` |
-| **UPDATE** | `更新已有偏好 [<atomic_id>]: 加入 <增量内容>. 原 rule 保留.` |
-| **SUPERSEDE** | `检测到与 [<旧 atomic_id>] 冲突, 新建 [<新 atomic_id>] 替代. 原文件标 superseded_by.` |
-| **NOOP**   | `检测到偏好 "<内容>" — 已有 [<已存在 atomic_id>] 已 cover 此偏好, 不重写新文件.` |
+| **NEW**    | 记录了哪条新偏好 + atomic_id，并邀请纠正。例: `Recorded preference [<atomic_id>]: <one line>. Let me know if that's wrong.` |
+| **UPDATE** | 更新了哪条已有偏好 + 加入的增量，原 rule 保留。例: `Updated [<atomic_id>] with <delta>; original rule kept.` |
+| **SUPERSEDE** | 与哪条旧偏好冲突、新建哪条替代、旧文件标 superseded_by。例: `Conflicts with [<old id>]; created [<new id>] to supersede it.` |
+| **NOOP**   | 扫到了什么偏好、已被哪条已存在 atomic_id cover、不重写。例: `Detected "<content>" — already covered by [<existing id>], no new file.` |
 
 **例外**: 仅当用户明示**全局静默模式**且本次 detected=false 时, confirmation_text 可空. 任何 detected=true 路径都必须填.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 7 full adaptive-threshold advisor (per `wf-pref-292`).
+"""Full adaptive-threshold advisor.
 
 Runs over historical compliance + shadow logs to compute per-rule fire rates, and writes
 suggested threshold changes to `state/runtime/b5_alerts_threshold/<date>.md`, which the user
@@ -17,9 +17,8 @@ Miss rate definition: fraction where the shadow judge voted violated but determi
 False-positive rate definition: deterministic fired but the user didn't correct after the same
             message — heuristic, default 0 (conservative when there's no explicit ground-truth source).
 
-Per `code-pref-287` path decoupling; this module uses path_config.get_*().
-Per `wf-pref-027` versioned backup — apply_threshold.py backs up before writing frontmatter.
-Per `tool-pit-130` state lives in <project>/.copilot/preference-tracker-state/, not /tmp.
+Paths are decoupled via path_config.get_*(). apply_threshold.py makes a versioned
+backup before writing frontmatter. State lives under the configured state dir, not /tmp.
 """
 import json
 import os
@@ -32,12 +31,12 @@ sys.path.insert(0, LIB_DIR)
 import path_config
 import rule_params
 
-MIN_DATA_POINTS = 5
-MISS_RATE_THRESHOLD = 0.5
-FALSE_POSITIVE_RATE_THRESHOLD = 0.05
-DELTA_PER_STEP = 0.05
-MIN_THRESHOLD_VALUE = 0.1
-MAX_THRESHOLD_VALUE = 1.0
+MIN_DATA_POINTS = int(os.environ.get('B5_MIN_DATA_POINTS', '5'))
+MISS_RATE_THRESHOLD = float(os.environ.get('B5_MISS_RATE_THRESHOLD', '0.5'))
+FALSE_POSITIVE_RATE_THRESHOLD = float(os.environ.get('B5_FALSE_POSITIVE_RATE_THRESHOLD', '0.05'))
+DELTA_PER_STEP = float(os.environ.get('B5_DELTA_PER_STEP', '0.05'))
+MIN_THRESHOLD_VALUE = float(os.environ.get('B5_MIN_THRESHOLD_VALUE', '0.1'))
+MAX_THRESHOLD_VALUE = float(os.environ.get('B5_MAX_THRESHOLD_VALUE', '1.0'))
 
 
 def _parse_iso_timestamp(ts: str):
@@ -214,7 +213,7 @@ def suggest_threshold(rule_id: str, current_params: dict, stats: Dict[str, dict]
 
     shadow_total = record['shadow_violated_n']
     triggered_total = record['triggered_n']
-    fp_count = record.get('false_positive_n', 0)
+    fp_count = record.get('fp_marked_n', 0)
 
     if shadow_total < MIN_DATA_POINTS and triggered_total < MIN_DATA_POINTS:
         return []
@@ -274,7 +273,7 @@ def render_suggestion_markdown(suggestions_per_rule: Dict[str, list], days: int 
         '',
         f'> Apply: `python3 {LIB_DIR}/apply_threshold.py --rule X --param Y --value Z`',
         f'> Snooze: `python3 {LIB_DIR}/apply_threshold.py --snooze X --days 7`',
-        '> No action: just ignore — suggestions never auto-apply (per `wf-pref-292`).',
+        '> No action: just ignore — suggestions never auto-apply.',
         '',
     ]
     has_any = any(suggestions_per_rule.values())

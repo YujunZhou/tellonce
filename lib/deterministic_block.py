@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
-"""Phase B5 Tier A item 1 — Deterministic regex hard-block (Stop hook).
+"""Deterministic hard-block Stop hook (extension point).
 
-Mirrors verify_compliance.py B3-lite + B4 pattern, but ENFORCES (exit 2 + decision='block')
-on 3 deterministic violation classes:
+This Stop hook calls evaluate_rules() to decide whether to block (exit 2 +
+decision='block') or allow. By default evaluate_rules() ships NO built-in rules,
+so the hook allows everything — it is an extension point for projects that want
+to register their own deterministic violation classes.
 
-  1. lang-pit-130: chinese_ratio>=0.7 AND has_inline_english_word (with whitelist)
-  2. oth-pref-001: extract_paths inside active code blocks contains /tmp/
-  3. lang-pref-001 relaxed: chinese_ratio<0.1 AND length>200 AND last user prompt
-     does NOT explicitly ask for English / paper context
-
-Design v2.5 §3.1, post 5-round brainstorm battle convergence (round5_critic_final.md GREEN LIGHT).
-
-Defenses:
-  - whitelist file `lib/deterministic_block_whitelist.txt` (proper noun bypass)
-  - code-block regex scope (prose mention NOT flagged)
-  - explicit-English / paper-context bypass for lang-pref-001
-  - B5_DETERMINISTIC_DISABLED=1 env opt-out
-
-Per `code-pref-101` (JSON for reward-hack-resistant surfaces) — verdict output is JSON.
-Per `wf-pref-027` (versioned backup) — additive new file, not in-place edit existing.
+Behavior:
+  - Verdict output is JSON.
+  - `PT_TEST_FORCE_VIOLATION` drives a synthetic violation for the test path.
+  - Enforcement is gated by path_config.enforcement_enabled(); when disabled the
+    hook is observational only.
+  - `B5_DETERMINISTIC_DISABLED=1` env opt-out.
+  - Optional whitelist file `lib/deterministic_block_whitelist.txt` for any
+    project-supplied rules that need proper-noun bypass.
 """
 import json
 import os

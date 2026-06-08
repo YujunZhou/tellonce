@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Classify user's last message as urgent ('u') or clarity ('c') prefer.
+"""Optional, experimental heuristic: classify the user's last message as
+urgent ('u') or clarity ('c') preferring. OFF by default (PT_PREFER_BACKEND=off).
 
-Used by deterministic_block hook short-circuit (per wf-pref-320 + user
-v23 day-1 refinement): only skip the regex word-check when user prefers
-urgent response. Default urgent on any failure (cheaper degradation).
+When enabled, deterministic_block's hook short-circuit can skip the regex
+word-check only when the user prefers an urgent response. Defaults to urgent
+('u') on any failure (cheaper degradation).
 
 CLI: python3 detect_user_prefer.py <transcript_path>
 Stdout: single char 'u' or 'c'.
@@ -33,6 +34,7 @@ import sys
 
 
 _BACKEND = os.environ.get('PT_PREFER_BACKEND', 'off').strip().lower()
+_PREFER_MODEL = os.environ.get('PT_PREFER_MODEL', 'claude-haiku-4-5')
 
 
 def _read_last_user_msg(transcript_path: str, max_chars: int = 200) -> str:
@@ -86,7 +88,7 @@ def _classify_via_sdk(user_msg: str) -> str:
         return 'u'
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5",
+            model=_PREFER_MODEL,
             max_tokens=2,
             messages=[{"role": "user", "content": _CLASSIFY_PROMPT.format(user_msg=user_msg)}],
         )
@@ -102,7 +104,7 @@ def _classify_via_cli(user_msg: str) -> str:
     try:
         proc = subprocess.run(
             ['copilot', '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg),
-             '--model', 'claude-haiku-4-5', '--output-format', 'text'],
+             '--model', _PREFER_MODEL, '--output-format', 'text'],
             capture_output=True, text=True, encoding='utf-8', timeout=15,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):

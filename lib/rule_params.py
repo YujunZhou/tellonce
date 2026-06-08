@@ -6,17 +6,17 @@ Editing the memory `.md` frontmatter changes the threshold; no hook restart need
 Example:
 ```yaml
 ---
-atomic_id: lang-pit-130
+atomic_id: <domain>-<kind>-NNN
 params:
-  chinese_ratio_threshold: 0.55   # default 0.7; lower it for projects with many English loanwords
-  min_length: 80                  # default 50
+  some_threshold: 0.55   # overrides the code default for this rule
+  min_length: 80
 ---
 ```
 
 When a rule file has no `params:` block, the caller gets the default value.
 
-Per `code-pref-287`: path decoupling; this module uses `path_config.get_memory_dir()`.
-Per `wf-pref-292`: adaptive threshold mechanism (user decides, never changed autonomously).
+This module reads rules from `path_config.get_memory_dir()`. Thresholds change
+only when the user edits frontmatter; they are never changed autonomously.
 """
 import os
 import re
@@ -44,7 +44,8 @@ def read_rule_params(atomic_id):
                     content = f.read()
             except Exception:
                 continue
-            if 'atomic_id: ' + atomic_id not in content:
+            if not re.search(r'^atomic_id:\s*' + re.escape(atomic_id) + r'\s*$',
+                             content, re.MULTILINE):
                 continue
             return _parse_params_block(content)
     except Exception:
@@ -117,7 +118,22 @@ def _clear_cache():
 
 
 if __name__ == '__main__':
-    """Debug: list current params for the 3 enforce rules."""
-    for rid in ['lang-pit-130', 'lang-pref-001', 'oth-pref-001']:
-        p = read_rule_params(rid)
-        print(rid + ': ' + str(p))
+    """Debug: list params for each rule discovered in the memory dir."""
+    memory_dir = path_config.get_memory_dir()
+    found = False
+    if os.path.isdir(memory_dir):
+        for fname in sorted(os.listdir(memory_dir)):
+            if not fname.endswith('.md'):
+                continue
+            try:
+                with open(os.path.join(memory_dir, fname), errors='ignore') as f:
+                    m = re.search(r'^atomic_id:\s*(\S+)\s*$', f.read(), re.MULTILINE)
+            except Exception:
+                continue
+            if not m:
+                continue
+            rid = m.group(1)
+            found = True
+            print(rid + ': ' + str(read_rule_params(rid)))
+    if not found:
+        print('no rules with atomic_id found in ' + memory_dir)

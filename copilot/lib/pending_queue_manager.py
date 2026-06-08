@@ -45,7 +45,7 @@ ERROR_LOG = path_config.get_pending_error_log_path()
 MEMORY_DIR = path_config.get_memory_dir()
 
 # I3 (review fix 2026-04-25): age threshold raised 30 → 60 min so active autonomous
-# blocks (per wf-pref-020, often >30 min) don't promote their own in-flight pending
+# blocks (often >30 min) don't promote their own in-flight pending
 # obs as "from prior session". Cross-session crashes still surface via inject hook
 # (which runs on next UserPromptSubmit after the crash regardless of age).
 PROMOTE_AGE_MIN = 60          # pending obs older than this → eligible for promotion
@@ -411,8 +411,8 @@ def _write_pending_alert(queue):
                 f.write('\n')
             f.write('## Action\n\n')
             f.write('1. Review each entry above.\n')
-            f.write('2. For each → apply conflict-resolution algorithm '
-                    '(NOOP / UPDATE / SUPERSEDE / NEW) per `wf-pit-016`.\n')
+            f.write('2. For each → apply the conflict-resolution algorithm '
+                    '(NOOP / UPDATE / SUPERSEDE / NEW).\n')
             f.write(f'3. Run `python3 {_LIB_DIR}/'
                     'pending_queue_manager.py prune` to drop resolved entries from queue.\n')
         # Round-5 H3 fix: alert MD echoes user content; restrict.
@@ -454,7 +454,7 @@ def inject_for_userprompt():
                      f'source_obs_entry_id={e.get("source_obs_entry_id")}')
     lines.append('')
     lines.append('Action required THIS session before substantive work: review each, '
-                 'apply NOOP / UPDATE / SUPERSEDE / NEW per `wf-pit-016`, then run '
+                 'apply NOOP / UPDATE / SUPERSEDE / NEW, then run '
                  f'`python3 {_LIB_DIR}/'
                  'pending_queue_manager.py prune`. For entries whose '
                  '`proposed_atomic_id` is `<unknown>` or non-canonical (cannot be '
