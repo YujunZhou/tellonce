@@ -32,10 +32,10 @@ SUMMARY_DIR = path_config.get_b5_summary_dir()
 ALERT_DIR = path_config.get_b5_alerts_threshold_dir()
 
 # Threshold defaults (env-overridable)
-JUDGE_FAIL_RATE_THRESHOLD = float(os.environ.get('B5_JUDGE_FAIL_RATE_THRESHOLD', '0.05'))  # 5%
-COST_RATIO_THRESHOLD = float(os.environ.get('B5_COST_RATIO_THRESHOLD', '0.80'))  # 80% of B5_DAILY_COST_CAP
-B5_DAILY_COST_CAP = float(os.environ.get('B5_DAILY_COST_CAP', '0.50'))
-RULE_BLOCK_COUNT_THRESHOLD = int(os.environ.get('B5_RULE_BLOCK_COUNT_THRESHOLD', '10'))  # >N blocks/day suspect false-positive
+JUDGE_FAIL_RATE_THRESHOLD = float(path_config.pt_env('JUDGE_FAIL_RATE_THRESHOLD', '0.05'))  # 5%
+COST_RATIO_THRESHOLD = float(path_config.pt_env('COST_RATIO_THRESHOLD', '0.80'))  # 80% of B5_DAILY_COST_CAP
+B5_DAILY_COST_CAP = float(path_config.pt_env('DAILY_COST_CAP', '0.50'))
+RULE_BLOCK_COUNT_THRESHOLD = int(path_config.pt_env('RULE_BLOCK_COUNT_THRESHOLD', '10'))  # >N blocks/day suspect false-positive
 
 
 def parse_log(days_back=1):

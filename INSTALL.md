@@ -47,8 +47,10 @@ few papers / repos in parallel) without installing per project.
 **Temporarily disable for one project** (the shell where you don't want PT):
 
 ```bash
-export B5_DETERMINISTIC_DISABLED=1 B5_SHADOW_DISABLED=1 B5_INJECT_DISABLED=1
+export PT_DETERMINISTIC_DISABLED=1 PT_SHADOW_DISABLED=1 PT_INJECT_DISABLED=1
 ```
+
+> Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
 
 ### Option B: single project (classic)
 
@@ -179,7 +181,7 @@ keeps them by default in case you have a same-named hook of your own):
 ## Retrieve backend (defaults to `cli`)
 
 The UserPromptSubmit hook defaults to **CLI small-model semantic matching**
-(`B5_RETRIEVE_BACKEND=cli`):
+(`PT_RETRIEVE_BACKEND=cli`):
 
 | Runtime | CLI used | Default model | Channel |
 |---|---|---|---|
@@ -200,16 +202,18 @@ paper experiments).
 ### Switch back to keyword (if you want a fast, LLM-free path)
 
 ```bash
-echo 'export B5_RETRIEVE_BACKEND=keyword' >> ~/.bashrc
+echo 'export PT_RETRIEVE_BACKEND=keyword' >> ~/.bashrc
 ```
 
 ### Explicitly choose CLI / model (to override the per-runtime defaults)
 
 ```bash
-export B5_RETRIEVE_CLI=claude       # claude (Claude Code default) or codex (Codex default)
-export B5_RETRIEVE_MODEL=claude-haiku-5    # default haiku-4-5 (claude) / gpt-5.4-mini (codex)
-export B5_RETRIEVE_TIMEOUT=12       # seconds, default 12
+export PT_RETRIEVE_CLI=claude       # claude (Claude Code default) or codex (Codex default)
+export PT_RETRIEVE_MODEL=claude-haiku-5    # default haiku-4-5 (claude) / gpt-5.4-mini (codex)
+export PT_RETRIEVE_TIMEOUT=12       # seconds, default 12
 ```
+
+> Note: the legacy `B5_RETRIEVE_*` names still work (backward-compat aliases).
 
 ### Known limitations
 
@@ -218,7 +222,7 @@ export B5_RETRIEVE_TIMEOUT=12       # seconds, default 12
   script detects it at the top and exits 0, breaking the recursion.
 - On failure (CLI missing / timeout / non-JSON output) it falls back to the
   `keyword` backend automatically, so switching never costs you functionality.
-- To see whether it's actually working: `export B5_RETRIEVE_DEBUG=1`; the log goes
+- To see whether it's actually working: `export PT_RETRIEVE_DEBUG=1`; the log goes
   to `<state>/runtime/retrieve_debug.jsonl`, including latency / stdout length /
   the parsed atomic_id list.
 
@@ -235,7 +239,7 @@ data flows:**
      Anthropic's servers.
    - Defaults to the CLI subscription (free), but the prompt content still passes
      through Anthropic.
-   - Disable: `export B5_SHADOW_DISABLED=1`.
+   - Disable: `export PT_SHADOW_DISABLED=1`.
 
 2. **Local on-disk** (default `chmod 600` — readable only by you):
    - `<state>/runtime/b5_shadow_alerts/b5_shadow_log.jsonl` — evidence + feedback excerpts
@@ -255,7 +259,7 @@ data flows:**
 5. **Redacting sensitive data** (advised, not automatic):
    - This version does not auto-scan prompts for secrets. You are responsible for
      not sharing secrets with Claude (a general requirement of Anthropic's terms).
-   - A future version may add `B5_REDACT_BEFORE_JUDGE=1` to auto-mask patterns
+   - A future version may add `PT_REDACT_BEFORE_JUDGE=1` to auto-mask patterns
      like `sk-ant-` / `password=`; it is off by default because a regex can
      wrongly strip legitimate content.
 

@@ -63,10 +63,14 @@ except Exception:
     print("0")
 ' 2>/dev/null || echo "0")
 
-# Trace log: opt-in via B5_TRACE=1 (default OFF). When opt-in, write to
+# Trace log: opt-in via PT_TRACE=1 (default OFF; legacy B5_TRACE still honored).
+# When opt-in, write to
 # state_dir (per project) instead of /tmp — /tmp is world-readable on shared
 # hosts and INPUT contains transcript_path / cwd / session_id (privacy fix per
-# H11 review). Set via env B5_TRACE_LOG to override the path explicitly.
+# H11 review). Set via env PT_TRACE_LOG (legacy B5_TRACE_LOG) to override the
+# path explicitly.
+B5_TRACE="${B5_TRACE:-${PT_TRACE:-0}}"
+B5_TRACE_LOG="${B5_TRACE_LOG:-${PT_TRACE_LOG:-}}"
 if [[ "${B5_TRACE:-0}" == "1" ]]; then
   if [[ -n "${B5_TRACE_LOG:-}" ]]; then
     TRACE_LOG="${B5_TRACE_LOG}"

@@ -52,18 +52,18 @@ SHADOW_ALERT_MD = path_config.get_shadow_alert_md_path()
 COST_LOG_DIR = path_config.get_cost_log_dir()
 
 # Env opt-out and gates
-B5_SHADOW_DISABLED = os.environ.get('B5_SHADOW_DISABLED', '').lower() in ('1', 'true', 'yes')
+B5_SHADOW_DISABLED = path_config.pt_env('SHADOW_DISABLED', '').lower() in ('1', 'true', 'yes')
 # Legacy credit gate (only consulted on the SDK path). The real send-gate is
 # path_config.shadow_enabled() (PUBLIC DEFAULT = False).
 ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1', 'true', 'yes')
-B5_DAILY_COST_CAP = float(os.environ.get('B5_DAILY_COST_CAP', '0.50'))
-B5_USE_DEEPINFRA = os.environ.get('B5_USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
-B5_USE_SDK = os.environ.get('B5_USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = use the CLI channel
-B5_JUDGE_MODEL = os.environ.get('B5_JUDGE_MODEL', '')  # empty = let `copilot -p` pick its own default (auto)
-B5_CONFIDENCE_THRESHOLD = float(os.environ.get('B5_CONFIDENCE_THRESHOLD', '0.85'))
-ALERT_ROLLING_CAP = int(os.environ.get('B5_ALERT_ROLLING_CAP', '3'))
-RATE_LIMIT_HOURS = float(os.environ.get('B5_RATE_LIMIT_HOURS', '24'))
-TTL_HOURS = float(os.environ.get('B5_TTL_HOURS', '24'))
+B5_DAILY_COST_CAP = float(path_config.pt_env('DAILY_COST_CAP', '0.50'))
+B5_USE_DEEPINFRA = path_config.pt_env('USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
+B5_USE_SDK = path_config.pt_env('USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = use the CLI channel
+B5_JUDGE_MODEL = path_config.pt_env('JUDGE_MODEL', '')  # empty = let `copilot -p` pick its own default (auto)
+B5_CONFIDENCE_THRESHOLD = float(path_config.pt_env('CONFIDENCE_THRESHOLD', '0.85'))
+ALERT_ROLLING_CAP = int(path_config.pt_env('ALERT_ROLLING_CAP', '3'))
+RATE_LIMIT_HOURS = float(path_config.pt_env('RATE_LIMIT_HOURS', '24'))
+TTL_HOURS = float(path_config.pt_env('TTL_HOURS', '24'))
 
 # Test mock — when set, skip real LLM call, return canned verdict from env
 B5_TEST_MOCK_VERDICT = os.environ.get('B5_TEST_MOCK_VERDICT', '')
@@ -71,7 +71,7 @@ B5_TEST_MOCK_VERDICT = os.environ.get('B5_TEST_MOCK_VERDICT', '')
 # Rule IDs the shadow judge evaluates. Empty by default (ship-empty): a public
 # install judges no rules until the user opts specific rules into shadow judging
 # via B5_SHADOW_RULE_IDS=id1,id2 (or their own config overlay).
-SHADOW_RULE_IDS = [s.strip() for s in os.environ.get('B5_SHADOW_RULE_IDS', '').split(',') if s.strip()]
+SHADOW_RULE_IDS = [s.strip() for s in path_config.pt_env('SHADOW_RULE_IDS', '').split(',') if s.strip()]
 
 
 def _now():

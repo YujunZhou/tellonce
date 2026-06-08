@@ -50,30 +50,32 @@ self-check before declaring success, and rolls back via `trap ERR` on failure.
 |---|---|---|
 | skill | `~/.claude/skills/preference-tracker/` | (fixed) |
 | hooks | `<cwd>/.claude/hooks/` (copied at install) | (fixed) |
-| state | `<cwd>/.claude/preference-tracker-state/runtime/` | env `B5_STATE_DIR` or `~/.preference-tracker.config.json` |
-| obs_log | `<cwd>/.claude/preference-tracker-state/obs_log/` | env `B5_OBS_LOG_DIR` or config |
-| memory | `~/.claude/projects/<cwd_escaped>/memory/` | env `B5_MEMORY_DIR` or config |
+| state | `<cwd>/.claude/preference-tracker-state/runtime/` | env `PT_STATE_DIR` or `~/.preference-tracker.config.json` |
+| obs_log | `<cwd>/.claude/preference-tracker-state/obs_log/` | env `PT_OBS_LOG_DIR` or config |
+| memory | `~/.claude/projects/<cwd_escaped>/memory/` | env `PT_MEMORY_DIR` or config |
+
+> Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
 
 ## Disable / customize
 
 ```bash
 # Turn off any of the three layers
-export B5_DETERMINISTIC_DISABLED=1   # disable hard-blocking
-export B5_SHADOW_DISABLED=1          # disable the LLM shadow judge
-export B5_INJECT_DISABLED=1          # disable soft injection
+export PT_DETERMINISTIC_DISABLED=1   # disable hard-blocking
+export PT_SHADOW_DISABLED=1          # disable the LLM shadow judge
+export PT_INJECT_DISABLED=1          # disable soft injection
 
 # The public release ships NO built-in enforcement rules; enforcement only acts
 # on the preferences you record (and is opt-in via PT_ENFORCE / PT_SHADOW).
 
 # Run the shadow judge through the SDK instead of the CLI (uses API credit; default False)
-export B5_USE_SDK=1
+export PT_USE_SDK=1
 
 # Cost cap
-export B5_DAILY_COST_CAP=1.00   # default 0.50 USD
+export PT_DAILY_COST_CAP=1.00   # default 0.50 USD
 export ANTHROPIC_CREDIT_OK=1    # default 1 (ignored in CLI mode); required in SDK mode
 
 # Streak bypass (auto-pass a rule after it fires N times in a row)
-export B5_STREAK_BYPASS=3       # default 3
+export PT_STREAK_BYPASS=3       # default 3
 ```
 
 ## Dashboard

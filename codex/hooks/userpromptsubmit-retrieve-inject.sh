@@ -30,8 +30,8 @@ fi
 # Per-runtime default: local `cli` (codex) retrieval — no external network
 # egress by default. Set B5_RETRIEVE_BACKEND=api to opt into a third-party
 # provider (B5_RETRIEVE_API_PROVIDER/B5_RETRIEVE_MODEL then apply).
-export B5_RETRIEVE_BACKEND="${B5_RETRIEVE_BACKEND:-cli}"
-export B5_RETRIEVE_CLI="${B5_RETRIEVE_CLI:-codex}"
+export B5_RETRIEVE_BACKEND="${PT_RETRIEVE_BACKEND:-${B5_RETRIEVE_BACKEND:-cli}}"
+export B5_RETRIEVE_CLI="${PT_RETRIEVE_CLI:-${B5_RETRIEVE_CLI:-codex}}"
 
 # Capture stdin once so we can route to PYTHONPATH-augmented subprocess.
 PT_STDIN="$(cat)"

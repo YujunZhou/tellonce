@@ -24,12 +24,12 @@ sys.path.insert(0, LIB_DIR)
 import path_config  # central path config
 import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 
-B5_DETERMINISTIC_DISABLED = os.environ.get('B5_DETERMINISTIC_DISABLED', '').lower() in ('1', 'true', 'yes')
+B5_DETERMINISTIC_DISABLED = path_config.pt_env('DETERMINISTIC_DISABLED', '').lower() in ('1', 'true', 'yes')
 
 # Idea D safety valve: once the same atomic_id fires >= STREAK_BYPASS times in a row
 # within a session, that atomic_id is auto-bypassed for the rest of the session
 # (logs a warning but does not block). Prevents cascading transcript disasters.
-STREAK_BYPASS = int(os.environ.get('B5_STREAK_BYPASS', '3'))
+STREAK_BYPASS = int(path_config.pt_env('STREAK_BYPASS', '3'))
 
 
 def _extract_response_and_transcript_lines(stdin_data):

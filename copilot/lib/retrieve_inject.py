@@ -91,7 +91,10 @@ def _load_user_config() -> dict:
 
 
 def _config_setting(env_key: str, config_key: str, cfg: dict, default: str = '') -> str:
-    val = os.environ.get(env_key)
+    if env_key.startswith('B5_'):
+        val = path_config.pt_env(env_key[3:])
+    else:
+        val = os.environ.get(env_key)
     if val:
         return val
     cv = cfg.get(config_key)
@@ -335,7 +338,7 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         "If no rule applies, return [].\n"
     )
 
-    debug = os.environ.get('B5_RETRIEVE_DEBUG') == '1'
+    debug = path_config.pt_env('RETRIEVE_DEBUG') == '1'
     debug_record = {
         'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'backend': 'cli',
@@ -537,10 +540,10 @@ def _resolve_api_endpoint() -> tuple[str, dict, str]:
     Returns ('', {}, '') if config incomplete (caller falls back to keyword)."""
     provider = RETRIEVE_API_PROVIDER
     if provider == 'deepinfra':
-        base = os.environ.get('B5_RETRIEVE_API_BASE_URL', 'https://api.deepinfra.com/v1/openai')
+        base = path_config.pt_env('RETRIEVE_API_BASE_URL', 'https://api.deepinfra.com/v1/openai')
         api_key = (
             os.environ.get('DEEPINFRA_API_KEY')
-            or os.environ.get('B5_RETRIEVE_API_KEY')
+            or path_config.pt_env('RETRIEVE_API_KEY')
             or ''
         )
         headers = {
@@ -548,10 +551,10 @@ def _resolve_api_endpoint() -> tuple[str, dict, str]:
             'Content-Type': 'application/json',
         }
     elif provider == 'openrouter':
-        base = os.environ.get('B5_RETRIEVE_API_BASE_URL', 'https://openrouter.ai/api/v1')
+        base = path_config.pt_env('RETRIEVE_API_BASE_URL', 'https://openrouter.ai/api/v1')
         api_key = (
             os.environ.get('OPENROUTER_API_KEY')
-            or os.environ.get('B5_RETRIEVE_API_KEY')
+            or path_config.pt_env('RETRIEVE_API_KEY')
             or ''
         )
         headers = {
@@ -563,8 +566,8 @@ def _resolve_api_endpoint() -> tuple[str, dict, str]:
         }
     else:
         # Custom OpenAI-compatible: user MUST provide both env vars.
-        base = os.environ.get('B5_RETRIEVE_API_BASE_URL', '').rstrip('/')
-        api_key = os.environ.get('B5_RETRIEVE_API_KEY', '')
+        base = path_config.pt_env('RETRIEVE_API_BASE_URL', '').rstrip('/')
+        api_key = path_config.pt_env('RETRIEVE_API_KEY', '')
         headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
@@ -591,7 +594,7 @@ def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
     prompt = _build_llm_prompt_text(user_prompt, rules_for_prompt)
 
     url, headers, provider = _resolve_api_endpoint()
-    debug = os.environ.get('B5_RETRIEVE_DEBUG') == '1'
+    debug = path_config.pt_env('RETRIEVE_DEBUG') == '1'
     debug_record = {
         'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'backend': 'api',

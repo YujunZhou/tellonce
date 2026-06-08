@@ -92,13 +92,13 @@ changes for you to approve. See the docstring at the top of
 
 ### Q9: How much API money does the shadow judge cost me?
 
-It defaults to the `claude -p` CLI (subscription, no credit). Set `B5_USE_SDK=1`
+It defaults to the `claude -p` CLI (subscription, no credit). Set `PT_USE_SDK=1`
 to switch to the SDK (charged per token).
 
 The cost cap defaults to `$0.50/day`; once hit it disables for the day. Change it:
 
 ```bash
-export B5_DAILY_COST_CAP=1.00
+export PT_DAILY_COST_CAP=1.00
 ```
 
 ---
@@ -109,7 +109,7 @@ The shadow judge can't run, but the deterministic layer still works. Set in
 `.bashrc`:
 
 ```bash
-export B5_SHADOW_DISABLED=1
+export PT_SHADOW_DISABLED=1
 ```
 
 Or install Claude Code: https://claude.com/code
@@ -138,10 +138,12 @@ hits on the same rule auto-bypasses it to avoid livelock.
 If that's wrong, override:
 
 ```bash
-B5_STATE_DIR=/custom/state bash install.sh
-B5_OBS_LOG_DIR=/custom/obs bash install.sh
-B5_PROJECT_ROOT=/custom/project bash install.sh
+PT_STATE_DIR=/custom/state bash install.sh
+PT_OBS_LOG_DIR=/custom/obs bash install.sh
+PT_PROJECT_ROOT=/custom/project bash install.sh
 ```
+
+> Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
 
 Or write `~/.preference-tracker.config.json` (schema:
 `{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"..."}`;

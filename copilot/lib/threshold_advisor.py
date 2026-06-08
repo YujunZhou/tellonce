@@ -31,12 +31,12 @@ sys.path.insert(0, LIB_DIR)
 import path_config
 import rule_params
 
-MIN_DATA_POINTS = int(os.environ.get('B5_MIN_DATA_POINTS', '5'))
-MISS_RATE_THRESHOLD = float(os.environ.get('B5_MISS_RATE_THRESHOLD', '0.5'))
-FALSE_POSITIVE_RATE_THRESHOLD = float(os.environ.get('B5_FALSE_POSITIVE_RATE_THRESHOLD', '0.05'))
-DELTA_PER_STEP = float(os.environ.get('B5_DELTA_PER_STEP', '0.05'))
-MIN_THRESHOLD_VALUE = float(os.environ.get('B5_MIN_THRESHOLD_VALUE', '0.1'))
-MAX_THRESHOLD_VALUE = float(os.environ.get('B5_MAX_THRESHOLD_VALUE', '1.0'))
+MIN_DATA_POINTS = int(path_config.pt_env('MIN_DATA_POINTS', '5'))
+MISS_RATE_THRESHOLD = float(path_config.pt_env('MISS_RATE_THRESHOLD', '0.5'))
+FALSE_POSITIVE_RATE_THRESHOLD = float(path_config.pt_env('FALSE_POSITIVE_RATE_THRESHOLD', '0.05'))
+DELTA_PER_STEP = float(path_config.pt_env('DELTA_PER_STEP', '0.05'))
+MIN_THRESHOLD_VALUE = float(path_config.pt_env('MIN_THRESHOLD_VALUE', '0.1'))
+MAX_THRESHOLD_VALUE = float(path_config.pt_env('MAX_THRESHOLD_VALUE', '1.0'))
 
 
 def _parse_iso_timestamp(ts: str):

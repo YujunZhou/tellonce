@@ -32,9 +32,9 @@ SHADOW_LOG = path_config.get_shadow_log_path()
 CONSUMED_ALERTS = os.path.join(os.path.dirname(SHADOW_LOG), 'b5_shadow_alerts_consumed.json')
 CONSUMED_ALERTS_LOCK = os.path.join(os.path.dirname(SHADOW_LOG), 'b5_shadow_alerts_consumed.lock')
 
-B5_INJECT_DISABLED = os.environ.get('B5_INJECT_DISABLED', '').lower() in ('1', 'true', 'yes')
-TTL_HOURS = float(os.environ.get('B5_TTL_HOURS', '24'))
-ALERT_ROLLING_CAP = int(os.environ.get('B5_ALERT_ROLLING_CAP', '3'))
+B5_INJECT_DISABLED = path_config.pt_env('INJECT_DISABLED', '').lower() in ('1', 'true', 'yes')
+TTL_HOURS = float(path_config.pt_env('TTL_HOURS', '24'))
+ALERT_ROLLING_CAP = int(path_config.pt_env('ALERT_ROLLING_CAP', '3'))
 
 
 def _alert_key(alert):

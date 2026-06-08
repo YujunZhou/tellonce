@@ -86,9 +86,31 @@ def _read_config_file() -> dict:
         return {}
 
 
+def pt_env(suffix, default=None):
+    """Read a user-facing env var by its new PT_ name, falling back to the legacy
+    B5_ name, then default. e.g. pt_env('SHADOW_DISABLED')."""
+    import os
+    v = os.environ.get('PT_' + suffix)
+    if v is not None:
+        return v
+    v = os.environ.get('B5_' + suffix)
+    if v is not None:
+        return v
+    return default
+
+
+def _read_env(env_var: str):
+    """Read an env var honoring the PT_/B5_ alias pair. When env_var starts with
+    'B5_', both PT_<X> and B5_<X> are honored (PT_ wins); otherwise the name is
+    read as-is (so PT_-named vars like PT_ENFORCE keep working)."""
+    if env_var.startswith('B5_'):
+        return pt_env(env_var[3:])
+    return os.environ.get(env_var)
+
+
 def _resolve(env_var: str, config_key: str, default_func):
     """Three-layer priority detection: env > config file > default_func()."""
-    v = os.environ.get(env_var)
+    v = _read_env(env_var)
     if v:
         return v
     cfg = _read_config_file()
@@ -99,7 +121,7 @@ def _resolve(env_var: str, config_key: str, default_func):
 
 def _bool_setting(env_var: str, config_key: str, default: bool) -> bool:
     """Three-layer boolean: env > config file > default. Truthy = 1/true/yes/on."""
-    v = os.environ.get(env_var)
+    v = _read_env(env_var)
     if v is not None:
         return v.strip().lower() in ('1', 'true', 'yes', 'on')
     cfg = _read_config_file()
