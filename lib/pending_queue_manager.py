@@ -19,7 +19,10 @@ v21 incident: 5 pending entries lost when session crashed (root cause unknown).
 This gate guarantees pending entries survive any crash via the queue file.
 """
 import contextlib
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Windows
 import json
 import os
 import re
@@ -74,7 +77,11 @@ def _queue_lock():
     try:
         fh = open(lock_path, 'a+')
         try:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            if fcntl:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            else:
+                import msvcrt
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
         except (OSError, ValueError):
             # flock unsupported; proceed unlocked
             try:
@@ -86,7 +93,11 @@ def _queue_lock():
     finally:
         if fh is not None:
             try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                if fcntl:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                else:
+                    import msvcrt
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
             except Exception:
                 pass
             try:

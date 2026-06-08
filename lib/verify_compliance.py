@@ -28,7 +28,11 @@ emitting a warning. Default OBSERVATION_LOG_AUTO_FALLBACK=1; env=0 disables. Per
 kickoff §Step 1, this reduces hook false-positive friction during long
 write-heavy turns where obs log append is missed.
 """
-import argparse, fcntl, json, sys, os, re, glob, time
+import argparse, json, sys, os, re, glob, time
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Windows: file locking handled differently
 from datetime import datetime, timezone, timedelta
 
 import sys as _sys
@@ -413,7 +417,12 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
 
     fd_lock = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        fcntl.flock(fd_lock, fcntl.LOCK_EX)
+        if fcntl:
+            fcntl.flock(fd_lock, fcntl.LOCK_EX)
+        else:
+            # Windows: best-effort without file locking (single-writer assumption)
+            import msvcrt
+            msvcrt.locking(fd_lock, msvcrt.LK_LOCK, 1)
         existing = b''
         if os.path.exists(obs_log_path):
             with open(obs_log_path, 'rb') as f:
@@ -429,7 +438,11 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
         os.rename(tmp_path, obs_log_path)
     finally:
         try:
-            fcntl.flock(fd_lock, fcntl.LOCK_UN)
+            if fcntl:
+                fcntl.flock(fd_lock, fcntl.LOCK_UN)
+            else:
+                import msvcrt
+                msvcrt.locking(fd_lock, msvcrt.LK_UNLCK, 1)
         except Exception:
             pass
         try:

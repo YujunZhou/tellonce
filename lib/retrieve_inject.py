@@ -361,10 +361,10 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
     ):
         child_env.pop(k, None)
 
-    # Round-10: run the inner CLI from /tmp so no project .claude/settings.json
-    # gets loaded. Combined with --setting-sources project (claude) /
+    # Run inner CLI from a temp dir so no project .claude/settings.json gets
+    # loaded. Combined with --setting-sources project (claude) /
     # --ignore-user-config (codex), the inner session loads zero hooks.
-    inner_cwd = '/tmp'
+    inner_cwd = os.environ.get('TEMP', os.environ.get('TMPDIR', '/tmp'))
     out = ''
     try:
         t0 = time.time()

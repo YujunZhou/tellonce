@@ -327,21 +327,6 @@ def build_block_reason(violations):
         )
     triggered = '\n'.join(triggered_lines)
 
-def build_block_reason(violations):
-    """Build the block-reason text shown to the agent: list the triggered rules
-    and their fix direction. No personal writing-style dictation."""
-    if not violations:
-        return ''
-    triggered_lines = []
-    for v in violations:
-        rid = v.get('rule_id', 'rule')
-        hint = v.get('fix') or v.get('reason') or ''
-        triggered_lines.append(
-            f"  • [{rid}] {str(v.get('evidence_excerpt', ''))[:120]}\n"
-            f"    → {hint}"
-        )
-    triggered = '\n'.join(triggered_lines)
-
     reason = (
         f"⛔ {', '.join(v.get('rule_id', 'rule') for v in violations)} triggered\n\n"
         f"{triggered}\n\n"
