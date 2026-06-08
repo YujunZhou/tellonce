@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# memory-shadow-judge.sh — Stop hook (Phase B5 Tier A item 2)
+# memory-shadow-judge.sh — Stop hook (shadow LLM judge, log-only)
 
 # ──────────────────────────────────────────────────────────────────────────
-# Short-circuit (per wf-pref-320, 2026-04-27, w/ C1 stale-tail guard):
+# Short-circuit (with stale-tail guard):
 # skip when THIS turn's obs entry has detected=false.
 # Guards: (a) tail entry's session_id matches current, (b) obs_log mtime <60s.
 # Both required — otherwise fall through to full hook (safe degrade).
@@ -36,6 +36,6 @@ fi
 # Set ANTHROPIC_CREDIT_OK=1 to enable judge (default off until credit verified).
 # Defensive: any internal error → exit 0 (don't block legit work).
 
-# Re-feed captured stdin (drained by `cat` above). See C1 fix in
+# Re-feed captured stdin (drained by `cat` above). See the note in
 # memory-deterministic-block.sh for full context.
 printf '%s' "${_INPUT_SC}" | exec python3 "${_PT_LIB}/verify_retry_shadow.py"

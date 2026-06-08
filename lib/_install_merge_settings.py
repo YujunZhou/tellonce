@@ -8,8 +8,8 @@ Modes:
   --remove: remove preference-tracker hooks from settings (uninstall)
   --verify: list registered hooks (doctor)
 
-Per `wf-pref-027`: versioned backup — cp settings.local.json.v3_pre_pt_<ts>.json before editing.
-Per `code-pref-291`: Python merge (not jq) — portable, no module-load dependency.
+Versioned backup — cp settings.local.json.v3_pre_pt_<ts>.json before editing.
+Python merge (not jq) — portable, no module-load dependency.
 """
 import argparse
 import json
@@ -20,9 +20,9 @@ from datetime import datetime
 
 
 # Hooks definition (name → (event, timeout, desc)).
-# H15 fix (2026-05-01): order matches README architecture diagram. Claude Code
-# Stop hooks run sequentially; if an earlier hook returns exit 2, later ones
-# don't run. The README declared:
+# Order matches the README architecture diagram. Claude Code Stop hooks run
+# sequentially; if an earlier hook returns exit 2, later ones don't run. The
+# README declared:
 #
 #   Stop chain: check-observation-log → deterministic-block → verify-compliance
 #               → shadow-judge → pending-promote
@@ -40,38 +40,38 @@ PT_HOOKS = {
     'memory-deterministic-block.sh': {
         'event': 'Stop',
         'timeout': 10,
-        'desc': 'Phase B5 Tier A item 1: deterministic regex hard-block',
+        'desc': 'Deterministic hard-block gate',
     },
     'memory-verify-compliance.sh': {
         'event': 'Stop',
         'timeout': 5,
-        'desc': 'Phase B3 lite + B4: compliance log + pending-finalize gate',
+        'desc': 'Compliance log + pending-finalize gate',
     },
     'memory-shadow-judge.sh': {
         'event': 'Stop',
         'timeout': 30,
-        'desc': 'Phase B5 Tier A item 2: shadow LLM judge (log-only)',
+        'desc': 'Shadow LLM judge (log-only)',
     },
     'memory-pending-promote.sh': {
         'event': 'Stop',
         'timeout': 5,
-        'desc': 'Phase A: pending observation → queue',
+        'desc': 'Pending observation -> queue',
     },
     # ── UserPromptSubmit chain ──────────────────────────────────────────
     'memory-retrieve-inject.sh': {
         'event': 'UserPromptSubmit',
         'timeout': 5,
-        'desc': 'Phase B1: deterministic fingerprint retrieve',
+        'desc': 'Deterministic fingerprint retrieve',
     },
     'memory-pending-inject.sh': {
         'event': 'UserPromptSubmit',
         'timeout': 5,
-        'desc': 'Phase A: pending queue → next-turn inject',
+        'desc': 'Pending queue -> next-turn inject',
     },
     'memory-shadow-alert-inject.sh': {
         'event': 'UserPromptSubmit',
         'timeout': 5,
-        'desc': 'Phase B5 Tier A item 3: soft inject from shadow alert',
+        'desc': 'Soft inject from shadow alert',
     },
 }
 
@@ -94,7 +94,7 @@ def _load_settings(settings_path: str) -> dict:
         with open(settings_path) as f:
             return json.load(f)
     except json.JSONDecodeError as e:
-        print(f'❌ settings.local.json 非法 JSON: {e}', file=sys.stderr)
+        print(f'❌ settings.local.json invalid JSON: {e}', file=sys.stderr)
         sys.exit(1)
 
 
@@ -126,11 +126,11 @@ def cmd_add(settings_path: str, hooks_dir: str):
     missing = [h for h in PT_HOOKS if not os.path.isfile(os.path.join(hooks_dir, h))]
     if missing:
         print(
-            f'⚠ {len(missing)} hooks .sh 文件不存在: '
+            f'⚠ {len(missing)} hook .sh file(s) not found: '
             f'{", ".join(missing[:3])}{"..." if len(missing) > 3 else ""}',
             file=sys.stderr,
         )
-        print('  注册成功但运行时 Claude Code harness 报 command not found.', file=sys.stderr)
+        print('  Registration succeeds but at runtime the Claude Code harness reports command not found.', file=sys.stderr)
 
     backup = _versioned_backup(settings_path)
     if backup:
@@ -139,13 +139,13 @@ def cmd_add(settings_path: str, hooks_dir: str):
     settings = _load_settings(settings_path)
     settings.setdefault('hooks', {})
 
-    # H3 fix (2026-05-01): create a dedicated PT entry per event (no matcher,
-    # so it always fires) instead of writing into chain[0]. Previously we
-    # appended into the user's first entry, which means if the user's entry[0]
-    # had a matcher (e.g. for PreToolUse semantics), our hooks could end up
-    # scoped to that matcher. Stop / UserPromptSubmit don't take matchers in
-    # current Claude Code spec, so the bug was latent — but a dedicated entry
-    # is safer across Claude Code versions and easier to remove cleanly later.
+    # Create a dedicated PT entry per event (no matcher, so it always fires)
+    # instead of writing into chain[0]. Previously we appended into the user's
+    # first entry, which means if the user's entry[0] had a matcher (e.g. for
+    # PreToolUse semantics), our hooks could end up scoped to that matcher. Stop /
+    # UserPromptSubmit don't take matchers in the current Claude Code spec, so the
+    # bug was latent — but a dedicated entry is safer across Claude Code versions
+    # and easier to remove cleanly later.
     added = 0
     skipped = 0
     for hook_name, info in PT_HOOKS.items():
@@ -196,8 +196,8 @@ def cmd_remove(settings_path: str, hooks_dir: str):
                 else:
                     new_hooks.append(h)
             entry['hooks'] = new_hooks
-            # H3 fix: drop entries we own (`_pt_managed`) once empty; keep
-            # user-owned entries even if empty (user may want to re-fill them).
+            # Drop entries we own (`_pt_managed`) once empty; keep user-owned
+            # entries even if empty (user may want to re-fill them).
             if entry.get('_pt_managed') and not new_hooks:
                 continue
             new_chain.append(entry)
@@ -219,7 +219,7 @@ def cmd_verify(settings_path: str, hooks_dir: str):
                 if cmd in pt_commands:
                     found[pt_commands[cmd]] = event
 
-    print('Preference-tracker hooks 注册情况:')
+    print('Preference-tracker hook registration status:')
     print(f'  settings: {settings_path}')
     print(f'  hooks dir: {hooks_dir}')
     print()
@@ -243,7 +243,7 @@ def main():
     g = parser.add_mutually_exclusive_group(required=True)
     g.add_argument('--add', action='store_true', help='Add PT hooks (install)')
     g.add_argument('--remove', action='store_true', help='Remove PT hooks (uninstall)')
-    g.add_argument('--verify', action='store_true', help='List PT hooks 注册情况 (doctor)')
+    g.add_argument('--verify', action='store_true', help='List PT hook registration status (doctor)')
     args = parser.parse_args()
 
     if args.add:

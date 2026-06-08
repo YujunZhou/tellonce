@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
                            help="actually perform the migration (default is to print help if neither --preview nor --apply set)")
             p.add_argument("--source", action="append", default=[])
         if command == "install":
-            # Round-7 codex-review P1-3 fix: forward --no-hooks down so the
+            # Forward --no-hooks down so the
             # CLI install does not write ~/.codex/hooks.json. Default
             # remains register_hooks=True (matches install.sh phase 3
             # expectation when bash phase 2 already ran).

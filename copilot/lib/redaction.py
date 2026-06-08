@@ -1,4 +1,4 @@
-"""Secret redaction for CC-side persisted logs (codex review H2 fix, 2026-05-01).
+"""Secret redaction for CC-side persisted logs.
 
 Mirrors codex/codex_preftrack/ledger.py SECRET_PATTERNS so compliance log /
 shadow log / shadow alert markdown don't persist user-pasted API keys, SSH

@@ -143,7 +143,7 @@ def main() -> None:
     if parts:
         combined = '\n\n---\n\n'.join(parts)
         # Copilot CLI injects the TOP-LEVEL `additionalContext` field and SILENTLY
-        # IGNORES `hookSpecificOutput.additionalContext`. Verified live 2026-06-05
+        # IGNORES `hookSpecificOutput.additionalContext`. Verified live
         # via `copilot -p`: the default hookSpecificOutput shape → child reports
         # NO-INJECTION-FOUND; top-level → child quotes the full injection. The CLI
         # bundle confirms it (the SessionStart output mapper reads `c.additionalContext`).

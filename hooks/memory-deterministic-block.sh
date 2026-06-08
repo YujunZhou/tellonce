@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# memory-deterministic-block.sh — Stop hook (Phase B5 Tier A item 1)
+# memory-deterministic-block.sh — Stop hook (deterministic regex hard-block)
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Short-circuit (per wf-pref-320, 2026-04-28, w/ C1 stale-tail guard):
+# Short-circuit (with stale-tail guard):
 # skip when THIS turn's obs entry has detected=false.
 # Guards: (a) tail entry's session_id matches current, (b) obs_log mtime <60s.
 # Both required — otherwise fall through to full hook (safe degrade).
@@ -24,7 +24,7 @@ if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SI
     if [ "${_LAST_SID_SC}" = "${_CUR_SID_SC}" ]; then
       _LAST_DETECTED_SC=$(echo "${_LAST_LINE_SC}" | jq -r '.detection.detected // empty' 2>/dev/null)
       if [ "${_LAST_DETECTED_SC}" = "false" ]; then
-        # User-prefer gate: only skip when user prefers URGENT (per v23 day-1 refinement)
+        # User-prefer gate: only skip when user prefers URGENT
         _TRANSCRIPT_SC=$(echo "${_INPUT_SC}" | jq -r '.transcript_path // empty' 2>/dev/null)
         _PREFER_SC="u"
         if [ -n "${_TRANSCRIPT_SC}" ] && [ -f "${_TRANSCRIPT_SC}" ]; then
@@ -40,7 +40,7 @@ fi
 # End short-circuit — re-feed stdin to child below
 
 
-# 3 deterministic regex hard-block rules: lang-pit-130 / oth-pref-001 / lang-pref-001 relaxed.
+# Ships no built-in hard-block rules; enforcement acts only on user-recorded preferences.
 # Exit 2 + JSON decision='block' on violation; else exit 0.
 # Set B5_DETERMINISTIC_DISABLED=1 to bypass entirely (logs as 'disabled').
 # Defensive: any internal error → exit 0 (don't block legit work).
@@ -48,5 +48,5 @@ fi
 # Re-feed captured stdin to the Python entry. `cat` above drained stdin; without
 # this `printf` pipe, Python json.load(sys.stdin) would see EOF, hit the defensive
 # `except Exception: sys.exit(0)`, and the hook would silently no-op on every
-# fall-through (any time short-circuit doesn't trigger). See C1 fix.
+# fall-through (any time short-circuit doesn't trigger).
 printf '%s' "${_INPUT_SC}" | exec python3 "${_PT_LIB}/deterministic_block.py"

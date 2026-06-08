@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Pending memory queue manager (Session A — preference-tracker upgrade A.1 + A.4).
+"""Pending memory queue manager.
 
 3 commands:
   promote — Stop hook: scan observations.jsonl tail, find detected=True + saved=pending
             entries older than PROMOTE_AGE_MIN, append to pending_queue.jsonl (dedup
             by source_obs_entry_id). If queue >= ALERT_LEN_THRESHOLD, write
-            PENDING_ALERT.md + stderr warn (A.4 advisory, no exit-2 blocking).
+            PENDING_ALERT.md + stderr warn (advisory, no exit-2 blocking).
   inject  — UserPromptSubmit hook: read pending_queue.jsonl, format
             additionalContext text listing unfinalized entries. stdout text only.
   prune   — Maintenance: scan memory dir; if a queue entry's proposed_atomic_id
@@ -15,7 +15,7 @@
             ids that auto-prune cannot detect; user decides NOOP/discard manually).
 
 Defensive: any failure → exit 0 silently (never block hooks).
-v21 incident: 5 pending entries lost when session crashed (root cause unknown).
+Rationale: pending entries can be lost if a session crashes mid-turn.
 This gate guarantees pending entries survive any crash via the queue file.
 """
 import contextlib
@@ -36,7 +36,7 @@ import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config
-import redaction  # Round-5 H3 fix (2026-05-01): redact secrets in queue entries
+import redaction  # redact secrets in queue entries
 
 OBS_LOG = path_config.get_observations_log_path()
 QUEUE = path_config.get_pending_queue_path()
@@ -44,17 +44,17 @@ ALERT = path_config.get_pending_alert_path()
 ERROR_LOG = path_config.get_pending_error_log_path()
 MEMORY_DIR = path_config.get_memory_dir()
 
-# I3 (review fix 2026-04-25): age threshold raised 30 → 60 min so active autonomous
+# Age threshold raised 30 → 60 min so active autonomous
 # blocks (often >30 min) don't promote their own in-flight pending
 # obs as "from prior session". Cross-session crashes still surface via inject hook
 # (which runs on next UserPromptSubmit after the crash regardless of age).
 PROMOTE_AGE_MIN = 60          # pending obs older than this → eligible for promotion
 SCAN_TAIL_LINES = 200         # how many obs lines to consider per promote pass
 ALERT_LEN_THRESHOLD = 3       # queue length triggering PENDING_ALERT (advisory)
-INJECT_TOPN_CAP = 12          # M4 — cap inject text to top N entries (newest first); overflow shows count
+INJECT_TOPN_CAP = 12          # cap inject text to top N entries (newest first); overflow shows count
 
 
-# Codex review M2 fix (2026-05-01): the queue is read-modify-written by both
+# The queue is read-modify-written by both
 # promote and prune. Two Claude sessions on the same project running these
 # concurrently can clobber one another (prune writes to a fixed `.tmp` and
 # replaces, missing entries that promote just appended). Wrap both with a
@@ -190,12 +190,12 @@ def _read_jsonl_tail(path, n_lines):
 
 
 def _log_error(where, exc):
-    """I5 (review fix) — opt-in forensic log. Silent fallback so we never break the
+    """Opt-in forensic log. Silent fallback so we never break the
     "exit 0 always" invariant, but operators get a trail when corruption happens."""
     try:
         os.makedirs(os.path.dirname(ERROR_LOG), exist_ok=True)
         with open(ERROR_LOG, 'a', encoding='utf-8') as f:
-            # Round-5 H3 fix: error message may quote a path or value with secrets.
+            # Error message may quote a path or value with secrets.
             f.write(json.dumps({
                 'ts': _now().isoformat(),
                 'where': where,
@@ -207,7 +207,7 @@ def _log_error(where, exc):
         pass
 
 
-# I2 (review fix) — module-level cache keyed on directory mtime so we re-scan only
+# Module-level cache keyed on directory mtime so we re-scan only
 # when memory dir actually changes. Memory dir holds 191+ files; per-Stop scan was
 # costing ~2s of the 5s hook timeout budget.
 _MEMORY_IDS_CACHE = {'mtime': None, 'ids': set()}
@@ -273,7 +273,7 @@ def promote_from_observations():
     Returns dict {scanned, candidates, newly_promoted, queue_len_after,
                   skipped_already_in_memory}.
     """
-    # M2 fix: promote takes the queue lock for the read+append window so a
+    # Promote takes the queue lock for the read+append window so a
     # concurrent prune can't rewrite QUEUE between our _read_jsonl(QUEUE) and
     # the open(QUEUE, 'a') below — that's the path that loses promoted entries.
     with _queue_lock():
@@ -282,7 +282,7 @@ def promote_from_observations():
 
 def _promote_locked():
     obs = _read_jsonl_tail(OBS_LOG, SCAN_TAIL_LINES)
-    # I2 (review fix) — short-circuit before _atomic_ids_in_memory if no candidates.
+    # Short-circuit before _atomic_ids_in_memory if no candidates.
     # Most Stop events have zero pending obs in the tail; this avoids the 191-file
     # glob+regex on the hot path.
     pending_count = sum(1 for o in obs if _is_pending_obs(o))
@@ -334,7 +334,7 @@ def _promote_locked():
             'confirmation_text': act.get('confirmation_text'),
             'user_message_excerpt': trig.get('user_message_excerpt'),
         }
-        # Round-5 H3 fix: detected_signal.content / confirmation_text /
+        # detected_signal.content / confirmation_text /
         # user_message_excerpt all quote raw user/agent text and may contain
         # API keys / SSH keys / DB URIs. Redact before persisting.
         entry = redaction.sanitize(entry)
@@ -347,7 +347,7 @@ def _promote_locked():
             with open(QUEUE, 'a', encoding='utf-8') as f:
                 for e in newly_promoted:
                     f.write(json.dumps(e, ensure_ascii=False) + '\n')
-            # Round-5 H3 fix: queue carries user-content excerpts; restrict.
+            # Queue carries user-content excerpts; restrict.
             path_config.chmod_or_warn(QUEUE, 0o600)
         except Exception:
             pass
@@ -395,9 +395,9 @@ def _write_pending_alert(queue):
                     'must be processed before the next major work block.\n\n')
             f.write('## Unresolved entries\n\n')
             for i, e in enumerate(queue, 1):
-                # Round-5 H3 fix: queue entries are already redacted at promote
+                # Queue entries are already redacted at promote
                 # time, but defense-in-depth — re-redact every string we render
-                # (covers entries written before the round-5 fix).
+                # (re-redaction also covers older entries).
                 sig = e.get('detected_signal') or {}
                 f.write(f'### {i}. proposed `{e.get("proposed_atomic_id") or "<unknown>"}`\n')
                 f.write(f'- **promoted_at**: {e.get("promoted_at")}\n')
@@ -415,7 +415,7 @@ def _write_pending_alert(queue):
                     '(NOOP / UPDATE / SUPERSEDE / NEW).\n')
             f.write(f'3. Run `python3 {_LIB_DIR}/'
                     'pending_queue_manager.py prune` to drop resolved entries from queue.\n')
-        # Round-5 H3 fix: alert MD echoes user content; restrict.
+        # Alert MD echoes user content; restrict.
         path_config.chmod_or_warn(ALERT, 0o600)
     except Exception:
         pass
@@ -428,7 +428,7 @@ def _write_pending_alert(queue):
 def inject_for_userprompt():
     """Return formatted text to inject as additionalContext at session start.
     Empty string if queue is empty.
-    M4 (review fix): caps display at INJECT_TOPN_CAP newest entries (overflow shown
+    Caps display at INJECT_TOPN_CAP newest entries (overflow shown
     as count) so a long-stalled queue doesn't bloat every UserPromptSubmit context."""
     queue = _read_jsonl(QUEUE)
     if not queue:
@@ -469,12 +469,12 @@ def inject_for_userprompt():
 
 def prune_resolved(force_ids=None):
     """Drop queue entries whose proposed_atomic_id now exists in memory dir.
-    M3 (review fix): if `force_ids` is given (a set/list of queue_entry_id values),
+    If `force_ids` is given (a set/list of queue_entry_id values),
     those entries are dropped unconditionally regardless of memory presence —
     use for entries with `<unknown>` or non-canonical proposed_atomic_id that the
     user has decided to NOOP/discard.
 
-    M2 fix (codex review): take queue lock so concurrent promote can't append
+    Take queue lock so concurrent promote can't append
     after our _read_jsonl(QUEUE) and lose entries when we rewrite."""
     with _queue_lock():
         return _prune_locked(force_ids)
@@ -519,7 +519,7 @@ def _prune_locked(force_ids=None):
 # ---------------------------------------------------------------------------
 
 def _is_tty_stderr():
-    """I1 (review fix) — robustly check if stderr is a tty. The previous
+    """Robustly check if stderr is a tty. The previous
     `os.isatty(... else -1)` form raised under hooks where fileno() throws."""
     try:
         return os.isatty(sys.stderr.fileno())
@@ -542,7 +542,7 @@ def main():
         if text:
             print(text)
     elif cmd == 'prune':
-        # M3 (review fix): support `prune --force <queue_entry_id> [<queue_entry_id> ...]`
+        # Support `prune --force <queue_entry_id> [<queue_entry_id> ...]`
         # for entries with non-canonical proposed_atomic_id (cannot auto-prune by memory match).
         force_ids = None
         if '--force' in sys.argv:
@@ -558,7 +558,7 @@ def main():
             pass
     elif cmd == 'status':
         queue = _read_jsonl(QUEUE)
-        # I4 (review fix) note: alert_file_exists is best-effort indicator. Source of
+        # Note: alert_file_exists is best-effort indicator. Source of
         # truth is `queue_len`; ALERT.md is regenerated by next promote when queue ≥ threshold.
         print(json.dumps({
             'queue_path': QUEUE,

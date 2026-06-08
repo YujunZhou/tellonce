@@ -66,7 +66,7 @@ if [[ "${PURGE_SKILL}" == true ]]; then
         echo "Removing global skill dir ${GLOBAL_DIR}"
         rm -rf "${GLOBAL_DIR}"
     fi
-    # Round-9: also remove the shell wrapper installed at ~/.local/bin/codex_preftrack
+    # Also remove the shell wrapper installed at ~/.local/bin/codex_preftrack
     WRAPPER="${HOME}/.local/bin/codex_preftrack"
     if [[ -f "${WRAPPER}" ]]; then
         # Defensive: only delete if the file looks like ours

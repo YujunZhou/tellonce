@@ -17,7 +17,7 @@ class InstallRecord:
 
 
 def _try_register_global_hooks() -> tuple[bool, str]:
-    """Round-7: auto-register PT hooks in ~/.codex/hooks.json if the global
+    """Auto-register PT hooks in ~/.codex/hooks.json if the global
     runtime layout exists. Idempotent — re-running is safe (skipped =
     "already registered").
 

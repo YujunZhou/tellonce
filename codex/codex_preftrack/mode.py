@@ -13,7 +13,7 @@ class Mode:
     wrapper_seen: bool = False
 
 
-# Codex review M3 fix (2026-05-01): rank for monotonic transitions.
+# Rank for monotonic transitions.
 # Mode must only progress forward; downgrade is opt-in via allow_downgrade=True
 # (e.g. test fixtures). wrapper_seen is also latch-only (True stays True).
 _MODE_RANK = {"audit_only": 0, "wrapper": 1, "blocking": 2}

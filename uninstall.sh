@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Preference-Tracker uninstall — Phase 4.2 + 2026-05-01 review hardening.
+# Preference-Tracker uninstall — review-hardened.
 #
 # Usage:
 #   bash ~/.claude/skills/preference-tracker/uninstall.sh
 #       [--keep-skill-dir] [--purge-state] [--keep-config]
 #
 # Steps:
-#   1. 撤 hooks 注册 (versioned 备份后用 Python 删 PT hooks)
+#   1. Unregister hooks (versioned backup, then remove PT hooks with Python)
 #   2. rm hooks .sh
-#   3. 询问 user 要不要 rm ~/.claude/skills/preference-tracker/
-#   4. 不动 memory + state (用户数据保留, 除非 --purge-state)
-#   5. 清 ~/.preference-tracker.config.json (除非 --keep-config)
+#   3. Ask the user whether to rm ~/.claude/skills/preference-tracker/
+#   4. Leave memory + state untouched (user data preserved unless --purge-state)
+#   5. Clean ~/.preference-tracker.config.json (unless --keep-config)
 #
-# Hardening (C11/C12 fix, 2026-05-01):
-#   - PROJECT_ROOT==HOME 时拒绝跑（避免误删用户全局 .claude/hooks/ 等）
-#   - rm -rf 之前 guard SKILL_DIR / STATE_DIR / OBS_LOG_DIR 不为空 / 不为根。
-#   - --purge-state 时双重确认 (interactive)。
+# Hardening:
+#   - Refuse to run when PROJECT_ROOT==HOME (avoids deleting the user's global .claude/hooks/, etc.)
+#   - Before rm -rf, guard that SKILL_DIR / STATE_DIR / OBS_LOG_DIR are non-empty / not root.
+#   - Double-confirm (interactive) on --purge-state.
 
 set -euo pipefail
 
@@ -43,28 +43,28 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# C12 fix: refuse uninstall when PROJECT_ROOT is HOME — that means the user
-# probably ran `cd ~ && uninstall` and would otherwise blow away their global
-# ~/.claude/hooks (matches install.sh's same guard at line 43-49).
+# Refuse uninstall when PROJECT_ROOT is HOME — that means the user probably ran
+# `cd ~ && uninstall` and would otherwise blow away their global ~/.claude/hooks
+# (matches install.sh's same guard).
 if [[ "${PROJECT_ROOT}" == "${HOME}" ]]; then
     echo "❌ PROJECT_ROOT == HOME (${HOME})"
-    echo "   你似乎在 HOME 跑 uninstall — 应该 cd 到当时装包的项目根再卸."
-    echo "   如果真要卸全局 user-level 安装, 用 B5_PROJECT_ROOT=<path> 显式指定."
+    echo "   You appear to be running uninstall in HOME — cd into the project root you installed from."
+    echo "   If you really want to uninstall a global user-level install, set B5_PROJECT_ROOT=<path> explicitly."
     exit 1
 fi
 
-# C11 fix: refuse to ever rm -rf an empty / root-ish path. Tighten before any
-# branch that calls rm -rf with these vars.
+# Refuse to ever rm -rf an empty / root-ish path. Tighten before any branch that
+# calls rm -rf with these vars.
 _refuse_dangerous_path() {
     local var_name="$1"
     local val="$2"
     if [[ -z "${val}" ]]; then
-        echo "❌ ${var_name} 是空字符串 — 拒绝执行删除以防止 rm -rf 误炸 root."
+        echo "❌ ${var_name} is an empty string — refusing to delete to prevent rm -rf wiping root."
         exit 1
     fi
     # Reject any path that is just slashes (`/`, `//`, `///`, ...).
     if [[ "${val}" =~ ^/+$ ]]; then
-        echo "❌ ${var_name}=${val} 是根路径 — 拒绝."
+        echo "❌ ${var_name}=${val} is a root path — refusing."
         exit 1
     fi
     # Reject paths that resolve to HOME — uninstall should never wipe HOME itself.
@@ -74,7 +74,7 @@ _refuse_dangerous_path() {
         resolved="$(realpath -m -- "${val}" 2>/dev/null || echo "${val}")"
     fi
     if [[ "${resolved}" == "${HOME}" ]] || [[ "${val}" == "${HOME}" ]]; then
-        echo "❌ ${var_name}=${val} 等于 HOME — 拒绝 rm -rf."
+        echo "❌ ${var_name}=${val} equals HOME — refusing rm -rf."
         exit 1
     fi
 }
@@ -83,28 +83,28 @@ echo "Preference-Tracker uninstall"
 echo "  PROJECT: ${PROJECT_ROOT}"
 echo ""
 
-# 1. 撤 hooks 注册 — 撤两套路径以涵盖新老安装
-# (新安装注册 ${SKILL_DIR}/hooks/, 老安装注册 ${HOOKS_DIR}=${PROJECT_ROOT}/.claude/hooks/)
+# 1. Unregister hooks — remove both path sets to cover new and old installs.
+# (New installs register ${SKILL_DIR}/hooks/; old installs register ${HOOKS_DIR}=${PROJECT_ROOT}/.claude/hooks/)
 if [[ -f "${SETTINGS}" ]]; then
-    echo "[1/5] 撤 hooks 从 settings.local.json:"
-    # 新设计 (skill-dir 路径) 撤
+    echo "[1/5] Removing hooks from settings.local.json:"
+    # New design (skill-dir paths) removal
     python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
         --settings "${SETTINGS}" \
         --hooks-dir "${SKILL_DIR}/hooks" \
         --remove || true
-    # 老安装 (project-local 路径) 撤
+    # Old install (project-local paths) removal
     python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
         --settings "${SETTINGS}" \
         --hooks-dir "${HOOKS_DIR}" \
         --remove || true
-    # M8 fix: 提示备份文件位置, 让用户知道回滚锚点
+    # Show the backup file location so the user knows the rollback anchor
     LATEST_BACKUP=$(ls -t "${SETTINGS}".v3_pre_pt_*.json 2>/dev/null | head -1)
     if [[ -n "${LATEST_BACKUP}" ]]; then
-        echo "  备份: ${LATEST_BACKUP}"
-        echo "  回滚 (撤本次 --remove 改动): cp \"${LATEST_BACKUP}\" \"${SETTINGS}\""
+        echo "  backup: ${LATEST_BACKUP}"
+        echo "  rollback (undo this --remove change): cp \"${LATEST_BACKUP}\" \"${SETTINGS}\""
     fi
 else
-    echo "[1/5] settings.local.json 不存在, skip"
+    echo "[1/5] settings.local.json does not exist, skip"
 fi
 
 # 1b. Also remove the USER-GLOBAL registration (~/.claude/settings.json). The
@@ -120,16 +120,16 @@ if [[ "${KEEP_GLOBAL}" != true && -f "${GLOBAL_SETTINGS}" ]]; then
         --remove || true
 fi
 
-# 2. project-local hook .sh 处理
-# Codex review Round-5 H2 fix (2026-05-01): 不再无脑 rm project-local hook
-# 文件. 新 install 已经不在 ${HOOKS_DIR} 写文件 (注册的全是 ${SKILL_DIR}/hooks/),
-# 所以这里的 rm 只对老安装生效, 但 user 或 hostile repo 可能放了同名 hook,
-# rm 掉就把别人的代码删了. 默认 skip; 加 --purge-legacy-project-hooks 显式
-# 同意才 rm.
+# 2. project-local hook .sh handling
+# Do not blindly rm project-local hook files. New installs no longer write into
+# ${HOOKS_DIR} (everything registered is ${SKILL_DIR}/hooks/), so this rm only
+# affects old installs — but the user or a hostile repo may have placed a hook
+# with the same name, and rm-ing it would delete their code. Default: skip; only
+# rm when --purge-legacy-project-hooks is explicitly passed.
 echo ""
 HOOK_LIST_FILE="${SKILL_DIR}/lib/_pt_hooks.txt"
 if [[ "${PURGE_LEGACY_HOOKS}" == true ]]; then
-    echo "[2/5] 删 project-local hooks .sh (--purge-legacy-project-hooks):"
+    echo "[2/5] Deleting project-local hooks .sh (--purge-legacy-project-hooks):"
     if [[ -f "${HOOK_LIST_FILE}" ]]; then
         while IFS= read -r hook; do
             [[ -z "${hook}" || "${hook}" == \#* ]] && continue
@@ -140,32 +140,32 @@ if [[ "${PURGE_LEGACY_HOOKS}" == true ]]; then
         done < "${HOOK_LIST_FILE}"
     fi
 else
-    echo "[2/5] project-local hooks .sh 保留 (默认):"
+    echo "[2/5] project-local hooks .sh kept (default):"
     if [[ -d "${HOOKS_DIR}" ]] && ls "${HOOKS_DIR}"/memory-*.sh > /dev/null 2>&1; then
-        echo "  发现老安装在 ${HOOKS_DIR}/ 里的 .sh:"
+        echo "  Found .sh files from an old install in ${HOOKS_DIR}/:"
         ls "${HOOKS_DIR}"/memory-*.sh "${HOOKS_DIR}"/check-observation-log.sh 2>/dev/null | sed 's/^/    /'
-        echo "  这些文件 PT v1+ 不再注册 (settings.local.json 已撤). 留给你审"
-        echo "  自己决定是不是 PT 老安装产物. 想让 uninstall 删: 重跑加"
+        echo "  PT v1+ no longer registers these (settings.local.json already cleaned). Left for you to review."
+        echo "  Decide for yourself whether they are leftovers from an old PT install. To have uninstall delete them, re-run with"
         echo "    --purge-legacy-project-hooks"
     fi
 fi
 
-# 3. 询问 skill dir
+# 3. Ask about the skill dir
 echo ""
-echo "[3/5] skill dir 处理:"
+echo "[3/5] skill dir handling:"
 if [[ "${KEEP_SKILL_DIR}" == true ]]; then
-    echo "  - 保留 ${SKILL_DIR} (--keep-skill-dir)"
+    echo "  - keeping ${SKILL_DIR} (--keep-skill-dir)"
 elif [[ ! -t 0 ]]; then
-    # non-interactive (CI / pipe), 默认保留
-    echo "  - 非交互模式, 保留 ${SKILL_DIR} (重装方便)"
+    # non-interactive (CI / pipe), keep by default
+    echo "  - non-interactive mode, keeping ${SKILL_DIR} (easy to reinstall)"
 else
     read -p "  rm -rf ${SKILL_DIR}? (y/N) " ans || ans="N"
     if [[ "${ans}" == "y" || "${ans}" == "Y" ]]; then
         _refuse_dangerous_path SKILL_DIR "${SKILL_DIR}"
         rm -rf "${SKILL_DIR}"
-        echo "  - skill 目录已删"
+        echo "  - skill directory deleted"
     else
-        echo "  - 保留 ${SKILL_DIR}"
+        echo "  - keeping ${SKILL_DIR}"
     fi
 fi
 
@@ -180,27 +180,27 @@ if [[ "${PURGE_STATE}" == true ]]; then
     echo "    rm -rf ${STATE_DIR}"
     echo "    rm -rf ${OBS_LOG_DIR}"
 else
-    echo "  - state + obs_log + memory 保留 (用户数据)"
+    echo "  - state + obs_log + memory kept (user data)"
     echo "    state: ${STATE_DIR}"
     echo "    obs_log: ${OBS_LOG_DIR}"
-    echo "    memory: ~/.claude/projects/<cwd_escaped>/memory/ (不动)"
+    echo "    memory: ~/.claude/projects/<cwd_escaped>/memory/ (untouched)"
     echo ""
-    echo "  完全删: bash ${SKILL_DIR}/uninstall.sh --purge-state"
+    echo "  Full delete: bash ${SKILL_DIR}/uninstall.sh --purge-state"
 fi
 
-# 5. ~/.preference-tracker.config.json (C7 fix: cleanup so reinstall on a
-# different project doesn't reuse stale paths). --keep-config to preserve it.
+# 5. ~/.preference-tracker.config.json (cleanup so a reinstall on a different
+# project doesn't reuse stale paths). --keep-config to preserve it.
 echo ""
 echo "[5/5] ~/.preference-tracker.config.json:"
 if [[ "${KEEP_CONFIG}" == true ]]; then
-    echo "  - 保留 ${CONFIG_FILE} (--keep-config)"
+    echo "  - keeping ${CONFIG_FILE} (--keep-config)"
 elif [[ -f "${CONFIG_FILE}" ]]; then
     rm -f "${CONFIG_FILE}"
-    echo "  - 已删 ${CONFIG_FILE}"
-    echo "    (重装会重新写; 想保留旧 path 锚定下次跑 uninstall.sh --keep-config)"
+    echo "  - deleted ${CONFIG_FILE}"
+    echo "    (a reinstall rewrites it; to keep the old path anchor, run uninstall.sh --keep-config next time)"
 else
-    echo "  - ${CONFIG_FILE} 不存在, skip"
+    echo "  - ${CONFIG_FILE} does not exist, skip"
 fi
 
 echo ""
-echo "✅ 卸载完成"
+echo "✅ Uninstall complete"

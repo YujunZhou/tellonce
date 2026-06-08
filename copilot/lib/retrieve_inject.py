@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Preference-tracker memory retrieve + inject (Phase B1 + Round-6/10 cli backend).
+"""Preference-tracker memory retrieve + inject (cli backend).
 
 Reads UserPromptSubmit JSON from stdin, picks relevant atomic_ids based on
 B5_RETRIEVE_BACKEND env var:
-  - 'cli' (default since Round-10): semantic match via a small model (claude
+  - 'cli' (default): semantic match via a small model (claude
     haiku for CC, gpt-5.4-mini for codex). Costs 1-2s latency per
     UserPromptSubmit but uses the same subscription auth path as the
     runtime, no API key needed and no trigger-keyword maintenance.
@@ -67,7 +67,7 @@ def _load_fingerprints():
     return merged
 
 
-# Round-10c (2026-05-02): persist retrieve defaults in
+# Persist retrieve defaults in
 # ~/.preference-tracker.config.json so the user doesn't have to remember
 # `export B5_RETRIEVE_*` for every shell. Precedence per setting:
 #   1. process env (B5_RETRIEVE_*)        — highest
@@ -132,11 +132,11 @@ def _autoload_env_file_from_config(cfg: dict) -> None:
 _USER_CONFIG = _load_user_config()
 _autoload_env_file_from_config(_USER_CONFIG)
 
-# Round-10: backend default flipped to 'cli' (small-model semantic match).
-# Round-10b: 'api' backend added for OpenAI-compatible HTTP endpoints
+# Backend default is 'cli' (small-model semantic match).
+# 'api' backend for OpenAI-compatible HTTP endpoints
 # (DeepInfra / OpenRouter / etc.) — fastest path because no CLI cold-start
-# and no nested-hook collision. Recommended for paper experiment runs.
-# Round-10c: settings can come from ~/.preference-tracker.config.json so
+# and no nested-hook collision. Recommended for batch experiment runs.
+# Settings can come from ~/.preference-tracker.config.json so
 # the user doesn't have to `export B5_RETRIEVE_*` in every shell.
 RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _USER_CONFIG, 'cli').lower()
 # Backwards compat: 'haiku' alias 'cli'.
@@ -177,7 +177,7 @@ def _build_index():
     """One-pass scan of memory dir → {atomic_id: (applies_when, condition)}.
     Also caches description into _RULE_DESC_INDEX so render can fall back
     to the .md frontmatter when fingerprints.yaml has no `desc` for the
-    rule (Round-10d UX fix: rules that exist only in memory dir used to
+    rule (UX: rules that exist only in memory dir used to
     render with empty desc in the additionalContext block)."""
     global _RULE_INDEX, _RULE_DESC_INDEX
     if _RULE_INDEX is not None:
@@ -241,7 +241,7 @@ def _write_debug(record):
 def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
     """Build (cmd_argv, output_file_path_or_None) for the configured CLI.
 
-    Round-10: dispatches by B5_RETRIEVE_CLI:
+    Dispatches by B5_RETRIEVE_CLI:
       - 'claude': prompt is positional arg, output on stdout
       - 'codex':  prompt via stdin, output written to --output-last-message file
     Returns (None, None) on unknown CLI.
@@ -278,7 +278,7 @@ def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
 
 
 def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
-    """Round-10 backend: small-model semantic retrieval via either
+    """CLI backend: small-model semantic retrieval via either
     `claude -p` (CC, default) or `codex exec` (codex), selected by
     B5_RETRIEVE_CLI. Returns hit list shaped like keyword backend.
 
@@ -334,7 +334,7 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         "Available rules (one per line, format `atomic_id: description | applies_when: ...`):\n"
         + rules_text + "\n\n"
         "Return ONLY a JSON array of atomic_id strings for rules that apply, no prose.\n"
-        "Example: [\"lang-pref-001\", \"oth-pref-001\"]\n"
+        "Example: [\"fmt-pref-001\", \"tool-pref-002\"]\n"
         "If no rule applies, return [].\n"
     )
 
@@ -354,7 +354,7 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         _write_debug(debug_record) if debug else None
         return []
 
-    # Round-10: child CLI sessions must NOT re-fire any PT hook AND must
+    # Child CLI sessions must NOT re-fire any PT hook AND must
     # NOT inherit the outer Claude Code session's SSE-mode env vars. If
     # CLAUDECODE / CLAUDE_CODE_SSE_PORT etc. leak through, the inner
     # claude detects "I'm inside a Claude Code session" and routes its
@@ -477,10 +477,10 @@ def _build_rules_for_prompt(fps_dict, memory_idx):
     """Shared helper: collect rule descriptions for the LLM prompt across
     cli/api backends.
 
-    Round-10d desc-fallback: rules that exist only in memory dir (not in
+    Desc-fallback: rules that exist only in memory dir (not in
     fingerprints.yaml) used to render with empty desc in additionalContext,
     making the user-facing block read like
-        - **[comm-pref-009]** (normal)
+        - **[fmt-pref-001]** (normal)
             • applies_when: ...
     Now we fall back to the .md frontmatter `description:` so users see
     a meaningful one-liner even for memory-only rules.
@@ -530,13 +530,13 @@ def _build_llm_prompt_text(user_prompt, rules_for_prompt):
         "Available rules (one per line, format `atomic_id: description | applies_when: ...`):\n"
         + rules_text + "\n\n"
         "Return ONLY a JSON array of atomic_id strings for rules that apply, no prose.\n"
-        "Example: [\"lang-pref-001\", \"oth-pref-001\"]\n"
+        "Example: [\"fmt-pref-001\", \"tool-pref-002\"]\n"
         "If no rule applies, return [].\n"
     )
 
 
 def _resolve_api_endpoint() -> tuple[str, dict, str]:
-    """Round-10b API backend: pick OpenAI-compatible (url, headers, provider).
+    """API backend: pick OpenAI-compatible (url, headers, provider).
     Returns ('', {}, '') if config incomplete (caller falls back to keyword)."""
     provider = RETRIEVE_API_PROVIDER
     if provider == 'deepinfra':
@@ -579,7 +579,7 @@ def _resolve_api_endpoint() -> tuple[str, dict, str]:
 
 
 def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
-    """Round-10b: direct OpenAI-compatible HTTP call (DeepInfra /
+    """Direct OpenAI-compatible HTTP call (DeepInfra /
     OpenRouter / etc) for retrieve. No CLI cold-start, no nested-hook
     issue — fastest path, but uses an API key (not subscription).
 
@@ -739,7 +739,7 @@ def main():
 
     fps = _load_fingerprints()
 
-    # Round-10/10b: backend dispatch. cli/api both fall back to keyword
+    # Backend dispatch. cli/api both fall back to keyword
     # on any failure so the user never loses retrieval.
     if RETRIEVE_BACKEND == 'api':
         memory_idx = _build_index()
@@ -765,7 +765,7 @@ def main():
     lines.append('')
     for h in hits[:MAX_SHOW]:
         applies_when, condition = read_rule_applicability(h['id'])
-        # Round-10d desc-fallback: keyword-backend hits may have empty desc
+        # Desc-fallback: keyword-backend hits may have empty desc
         # if the rule is memory-only (not in fingerprints.yaml). Fall back
         # to the .md frontmatter `description:` so the rendered block has
         # a meaningful one-liner.
@@ -779,7 +779,7 @@ def main():
             lines.append(f"    • condition: {condition[:120]}")
         lines.append(f"    • triggered by: {h['trigger']}")
     lines.append('')
-    lines.append('(Phase B1+B2 retrieval + applicability gate. Respect these unless applies_when rules out current context.)')
+    lines.append('(Memory retrieval + applicability gate. Respect these unless applies_when rules out current context.)')
 
     out = {
         'hookSpecificOutput': {
@@ -848,7 +848,7 @@ def session_start_summary():
         if condition:
             lines.append(f"    • condition: {condition[:120]}")
     lines.append('')
-    lines.append('(Phase B1+B2 session-start retrieval. Full prompt-based matching fires per-turn in Claude; Copilot injects at session start only.)')
+    lines.append('(Session-start memory retrieval. Full prompt-based matching fires per-turn in Claude; Copilot injects at session start only.)')
 
     out = {
         'hookSpecificOutput': {

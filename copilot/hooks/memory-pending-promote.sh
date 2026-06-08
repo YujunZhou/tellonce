@@ -3,10 +3,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PT_LIB="${SCRIPT_DIR}/../lib"
 set -uo pipefail
 
-# memory-pending-promote.sh — Stop hook (Phase A.1, Session A 2026-04-25).
+# memory-pending-promote.sh — Stop hook (pending observation → queue).
 
 # ──────────────────────────────────────────────────────────────────────────
-# Short-circuit (per wf-pref-320, 2026-04-27, w/ C1 stale-tail guard):
+# Short-circuit (with stale-tail guard):
 # skip when THIS turn's obs entry has detected=false.
 # Guards: (a) tail entry's session_id matches current, (b) obs_log mtime <60s.
 # Both required — otherwise fall through to full hook (safe degrade).
@@ -38,6 +38,6 @@ fi
 # Note: pending_queue_manager.py promote does not read stdin (reads obs log directly),
 # so the cat-then-exec pattern above wouldn't lose data here either way. The re-feed
 # below keeps the pattern symmetric across all four Stop wrappers — if promote ever
-# starts reading stdin, this still works. See C1 fix.
+# starts reading stdin, this still works.
 printf '%s' "${_INPUT_SC}" | python3 "${PT_LIB}/pending_queue_manager.py" promote >/dev/null 2>&1 || true
 exit 0

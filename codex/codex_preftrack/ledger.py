@@ -154,7 +154,7 @@ def secure_write_text(path: Path, data: str, *, atomic: bool = False) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     if atomic:
-        # Codex review M1 fix (2026-05-01): per-pid + uuid suffix so concurrent
+        # Per-pid + uuid suffix so concurrent
         # writers (e.g. two `codex_preftrack exec` instances flushing mode.json
         # simultaneously) don't truncate each other's tmp file before the rename.
         # Old behavior used a fixed `.tmp` suffix → race window where P1 writes
@@ -200,7 +200,7 @@ class NonDirectoryPathError(OSError):
 def secure_mkdir(path: Path) -> None:
     """mkdir -p `path` with mode 0o700 (user-only). Warn on chmod failure.
 
-    Round-7 robustness fix (verified on user's machine, 2026-05-01):
+    Robustness:
     walk the ancestors first and raise NonDirectoryPathError with a clear
     actionable message if any component is an existing non-directory.
     Without this, install.sh dies with a confusing

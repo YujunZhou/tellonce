@@ -217,7 +217,7 @@ def cmd_remove(hooks_path: str, hooks_dir: str | None = None) -> int:
 
 
 def cmd_verify(hooks_path: str, hooks_dir: str) -> int:
-    """Round-8 codex-review P1-1 fix (Medium, 2026-05-02): verify (event,
+    """Verify (event,
     command) pair, not just command-path presence. Otherwise a hook
     misregistered to the wrong event (e.g. PostToolUse hook under
     UserPromptSubmit) would print a green check and rc=0, masking a

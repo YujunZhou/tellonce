@@ -95,7 +95,7 @@ def _empty_record():
 
 
 def _coerce_violation_rule_id(violation):
-    """C2 fix: deterministic_block.log_check writes violations as a string list
+    """deterministic_block.log_check writes violations as a string list
     (rule_id strings), but earlier callers / tests expected dicts. Accept both
     shapes; never AttributeError.
     """
@@ -109,7 +109,7 @@ def _coerce_violation_rule_id(violation):
 def per_rule_stats(compliance_entries: List[dict], shadow_entries: List[dict]) -> Dict[str, dict]:
     """Aggregate per-rule trigger counts from compliance + shadow logs.
 
-    C2/C3 fix (2026-05-01 review): both schemas were misaligned with what the
+    Both schemas were misaligned with what the
     producers actually write.
 
       Producer (deterministic_block.log_check):
@@ -333,7 +333,7 @@ def latest_suggestion_path() -> str:
 def advise(days: int = 7) -> Tuple[Dict[str, list], str]:
     """Top-level: load, analyze, write. Returns (suggestions_dict, output_path).
 
-    H7 fix: rule_params._clear_cache() used to live inside the per-rule loop,
+    rule_params._clear_cache() used to live inside the per-rule loop,
     which guaranteed an lru_cache miss on every iteration → re-listdir of the
     memory dir + re-read of every .md file per rule. Cleared once before the
     loop instead.

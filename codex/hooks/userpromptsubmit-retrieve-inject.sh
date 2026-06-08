@@ -5,7 +5,7 @@
 # Codex hook stdin: JSON with `prompt`, `cwd`, `session_id`, `transcript_path`.
 # Output: JSON with hookSpecificOutput.additionalContext.
 #
-# Round-10 (2026-05-02): default backend is local `cli` (codex exec) semantic
+# Default backend is local `cli` (codex exec) semantic
 # retrieval, matching the other variants. No prompt data leaves the machine to
 # a third-party API by default. Opt into an external provider via
 # PT_RETRIEVE_BACKEND=api + PT_RETRIEVE_API_PROVIDER/PT_RETRIEVE_MODEL

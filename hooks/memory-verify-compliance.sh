@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# memory-verify-compliance.sh — Stop hook (log-only, Phase B3 lite)
+# memory-verify-compliance.sh — Stop hook (log-only compliance tracker)
 
 # ──────────────────────────────────────────────────────────────────────────
-# Short-circuit (per wf-pref-320, 2026-04-27, w/ C1 stale-tail guard):
+# Short-circuit (with stale-tail guard):
 # skip when THIS turn's obs entry has detected=false.
 # Guards: (a) tail entry's session_id matches current, (b) obs_log mtime <60s.
 # Both required — otherwise fall through to full hook (safe degrade).
@@ -31,6 +31,6 @@ fi
 # End short-circuit — re-feed stdin to child below
 
 # Appends a compliance record per turn. Never blocks.
-# Re-feed captured stdin (drained by `cat` above). See C1 fix in
+# Re-feed captured stdin (drained by `cat` above). See the note in
 # memory-deterministic-block.sh for full context.
 printf '%s' "${_INPUT_SC}" | exec python3 "${_PT_LIB}/verify_compliance.py"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # memory-retrieve-inject.sh — UserPromptSubmit hook (CC)
-# Part of preference-tracker skill upgrade Phase B1 (2026-04-22).
+# Part of the preference-tracker memory retrieve + inject flow.
 # Reads stdin JSON, dispatches to keyword or cli-backed retrieve_inject.
-# Round-10 (2026-05-02): default backend cli + claude haiku.
+# Default backend: cli + claude haiku.
 # Non-destructive: any failure → exit 0 silently.
 
 _PT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"

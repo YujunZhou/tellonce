@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# memory-shadow-alert-inject.sh — UserPromptSubmit hook (Phase B5 Tier A item 3)
+# memory-shadow-alert-inject.sh — UserPromptSubmit hook (soft inject from shadow alert)
 # Read B5_SHADOW_ALERT.md (set by shadow judge), inject "last turn you violated X" notice
 # into next-turn additionalContext.
 # Set B5_INJECT_DISABLED=1 to opt out.

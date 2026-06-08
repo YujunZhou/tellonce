@@ -3,10 +3,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PT_LIB="${SCRIPT_DIR}/../lib"
 set -uo pipefail
 
-# memory-verify-compliance.sh — Stop hook (log-only, Phase B3 lite)
+# memory-verify-compliance.sh — Stop hook (log-only compliance tracker)
 
 # ──────────────────────────────────────────────────────────────────────────
-# Short-circuit (per wf-pref-320, 2026-04-27, w/ C1 stale-tail guard):
+# Short-circuit (with stale-tail guard):
 # skip when THIS turn's obs entry has detected=false.
 # Guards: (a) tail entry's session_id matches current, (b) obs_log mtime <60s.
 # Both required — otherwise fall through to full hook (safe degrade).

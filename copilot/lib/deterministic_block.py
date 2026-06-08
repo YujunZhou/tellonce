@@ -167,7 +167,7 @@ def log_check(session_id, status, violations, latency_ms):
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
-        # H10 fix: log carries violation evidence; restrict to user-only.
+        # Log carries violation evidence; restrict to user-only.
         path_config.chmod_or_warn(log_path, 0o600)
     except Exception:
         pass

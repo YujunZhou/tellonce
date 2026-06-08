@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# memory-pending-inject.sh — UserPromptSubmit hook (Phase A.1, Session A 2026-04-25).
+# memory-pending-inject.sh — UserPromptSubmit hook (pending queue → next-turn inject).
 # Reads pending_queue.jsonl; if non-empty, emits additionalContext warning new
 # session about unfinalized memory entries from prior session(s).
 # Non-destructive: any failure → exit 0 silently.

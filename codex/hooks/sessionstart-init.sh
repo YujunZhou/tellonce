@@ -3,7 +3,6 @@
 # fresh project (no .codex/preference-tracker/ dir yet). Idempotent — exits
 # fast if state already exists.
 #
-# Round-7 codex-review P1-4 fix (High, 2026-05-02):
 #   - Pass --no-hooks so SessionStart NEVER writes ~/.codex/hooks.json.
 #     Hooks should only be registered by the bash install.sh phase 2 path
 #     where the user explicitly opted in.

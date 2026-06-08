@@ -112,9 +112,9 @@ def _private_path_status(state_root: Path) -> str:
 
 
 def _hooks_status() -> str:
-    """Round-7: report whether codex global hook registration is in place.
+    """Report whether codex global hook registration is in place.
 
-    Round-7 codex-review P1-6 fix (Medium, 2026-05-02): compare (event,
+    Compare (event,
     basename) pairs, not basenames alone. Otherwise a hook registered to
     the WRONG event (e.g. posttooluse-deterministic-block.sh under
     UserPromptSubmit) would still report PASS, masking a broken install.

@@ -9,7 +9,7 @@ word-check only when the user prefers an urgent response. Defaults to urgent
 CLI: python3 detect_user_prefer.py <transcript_path>
 Stdout: single char 'u' or 'c'.
 
-C6 fix (2026-05-01 review): default is now NO-API. The previous behaviour
+Default is now NO-API. The previous behaviour
 silently called Anthropic SDK on every Stop where last obs entry had
 detected=false (the base-rate path), charging the user's API key without
 any visible signal. Reviewed env contract:
@@ -102,9 +102,15 @@ def _classify_via_cli(user_msg: str) -> str:
     """`copilot -p` subprocess (subscription mode, 0 metered cost). Opt-in via
     PT_PREFER_BACKEND=cli. Falls back to 'u' on any error."""
     try:
+        _cmd = ['copilot', '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg)]
+        _cli_model = os.environ.get('PT_PREFER_MODEL', '').strip()
+        if _cli_model:
+            # Only pass --model when explicitly set; otherwise copilot uses
+            # its own default model (passing a Claude model name would fail).
+            _cmd += ['--model', _cli_model]
+        _cmd += ['--output-format', 'text']
         proc = subprocess.run(
-            ['copilot', '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg),
-             '--model', _PREFER_MODEL, '--output-format', 'text'],
+            _cmd,
             capture_output=True, text=True, encoding='utf-8', timeout=15,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):

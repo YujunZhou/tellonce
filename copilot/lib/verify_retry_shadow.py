@@ -41,7 +41,7 @@ from datetime import datetime, timezone, timedelta
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 import path_config  # central path config
-import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
+import redaction  # redact secrets pre-disk
 import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
@@ -177,7 +177,7 @@ def _read_daily_cost():
 def _bump_daily_cost(extra_usd):
     """Add extra_usd to today's cost log.
 
-    M4 fix: the read-modify-write is wrapped in a cross-process lock so two
+    The read-modify-write is wrapped in a cross-process lock so two
     concurrent shadow-judge calls can't each read the same prior total and
     overwrite each other (which would undercount spend and let the daily cost
     cap be exceeded). Best-effort lock — falls through unlocked if the
@@ -231,9 +231,9 @@ def _is_rate_limited(rule_id, hours=24):
 
 def _append_shadow_log(entry):
     """Append entry dict to b5_shadow_log.jsonl. Restrict to user-only readable
-    (H10 fix: shadow log contains evidence/feedback excerpts of user content).
+    (shadow log contains evidence/feedback excerpts of user content).
 
-    H2 fix: sanitize entry before serialize — judge evidence/feedback can quote
+    Sanitize entry before serialize — judge evidence/feedback can quote
     user content that contains API keys / SSH keys / DB URIs.
     """
     os.makedirs(os.path.dirname(SHADOW_LOG), exist_ok=True)
@@ -277,7 +277,7 @@ def _update_alert_md(violation_alerts):
     try:
         with open(SHADOW_ALERT_MD, 'w', encoding='utf-8') as f:
             f.write(body)
-        # H10 fix: contains violation evidence; restrict to user-only.
+        # Contains violation evidence; restrict to user-only.
         path_config.chmod_or_warn(SHADOW_ALERT_MD, 0o600)
     except Exception:
         pass
@@ -286,7 +286,7 @@ def _update_alert_md(violation_alerts):
 def _judge_call_cli(rules, last_user, response):
     """Invoke copilot -p CLI subprocess judge. 0 API charge (CLI subscription).
 
-    Default model: claude-haiku-4-5.
+    Model defaults to copilot's own (auto) unless B5_JUDGE_MODEL/PT_JUDGE_MODEL is set.
     Returns (verdicts_list, cost_usd=0.0, latency_ms, error_str_or_None).
     """
     import subprocess
@@ -373,7 +373,7 @@ def _judge_call_sdk(rules, last_user, response):
     """Optional: Anthropic SDK call (only when B5_USE_SDK=1 + B5_SDK_MODULE set).
 
     Charges API credit per call. Default install path (CLI subscription) is 0
-    cost; SDK only matters for paper-replication / SDK-only environments.
+    cost; SDK only matters for SDK-only environments.
 
     To enable: set both env vars
       B5_USE_SDK=1
@@ -406,7 +406,7 @@ def _judge_call_sdk(rules, last_user, response):
         loaded_rules = [{'rule_id': r['rule_id'], 'rule_text': r['rule_text']} for r in rules]
         result = v.verify_all_global(loaded_rules, last_user, response)
         verdicts_raw = result.get('verdicts', [])
-        # Cost estimate (Haiku 4-5: $1/M input, $5/M output). Used only when SDK
+        # Cost estimate (~$1/M input, $5/M output assumption). Used only when SDK
         # path doesn't surface real usage; consumers may overwrite if they have
         # actual token counts.
         n_rules = len(loaded_rules)
@@ -453,7 +453,7 @@ def _judge_call(rules, last_user, response):
 
 
 def _just_blocked_by_deterministic(within_sec=5):
-    """I1 fix: check if deterministic_block just fired within `within_sec` seconds.
+    """Check if deterministic_block just fired within `within_sec` seconds.
 
     If just hard-blocked by deterministic, shadow judge skip — already hard-blocked, no need to log violation again
     (saves ~1 CLI call per blocked Stop).
@@ -496,7 +496,7 @@ def evaluate(stdin_data):
         log_entry['b5_check'] = {'shadow_judge_status': 'disabled'}
         return 'disabled', log_entry
 
-    # I1 fix: skip shadow judge if deterministic_block just fired this turn
+    # Skip shadow judge if deterministic_block just fired this turn
     # (within 5s) — already hard-blocked, no need to invoke judge again
     if _just_blocked_by_deterministic(within_sec=5):
         log_entry['b5_check'] = {'shadow_judge_status': 'skipped_post_deterministic_block'}
@@ -546,7 +546,7 @@ def evaluate(stdin_data):
     if cost_usd > 0:
         _bump_daily_cost(cost_usd)
 
-    # Pre-collect violation rule_ids for the main compliance log (M2 fix per Phase 8 review):
+    # Pre-collect violation rule_ids for the main compliance log:
     # the main entry writes a shadow_violation_rule_ids list so analyze_b5_compliance.py can do
     # per-rule bucketing directly, without reading b5_shadow_log.jsonl as a second source.
     raw_violations = [v for v in verdicts
@@ -630,7 +630,7 @@ def main():
 
     status, log_entry = evaluate(data)
 
-    # Append to compliance log; H10 fix chmod 0600 (contains response excerpts)
+    # Append to compliance log; chmod 0600 (contains response excerpts)
     try:
         os.makedirs(os.path.dirname(COMPLIANCE_LOG), exist_ok=True)
         with open(COMPLIANCE_LOG, 'a', encoding='utf-8') as f:

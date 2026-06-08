@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Phase B3-lite + B4 — compliance tracker (Stop hook).
+"""Compliance tracker (Stop hook).
 
-B3-lite (existing): log per-Stop turn fp matches + lang ratio + autonomous-summary
+Logging: per-Stop turn fp matches + lang ratio + autonomous-summary
 flag. Log-only.
 
-B4 (Session B, 2026-04-25): blocking on session pending finalize. When current
+Blocking gate: blocking on session pending finalize. When current
 session has accumulated > THRESHOLD_PENDING obs entries with detection.detected=True
 + action.saved_to_memory='pending' AND session has run > THRESHOLD_DURATION_MIN
 minutes, return Stop hook decision='block' (exit 2) so agent must finalize before
@@ -15,17 +15,17 @@ Cite-rate / lang-ratio / fp-match remain log-only to avoid over-blocking. B4
 threshold loose by design — see experiment/B4_BLOCKING_OBSERVATION_PROTOCOL.md
 for the 1-week observation period and tuning method.
 
-Schema deviation from kickoff B.1.1: obs entries do NOT carry session_id field
-(verified P-2 round-3 audit). Time-window filter used as proxy: count pending obs
+Schema note: obs entries do NOT carry a session_id field
+Time-window filter used as proxy: count pending obs
 where timestamp within last `SESSION_WINDOW_MIN` minutes of stdin time. This is
 robust to the schema and a reasonable session-bounding heuristic since multi-hour
 sessions are uncommon and pending finalize is a per-turn action.
 
-Auto-light-fallback (Sprint v23 day-1, 2026-04-27): when check-observation-log.sh
+Auto-light-fallback: when check-observation-log.sh
 detects observations.jsonl mtime older than threshold, invokes this module via
 CLI `--auto-light-fallback` to write a synthetic detected=False entry rather than
-emitting a warning. Default OBSERVATION_LOG_AUTO_FALLBACK=1; env=0 disables. Per
-kickoff §Step 1, this reduces hook false-positive friction during long
+emitting a warning. Default OBSERVATION_LOG_AUTO_FALLBACK=1; env=0 disables.
+This reduces hook false-positive friction during long
 write-heavy turns where obs log append is missed.
 """
 import argparse, json, sys, os, re, glob, time
@@ -39,7 +39,7 @@ import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config
-import redaction  # codex review H2 fix (2026-05-01): redact secrets before disk
+import redaction  # redact secrets before disk
 
 LOG_PATH = path_config.get_compliance_log_path()
 # B4_TEST_OBS_OVERRIDE: lets test_b4_blocking.py inject a fixture obs file (I2 from code review)
@@ -66,7 +66,7 @@ SESSION_WINDOW_MIN = _f_env('B4_SESSION_WINDOW_MIN', 60)
 MAX_RETRIES_BEFORE_SELF_DISABLE = int(_f_env('B4_MAX_RETRIES', 3))
 B4_DISABLED = os.environ.get('B4_DISABLED', '').lower() in ('1', 'true', 'yes')
 
-# Per-session retry tracking for C1 fix (livelock prevention).
+# Per-session retry tracking for livelock prevention.
 # state/runtime/b4_retry/<sid>.json records {"retries": N, "first_block_ts": ISO, "last_block_ts": ISO}
 RETRY_DIR = os.environ.get('B4_RETRY_DIR', RETRY_DIR_DEFAULT)
 
@@ -74,7 +74,7 @@ RETRY_DIR = os.environ.get('B4_RETRY_DIR', RETRY_DIR_DEFAULT)
 def _ensure_alert_retry_dirs():
     """Create ALERT_DIR / RETRY_DIR lazily (per-call), tolerate read-only FS.
 
-    C4 fix (review 2026-05-01): previously called os.makedirs at module import
+    Previously called os.makedirs at module import
     time, so any read-only / quota-full / permission-denied FS made the module
     unimportable, killing the hook with non-zero exit before main()'s defensive
     `except Exception: sys.exit(0)` could even run. Now invoked from inside
@@ -155,7 +155,7 @@ def count_recent_pending(window_min=SESSION_WINDOW_MIN, obs_log_path=OBS_LOG, no
     """Count detected=True + saved_to_memory='pending' obs entries within the last
     `window_min` minutes. Returns (pending_count, oldest_pending_age_min,
     earliest_obs_age_min, pending_details). Used as session-bounding proxy since obs
-    entries lack session_id field (P-2 round-3 audit verified).
+    entries lack a session_id field.
 
     `pending_details` is a list of {atomic_id, signal_type, content_excerpt, age_min}
     dicts (max 10 most recent), so Claude knows WHICH preference was missed (not just
@@ -255,8 +255,8 @@ def bump_retry_state(session_id):
 
 
 def write_pending_alert(session_id, pending_count, session_age_min, oldest_pending_age_min, retry_count=0):
-    """Write a /tmp/session_pending_alert_<sid>.md file describing the block reason
-    so agent has machine-readable alert when retry stop triggers."""
+    """Write a pending-alert markdown file (under the B4 alert dir, see ALERT_DIR)
+    describing the block reason so the agent has a machine-readable alert."""
     sid = session_id or 'unknown'
     sid_safe = re.sub(r'[^a-zA-Z0-9_-]', '_', sid)[:64]
     path = os.path.join(ALERT_DIR, f'session_pending_alert_{sid_safe}.md')
@@ -264,7 +264,7 @@ def write_pending_alert(session_id, pending_count, session_age_min, oldest_pendi
     if retry_count >= MAX_RETRIES_BEFORE_SELF_DISABLE - 1:
         retry_note = (
             f'\n\n⚠ **This is retry #{retry_count + 1}**. After retry #{MAX_RETRIES_BEFORE_SELF_DISABLE} '
-            f'B4 will SELF-DISABLE for this session (livelock prevention per code-review C1). '
+            f'B4 will SELF-DISABLE for this session (livelock prevention). '
             f'If you keep retrying without finalizing, the next Stop will pass without check.'
         )
     elif retry_count > 0:
@@ -317,7 +317,7 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
     self_observations.uncertainty_notes non-empty) so the gate passes without
     warning the user about a likely false-positive.
 
-    Atomic write strategy (.tmp + rename + flock per kickoff §Step 1):
+    Atomic write strategy (.tmp + rename + flock):
       1. Acquire flock on <obs_log>.lock sentinel (separate from data file
          so rename of data file doesn't break mutual exclusion).
       2. Read existing obs_log content under lock.
@@ -404,7 +404,7 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
             'miss_risk_notes': 'real signal may have been present but missed by Claude',
         },
     }
-    # H2 fix: sanitize before serialize. obs entries embed response_excerpt
+    # Sanitize before serialize. obs entries embed response_excerpt
     # (user-pasted content), miss_risk_notes etc. that may contain secrets.
     entry = redaction.sanitize(entry)
     line = json.dumps(entry, ensure_ascii=False) + '\n'
@@ -505,7 +505,7 @@ def _build_argparser():
 
 
 def main():
-    # C4 fix: lazy mkdir at runtime (used to be at import time → unrecoverable on
+    # Lazy mkdir at runtime (used to be at import time → unrecoverable on
     # read-only FS). Failure here is silent and hook degrades gracefully.
     _ensure_alert_retry_dirs()
 
@@ -569,7 +569,7 @@ def main():
     else:
         entry['response_empty'] = True
 
-    # B4 — pending finalize blocking decision (Session B, 2026-04-25)
+    # B4 — pending finalize blocking decision
     pending_count, oldest_pending_age_min, session_age_min, pending_details = count_recent_pending()
     retry_state = load_retry_state(session_id)
     self_disabled = retry_state.get('retries', 0) >= MAX_RETRIES_BEFORE_SELF_DISABLE
@@ -588,7 +588,7 @@ def main():
         'max_retries': MAX_RETRIES_BEFORE_SELF_DISABLE,
     }
 
-    # C1 fix: livelock prevention — after MAX_RETRIES_BEFORE_SELF_DISABLE retries,
+    # Livelock prevention — after MAX_RETRIES_BEFORE_SELF_DISABLE retries,
     # gate self-disables for this session even if conditions still met.
     # Logic: would_block (fresh evaluation) AND not B4_DISABLED AND not self_disabled
     would_block = (
@@ -598,11 +598,11 @@ def main():
     should_block = would_block and path_config.enforcement_enabled() and not B4_DISABLED and not self_disabled
     entry['b4_check']['would_block'] = would_block
 
-    # Write compliance log first (always); H10 fix chmod 0600 on the log
+    # Write compliance log first (always); chmod 0600 on the log
     # because entries embed response_excerpt[:400] (real user content).
     try:
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
-        # H2 fix: sanitize compliance log entries (response_excerpt[:400] embeds
+        # Sanitize compliance log entries (response_excerpt[:400] embeds
         # user-pasted content that may contain API keys / SSH keys / DB URIs).
         with open(LOG_PATH, 'a', encoding='utf-8') as f:
             f.write(json.dumps(redaction.sanitize(entry), ensure_ascii=False) + '\n')

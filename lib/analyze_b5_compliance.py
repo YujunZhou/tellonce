@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tier B item 6 — daily summary of B5 compliance log.
+"""Daily summary of the compliance log.
 
 Reads compliance_log.jsonl entries within last 24h, computes:
   - deterministic block counts per rule
@@ -155,20 +155,20 @@ def write_summary(metrics, date_str):
 
 **Total log entries (last 24h)**: {metrics['total_entries']}
 
-## Deterministic (Tier A item 1)
+## Deterministic
 - Total pass: {metrics['deterministic_pass']}
 - Total disabled (B5_DETERMINISTIC_DISABLED env): {metrics['deterministic_disabled']}
 - Blocks by rule:
 {det_lines}
 
-## Shadow LLM judge (Tier A item 2)
+## Shadow LLM judge
 - Total turns judged: {metrics['judge_total']} (violations: {metrics['shadow_violations']}, compliant: {metrics['shadow_compliant']}, errors: {metrics['shadow_judge_error']})
 - Skipped: {metrics['shadow_skip_short']} (short response), {metrics['shadow_no_credit']} (no credit), {metrics['shadow_disabled']} (disabled), {metrics['shadow_cost_capped']} (cost cap)
 - Judge fail rate: {metrics['judge_fail_rate']:.2%}
 - Avg latency: {metrics['avg_latency_ms']:.0f}ms; p95: {metrics['p95_latency_ms']:.0f}ms
 - Total cost: ${metrics['total_cost_usd']:.4f} ({cost_pct:.1f}% of ${B5_DAILY_COST_CAP:.2f}/day cap)
 
-## Soft injection (Tier A item 3)
+## Soft injection
 - Alerts written: {metrics['shadow_alerted_count']}
 """
     with open(path, 'w', encoding='utf-8') as f:
@@ -204,8 +204,8 @@ The following thresholds were tripped today:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--days', type=int, default=1)
-    # H12 fix (2026-05-01): dashboard.sh has been passing --json since
-    # introduction (M5 fix), but argparse never declared it → silent failure
+    # dashboard.sh has been passing --json since it was introduced,
+    # but argparse never declared it → silent failure
     # on `dashboard.sh --json`. Now machine-parseable via stdout JSON.
     parser.add_argument('--json', action='store_true',
                         help='Emit a single JSON object on stdout (no markdown).')

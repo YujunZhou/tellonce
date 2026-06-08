@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tier B item 4 — auto-retire mechanical superseded memory files.
+"""Auto-retire mechanical superseded memory files.
 
-Logic (per round 3 §B.4 ownership safety, mechanical only):
+Logic (ownership safety, mechanical only):
   1. Scan memory dir for files with `superseded_by: <id>` in frontmatter
   2. Verify the pair file (with matching atomic_id) exists in memory dir
   3. Rename file: `<old_name>.md` → `_archived_<old_name>.md` (prefix convention)
@@ -22,6 +22,10 @@ import re
 import sys
 import glob
 import json
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Windows: file locking handled differently
 from datetime import datetime, timezone
 
 import sys as _sys
@@ -67,7 +71,7 @@ def main():
     dry_run = '--dry-run' in sys.argv
     actions = []
 
-    # MP-B3: build atomic_id -> path once (single pass) instead of re-globbing
+    # Build atomic_id -> path once (single pass) instead of re-globbing
     # the whole memory dir for every superseded file (was O(n^2)).
     id_map = {}
     for _p in glob.glob(os.path.join(MEMORY_DIR, '*.md')):
@@ -122,7 +126,24 @@ def main():
         })
 
         if not dry_run:
-            os.replace(path, new_path)
+            # Best-effort cross-process lock around the rename so a
+            # concurrent maintenance run can't race the archive move.
+            _lock_f = None
+            try:
+                if fcntl is not None:
+                    _lock_f = open(os.path.join(MEMORY_DIR, '.auto_retire.lock'), 'w')
+                    fcntl.flock(_lock_f.fileno(), fcntl.LOCK_EX)
+            except Exception:
+                _lock_f = None
+            try:
+                os.replace(path, new_path)
+            finally:
+                if _lock_f is not None:
+                    try:
+                        fcntl.flock(_lock_f.fileno(), fcntl.LOCK_UN)
+                        _lock_f.close()
+                    except Exception:
+                        pass
 
     # Write log
     if not dry_run and actions:

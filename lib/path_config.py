@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Central path detection (per `code-pref-287`).
+"""Central path detection.
 
 Every lib `.py` imports this module instead of hardcoding constants. Path resolution falls
 back through three layers: env / config / auto-detect.
@@ -16,8 +16,8 @@ Priority (high → low):
      - memory_dir = ~/.claude/projects/<cwd_escaped>/memory
                     cwd_escaped = cwd.replace('/', '-')
 
-Per `wf-pref-027`: versioned backup — this is an additive new file, existing files untouched.
-Per `tool-pit-130`: state lives under .claude/preference-tracker-state/, not /tmp.
+Versioned backup — this is an additive new file, existing files untouched.
+State lives under .claude/preference-tracker-state/, not /tmp.
 """
 import json
 import os

@@ -16,9 +16,9 @@
 set -uo pipefail   # NB: no -e — this hook does plenty of optional jq parses
                    # whose failure is acceptable. With -e set, any of those
                    # falling through pipeline-status non-zero would kill the
-                   # whole hook (H8 fix).
+                   # whole hook.
 
-# H8 fix: jq is required for parsing the stdin JSON payload. Without it the
+# jq is required for parsing the stdin JSON payload. Without it the
 # rest of this script would silently degrade — `jq -r ... 2>/dev/null` returns
 # empty + `set -e` (above) would exit 127. Skip the hook if jq is missing
 # rather than reporting a hook-error that confuses users.
@@ -34,7 +34,7 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null 
 
 # Detect OBS_LOG via path_config (single source of truth). Use env-channel argv
 # rather than string-interpolated `sys.path.insert(0, '${HOME}...')` to avoid
-# breaking when HOME contains a single quote. (H14 fix.)
+# breaking when HOME contains a single quote.
 OBS_LOG=$(env PT_LIB="${_PT_LIB}" \
               PYTHONIOENCODING=utf-8 \
               python3 -c '
@@ -52,8 +52,8 @@ fi
 # Trace log: opt-in via PT_TRACE=1 (default OFF; legacy B5_TRACE still honored).
 # When opt-in, write to
 # state_dir (per project) instead of /tmp — /tmp is world-readable on shared
-# hosts and INPUT contains transcript_path / cwd / session_id (privacy fix per
-# H11 review). Set via env PT_TRACE_LOG (legacy B5_TRACE_LOG) to override the
+# hosts and INPUT contains transcript_path / cwd / session_id (privacy
+# protection). Set via env PT_TRACE_LOG (legacy B5_TRACE_LOG) to override the
 # path explicitly.
 B5_TRACE="${B5_TRACE:-${PT_TRACE:-0}}"
 B5_TRACE_LOG="${B5_TRACE_LOG:-${PT_TRACE_LOG:-}}"
@@ -111,7 +111,7 @@ if [ -f "$OBS_LOG" ]; then
   NOW=$(date +%s)
   AGE=$((NOW - LAST_MOD))
 
-  # Threshold: env-tunable. Default raised 600 → 1800 (Sprint v23 day-1, 2026-04-27)
+  # Threshold: env-tunable. Default raised 600 → 1800
   # to accommodate long write-heavy autonomous blocks where mid-turn obs append is missed.
   # Tune via env OBSERVATION_LOG_AGE_THRESHOLD_SEC (e.g. 600 for short-turn projects).
   OBS_AGE_THRESHOLD="${OBSERVATION_LOG_AGE_THRESHOLD_SEC:-1800}"
@@ -163,7 +163,7 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════
-# ROBUSTNESS REWRITE (2026-04-19, final):
+# ROBUSTNESS REWRITE:
 # Replaced response-text regex scan (unstable) with STRUCTURED LOG VALIDATION
 # (stable, zero false positive). Checks the LAST observation entry has:
 #   1. detection.detected ∈ {true, false} (not null / "unknown")
@@ -173,9 +173,9 @@ fi
 #      AND content field length >= 30 chars (no "ok" sloppy entries)
 #      AND action.confirmation_text non-empty
 # ══════════════════════════════════════════════════════════════════════════
-RUN_SOFT_CHECK=false  # legacy text-scan permanently disabled (per 2026-04-19 robustness rewrite).
-# The SOFT check section at lines 153-227 below is kept for legacy reference (per `wf-pref-027`,
-# never overwrite). To use the grep-based text-marker check: (a) set RUN_SOFT_CHECK=true; or (b)
+RUN_SOFT_CHECK=false  # legacy text-scan permanently disabled (robustness rewrite).
+# The SOFT check section at lines 153-227 below is kept for legacy reference (do not
+# overwrite). To use the grep-based text-marker check: (a) set RUN_SOFT_CHECK=true; or (b)
 # delete that lines 153-227 section. The current version **never executes** that section.
 
 QUALITY_WARNINGS=""

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase B5 Tier A item 3 — Soft injection (UserPromptSubmit hook).
+"""Soft injection (UserPromptSubmit hook).
 
 Read B5_SHADOW_ALERT.md (rolling cap N=3 violations from shadow judge), inject
 "last turn you violated X" notice into next-turn additionalContext.
@@ -9,8 +9,8 @@ Defenses:
   - 24h TTL: alerts older than 24h auto-skipped at read time
   - Empty alert file → exit 0 silently
 
-Per `code-pref-101` JSON output.
-Per `wf-pref-036` defensive fallbacks.
+JSON output.
+Defensive fallbacks.
 """
 import json
 import os

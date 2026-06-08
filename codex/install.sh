@@ -59,7 +59,7 @@ HOOKS_JSON="${HOME}/.codex/hooks.json"
 # ============================================================
 if [[ "${SKIP_GLOBAL}" != true ]]; then
     echo "[1/3] global runtime → ${GLOBAL_DIR}"
-    # Round-7 codex-review P2-8 fix: walk ancestors before mkdir -p so a
+    # Walk ancestors before mkdir -p so a
     # 0-byte regular file at any component (commonly ~/.codex when another
     # tool created it as a file) gets a clear actionable error instead of
     # bash's generic "File exists" or mkdir's "Not a directory" message.
@@ -187,7 +187,7 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
 
     # 1e2. Install a shell wrapper at ~/.local/bin/codex_preftrack so
     # `codex_preftrack ...` works from any shell (no PYTHONPATH needed).
-    # Round-9 codex-review fix #1 (UX gap, 2026-05-02): without this
+    # Without this
     # wrapper, users had to remember `PYTHONPATH=~/.codex/skills/preference-tracker
     # python3 -m codex_preftrack ...` for every CLI invocation.
     BIN_DIR="${HOME}/.local/bin"
@@ -231,7 +231,7 @@ fi
 # ============================================================
 if [[ "${SKIP_PROJECT}" != true ]]; then
     echo "[3/3] per-project state init → $(pwd)/.codex/preference-tracker/"
-    # Round-7 codex-review P1-3 fix: forward --no-hooks down so phase 3 does
+    # Forward --no-hooks down so phase 3 does
     # not silently re-register hooks the user already opted out of via the
     # bash --no-hooks flag.
     PHASE3_ARGS=(${PASSTHRU[@]+"${PASSTHRU[@]}"})

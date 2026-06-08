@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Preference-Tracker 一键装 — Phase 4.2 (per `tool-pref-288` install/doctor/uninstall 标准接口).
+# Preference-Tracker one-shot installer — standard install/doctor/uninstall interface.
 #
 # Usage:
 #   bash ~/.claude/skills/preference-tracker/install.sh [--state-dir <path>] [--quiet] [--dry-run]
 #
-# 5 段全鲁棒 (per kickoff §0 mission):
-#   1. 准备 (pre-install doctor 风格预检)
-#   2. 安装 (idempotent, versioned 备份, trap ERR rollback)
-#   3. 收集 (state + obs_log 路径可写)
-#   4. 执行 (doctor 自检 26+12+10 unit + smoke)
-#   5. 卸载机制就绪 (uninstall.sh)
+# Five robust phases:
+#   1. Prepare (pre-install doctor-style checks)
+#   2. Install (idempotent, versioned backup, trap ERR rollback)
+#   3. Collect (state + obs_log paths writable)
+#   4. Execute (doctor self-check: unit + smoke)
+#   5. Uninstall mechanism ready (uninstall.sh)
 #
-# Per `wf-pref-027` versioned 备份, `tool-pit-130` state 走 .claude/preference-tracker-state/.
-# Per `code-pref-291` Python merge (非 jq).
+# Versioned backups; state lives under .claude/preference-tracker-state/.
+# Settings merge is done in Python (not jq).
 
 set -euo pipefail
 
@@ -39,19 +39,18 @@ HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"
 BACKUP_FILE=""
 
-# C3 fix (Phase 8 code review): refuse install when PROJECT_ROOT 是 HOME / /tmp / 没 .claude
+# Refuse install when PROJECT_ROOT is HOME / /tmp / has no .claude
 if [[ "${PROJECT_ROOT}" == "${HOME}" ]]; then
     echo "❌ PROJECT_ROOT == HOME (${HOME})"
-    echo "   你似乎在 HOME 跑 install.sh — 应该 cd 到项目根再装."
-    echo "   如果真要装到 user-level (跨项目共享), 用 --i-know-i-am-installing-globally"
-    echo "   per code review C3 fix."
+    echo "   You appear to be running install.sh in HOME — cd into your project root first."
+    echo "   If you really want a user-level (cross-project) install, use --i-know-i-am-installing-globally"
     exit 1
 fi
 if [[ "${PROJECT_ROOT}" == /tmp/* ]] || [[ "${PROJECT_ROOT}" == /tmp ]]; then
     # Allow /tmp/fake_user_test for smoke/chaos test
     if [[ "${PROJECT_ROOT}" != /tmp/fake_user_test* ]] && [[ "${PROJECT_ROOT}" != /tmp/chaos_test* ]]; then
-        echo "❌ PROJECT_ROOT 在 /tmp 下 (${PROJECT_ROOT})"
-        echo "   /tmp 不持久 (per tool-pit-130). 换持久 path 重跑."
+        echo "❌ PROJECT_ROOT is under /tmp (${PROJECT_ROOT})"
+        echo "   /tmp is not persistent. Re-run from a persistent path."
         exit 1
     fi
 fi
@@ -62,26 +61,25 @@ log() {
     fi
 }
 
-# Trap ERR — rollback settings 备份, 不删 hooks .sh / state / memory
-# C10 fix (2026-05-01): need to (a) disable set -e inside rollback so a failing
-# `cp` doesn't truncate the function before printing the rollback summary or
-# reaching `exit 2`; (b) clear ERR trap on entry so a second failure inside
-# rollback doesn't recurse.
+# Trap ERR — roll back the settings backup; do not delete hooks .sh / state / memory
+# Inside rollback we (a) disable set -e so a failing `cp` doesn't truncate the
+# function before printing the rollback summary or reaching `exit 2`; (b) clear
+# the ERR trap on entry so a second failure inside rollback doesn't recurse.
 rollback() {
     set +e
     trap - ERR
     log ""
-    log "❌ install 失败, 回滚..."
+    log "❌ install failed, rolling back..."
     if [[ -n "${BACKUP_FILE}" && -f "${BACKUP_FILE}" ]]; then
         if cp "${BACKUP_FILE}" "${SETTINGS}"; then
-            log "  settings 回滚: ${BACKUP_FILE} → ${SETTINGS}"
+            log "  settings rolled back: ${BACKUP_FILE} → ${SETTINGS}"
         else
-            log "  ⚠ settings 回滚失败 (cp 错): ${BACKUP_FILE} → ${SETTINGS}"
-            log "  → 手动恢复: cp \"${BACKUP_FILE}\" \"${SETTINGS}\""
+            log "  ⚠ settings rollback failed (cp error): ${BACKUP_FILE} → ${SETTINGS}"
+            log "  → restore manually: cp \"${BACKUP_FILE}\" \"${SETTINGS}\""
         fi
     fi
-    log "  hooks .sh / state / memory 保留 (留 debug)"
-    log "  详细错误见 ${SKILL_DIR}/install.log"
+    log "  hooks .sh / state / memory kept (for debugging)"
+    log "  see ${SKILL_DIR}/install.log for details"
     exit 2
 }
 trap 'rollback' ERR
@@ -96,8 +94,8 @@ run() {
 
 LOG_FILE="${SKILL_DIR}/install.log"
 mkdir -p "${SKILL_DIR}" 2>/dev/null || true
-# C2 fix (Phase 8 code review): tee BOTH stdout + stderr into install.log;
-# 之前只 tee stderr → log() echo stdout 不进 log → FAQ Q15 cat install.log 排错失效.
+# Tee BOTH stdout + stderr into install.log; tee-ing only stderr would drop
+# log() stdout from the log, breaking `cat install.log` troubleshooting.
 exec > >(tee "${LOG_FILE}") 2>&1
 
 log "Preference-Tracker install — version 1.0"
@@ -107,13 +105,13 @@ log "  SKILL_DIR: ${SKILL_DIR}"
 log ""
 
 # ============================================================
-# Phase 1: 准备 (doctor 风格预检)
+# Phase 1: Prepare (doctor-style pre-checks)
 # ============================================================
-log "[1/5] 准备: 环境预检"
+log "[1/5] Prepare: environment pre-checks"
 
-# 1.1 HOME 可写
+# 1.1 HOME writable
 if ! mkdir -p "${HOME}/.claude/skills/.write_test" 2>/dev/null; then
-    log "❌ HOME (${HOME}) 不可写. 检查 quota / 权限"
+    log "❌ HOME (${HOME}) is not writable. Check quota / permissions"
     exit 1
 fi
 rmdir "${HOME}/.claude/skills/.write_test" 2>/dev/null || true
@@ -121,67 +119,67 @@ rmdir "${HOME}/.claude/skills/.write_test" 2>/dev/null || true
 # 1.2 Python 3 >= 3.7
 PY_OK=$(python3 -c "import sys; print('OK' if sys.version_info >= (3, 7) else 'OLD')" 2>/dev/null || echo "MISSING")
 if [[ "${PY_OK}" != "OK" ]]; then
-    log "❌ Python3 不存在或版本 <3.7. 装 Python 3.7+ 后重试"
+    log "❌ Python3 missing or version <3.7. Install Python 3.7+ and retry"
     exit 1
 fi
 
-# 1.2b PyYAML — retrieve_inject + verify_compliance.detect_rules_for_response 用. 没有
-# yaml 这两个 hook 静默退出 (sys.exit(0)), 让 enforcement 失效一半. (H4 fix)
+# 1.2b PyYAML — used by retrieve_inject + verify_compliance.detect_rules_for_response.
+# Without yaml these two hooks exit silently (sys.exit(0)), disabling half of enforcement.
 if ! python3 -c 'import yaml' 2>/dev/null; then
-    log "⚠ PyYAML 不在 system Python 里. fingerprint 检索 + B3 fp_rules_in_response 会 silent disable."
-    log "   修复:"
-    log "     pip install --user pyyaml     (或)"
-    log "     pip3 install --user pyyaml    (或 system 包)"
+    log "⚠ PyYAML not found in system Python. fingerprint retrieval + B3 fp_rules_in_response will be silently disabled."
+    log "   Fix:"
+    log "     pip install --user pyyaml     (or)"
+    log "     pip3 install --user pyyaml    (or a system package)"
     log "     sudo apt install python3-yaml (Ubuntu)"
-    log "   不安装继续也能跑 deterministic 阻断 + shadow judge, 仅丢 fingerprint retrieval."
+    log "   You can continue without it: deterministic blocking + shadow judge still run, only fingerprint retrieval is lost."
 fi
 
-# 1.2c jq — check-observation-log.sh 等 hook 用. 没装 hook 会 set -e 顶死. (H8 fix)
+# 1.2c jq — used by check-observation-log.sh and other hooks. Without it those hooks die under set -e.
 if ! command -v jq > /dev/null 2>&1; then
-    log "❌ jq 不在 PATH. check-observation-log.sh 跟其他 short-circuit 块都依赖 jq."
-    log "   修复: sudo apt install jq (Ubuntu) / brew install jq (macOS)"
+    log "❌ jq not in PATH. check-observation-log.sh and other short-circuit blocks depend on jq."
+    log "   Fix: sudo apt install jq (Ubuntu) / brew install jq (macOS)"
     exit 1
 fi
 
-# 1.3 claude CLI (shadow judge 默认走 CLI)
+# 1.3 claude CLI (shadow judge uses the CLI by default)
 if ! command -v claude > /dev/null 2>&1; then
-    log "⚠ 未在 PATH 找到 'claude' CLI"
-    log "   shadow judge 默认走 CLI 订阅 (per tool-pit-004), 没 CLI 影子判官跑不起来"
-    log "   你可以 set B5_SHADOW_DISABLED=1 关影子判官 (deterministic 仍然 work)"
-    log "   或装 Claude Code: https://claude.com/code"
+    log "⚠ 'claude' CLI not found in PATH"
+    log "   shadow judge uses the CLI subscription by default; without the CLI the shadow judge cannot run"
+    log "   set B5_SHADOW_DISABLED=1 to disable the shadow judge (deterministic still works)"
+    log "   or install Claude Code: https://claude.com/code"
 fi
 
-# 1.4 现 settings 合法 (如存在). M14 fix: env 通道传 path 防注入 + utf-8 编码
+# 1.4 Existing settings valid (if present). Pass path via env channel to avoid injection + utf-8 encoding.
 if [[ -f "${SETTINGS}" ]]; then
     if ! env PT_SETTINGS="${SETTINGS}" PYTHONIOENCODING=utf-8 python3 -c \
         'import json, os; json.load(open(os.environ["PT_SETTINGS"]))' 2>/dev/null; then
-        log "❌ ${SETTINGS} 非法 JSON. 跑 jsonlint 检查后重试"
+        log "❌ ${SETTINGS} is invalid JSON. Run jsonlint to check, then retry"
         exit 1
     fi
 fi
 
-# 1.5 SKILL dir 完整 (lib + hooks 子目录存在)
+# 1.5 SKILL dir complete (lib + hooks subdirs exist)
 if [[ ! -d "${SKILL_DIR}/lib" ]]; then
-    log "❌ ${SKILL_DIR}/lib 不存在. 检查 skill 是否解压完整"
+    log "❌ ${SKILL_DIR}/lib does not exist. Check the skill was extracted completely"
     exit 1
 fi
 if [[ ! -d "${SKILL_DIR}/hooks" ]]; then
-    log "❌ ${SKILL_DIR}/hooks 不存在. 检查 skill 是否解压完整"
+    log "❌ ${SKILL_DIR}/hooks does not exist. Check the skill was extracted completely"
     exit 1
 fi
 
-log "  ✓ HOME 可写"
+log "  ✓ HOME writable"
 log "  ✓ Python 3.7+"
-log "  ✓ skill 目录完整 (lib + hooks)"
-log "  ✓ 现 settings 合法"
+log "  ✓ skill directory complete (lib + hooks)"
+log "  ✓ existing settings valid"
 
 # ============================================================
-# Phase 2: 安装 (idempotent, versioned 备份)
+# Phase 2: Install (idempotent, versioned backup)
 # ============================================================
 log ""
-log "[2/5] 安装: 改 settings + 拷 hooks + 创 state"
+log "[2/5] Install: update settings + copy hooks + create state"
 
-# 2.1 detect cwd / paths (M14 fix: PYTHONIOENCODING=utf-8 防用户 LANG 不是 utf-8 时 stdout 崩)
+# 2.1 detect cwd / paths (PYTHONIOENCODING=utf-8 prevents stdout crashes when the user's LANG isn't utf-8)
 CWD_ESCAPED="$(PYTHONIOENCODING=utf-8 python3 -c "import sys; print(sys.argv[1].replace('/', '-'))" "${PROJECT_ROOT}")"
 MEMORY_DIR="${HOME}/.claude/projects/${CWD_ESCAPED}/memory"
 STATE_DIR="${STATE_DIR_OVERRIDE:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}}"
@@ -192,10 +190,10 @@ log "  STATE_DIR: ${STATE_DIR}"
 log "  OBS_LOG_DIR: ${OBS_LOG_DIR}"
 log "  MEMORY_DIR: ${MEMORY_DIR}"
 
-# 2.2 versioned backup settings (per `wf-pref-027`)
-# H7 fix (2026-05-01): also GC older backups, keep most recent 5.
-# install.sh + _install_merge_settings.cmd_add 各 cp 一次 = 单次 install 创 2 份.
-# 不 GC 长期 user 重装会有几十份, 占盘 + 老 secret 永远留存.
+# 2.2 versioned backup of settings
+# Also GC older backups, keeping the 5 most recent.
+# install.sh + _install_merge_settings.cmd_add each copy once = 2 backups per install.
+# Without GC, repeated reinstalls leave dozens of copies, wasting disk + retaining old secrets forever.
 if [[ -f "${SETTINGS}" ]]; then
     TS="$(date +%Y%m%d-%H%M%S)"
     BACKUP_FILE="${SETTINGS}.v3_pre_pt_${TS}.json"
@@ -204,7 +202,7 @@ if [[ -f "${SETTINGS}" ]]; then
     # GC oldest backups beyond the most recent 5
     OLD_BACKUPS=$(ls -t "${SETTINGS}".v3_pre_pt_*.json 2>/dev/null | tail -n +6 || true)
     if [[ -n "${OLD_BACKUPS}" ]]; then
-        log "  GC 老 backup (保留最新 5 份):"
+        log "  GC old backups (keeping the 5 most recent):"
         while IFS= read -r ob; do
             run rm -f "${ob}"
             log "    rm ${ob}"
@@ -212,40 +210,43 @@ if [[ -f "${SETTINGS}" ]]; then
     fi
 fi
 
-# 2.3 注册 skill hooks 路径直接 (codex review C1 fix, 2026-05-01)
-# 老设计: cp 到 ${PROJECT_ROOT}/.claude/hooks/, 注册 project-local 路径.
-# 漏洞: hostile repo 预放同名 hook .sh, install 看到已存在就 "cp -n 跳过",
-#       然后注册了攻击者代码到 settings.local.json, 之后每次 Stop hook 跑攻击者脚本.
-# 修: 直接注册 ${SKILL_DIR}/hooks/*.sh — skill dir 在 ~/.claude/, 不受项目内
-#     文件影响. 同时保留 ${HOOKS_DIR} 不再写入, 避免破坏 manual customization.
+# 2.3 Register the skill hook paths directly.
+# Old design: copy into ${PROJECT_ROOT}/.claude/hooks/ and register project-local paths.
+# Vulnerability: a hostile repo could pre-place a hook .sh with the same name; install
+#       would see it already exists and "cp -n skip", registering attacker code into
+#       settings.local.json so every Stop hook then runs the attacker's script.
+# Fix: register ${SKILL_DIR}/hooks/*.sh directly — the skill dir lives in ~/.claude/ and
+#     is not affected by in-project files. ${HOOKS_DIR} is no longer written to, avoiding
+#     breaking manual customization.
 run chmod +x "${SKILL_DIR}"/hooks/*.sh 2>/dev/null || true
 HOOKS_REGISTER_DIR="${SKILL_DIR}/hooks"
-log "  hooks 注册路径: ${HOOKS_REGISTER_DIR} (skill dir, 不可被项目覆盖)"
+log "  hooks registration path: ${HOOKS_REGISTER_DIR} (skill dir, cannot be overridden by the project)"
 
-# 2.4 Python merge settings (additive, 已注册 hook skip)
+# 2.4 Python merge settings (additive; already-registered hooks are skipped)
 log ""
-log "  注册 hooks 到 settings.local.json:"
+log "  registering hooks into settings.local.json:"
 run python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
     --settings "${SETTINGS}" \
     --hooks-dir "${HOOKS_REGISTER_DIR}" \
     --add
 
-# 2.4b 老安装清理: 之前注册了 ${PROJECT_ROOT}/.claude/hooks/ path 的把它们撤掉
-# (避免 settings.local.json 同时挂老 project-local 路径 + 新 skill-dir 路径).
+# 2.4b Legacy install cleanup: unregister previously registered
+# ${PROJECT_ROOT}/.claude/hooks/ paths (so settings.local.json doesn't carry both
+# the old project-local paths and the new skill-dir paths).
 if [[ -d "${HOOKS_DIR}" ]] && ls "${HOOKS_DIR}"/memory-*.sh > /dev/null 2>&1; then
-    log "  检测到老安装的 project-local hooks (${HOOKS_DIR}), 撤注册:"
+    log "  detected legacy project-local hooks (${HOOKS_DIR}), unregistering:"
     run python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
         --settings "${SETTINGS}" \
         --hooks-dir "${HOOKS_DIR}" \
         --remove || true
-    log "    (project-local .sh 文件保留在 ${HOOKS_DIR}, 你可手动 rm)"
+    log "    (project-local .sh files kept in ${HOOKS_DIR}; you can rm them manually)"
 fi
 
-# 2.5 创 state subdirs (idempotent)
-# C-NEW-1 fix (Phase 8 review v2): path 走 env 通道, 不 interpolate 进 Python source.
-# Bash 段单引号包, 路径含 `'` / `"` / `$` / `\`` 都不会注入 Python.
+# 2.5 Create state subdirs (idempotent)
+# Pass the path via the env channel rather than interpolating into Python source.
+# The Bash block is single-quoted, so paths containing `'` / `"` / `$` / `\`` cannot inject into Python.
 log ""
-log "  创 state subdirs:"
+log "  creating state subdirs:"
 run env \
     PT_SKILL_DIR="${SKILL_DIR}" \
     B5_STATE_DIR="${STATE_DIR}" \
@@ -261,13 +262,15 @@ path_config.ensure_dirs()
 print("  ✓ state subdirs created")
 '
 
-# 2.7 写 ~/.preference-tracker.config.json 锚定 PROJECT_ROOT (I5 fix)
-# hook 跑时 cwd 可能跟 install.sh 跑时不同; config 锚定让 path_config 不依赖每次 cwd.
+# 2.7 Write ~/.preference-tracker.config.json to anchor PROJECT_ROOT.
+# A hook's cwd at runtime may differ from install.sh's; the config anchor lets
+# path_config not depend on the cwd each time.
 #
-# C7 fix (2026-05-01): 改成 OVERWRITE 这次 install 的 path_root / state / obs_log
-# (不是 setdefault). 之前 setdefault 在跨项目重装时让旧 project_root 卡住, 新装
-# 的 hooks 永远写到旧项目的 state dir. 我们假设最近一次 install 反映用户当前
-# project; 老 config 字段 (memory_dir 等) 保留.
+# Overwrite this install's path_root / state / obs_log (not setdefault). With
+# setdefault, a cross-project reinstall left the old project_root stuck so newly
+# installed hooks always wrote to the old project's state dir. We assume the most
+# recent install reflects the user's current project; other config fields
+# (memory_dir, etc.) are preserved.
 log ""
 # Issue #1 fix (#2): do NOT pin project_root/state_dir/obs_log_dir in the GLOBAL
 # ~/.preference-tracker.config.json by default. That single-file anchor is
@@ -276,10 +279,10 @@ log ""
 # hook's cwd at runtime, so no global anchor is needed. Only pin when the user
 # explicitly passed --state-dir; either way, clear any stale anchor left behind.
 if [[ -n "${STATE_DIR_OVERRIDE}" ]]; then
-    log "  锚定到 ~/.preference-tracker.config.json (显式 --state-dir):"
+    log "  anchoring to ~/.preference-tracker.config.json (explicit --state-dir):"
     _PT_CFG_ACTION=pin
 else
-    log "  per-project 模式: 不写全局 anchor (hooks 按项目 cwd 解析); 清除旧 anchor 若有:"
+    log "  per-project mode: not writing a global anchor (hooks resolve by project cwd); clearing any stale anchor:"
     _PT_CFG_ACTION=clean
 fi
 run env \
@@ -315,9 +318,9 @@ else:
     print("  ✓ no global anchor (per-project cwd resolution)")
 '
 
-# 2.6 cp seed memory (如果不存在), sed 替换私有 session id 为通用 seed 标记 (M9 fix)
+# 2.6 Copy seed memory (if absent), replacing the private session id with a generic seed marker.
 log ""
-log "  装 seed memory (如不存在):"
+log "  installing seed memory (if absent):"
 run mkdir -p "${MEMORY_DIR}"
 # Issue #1 fix (#5): memory holds your recorded preferences — tighten to 700 so
 # it isn't world/group-readable on a shared HOME / multi-user box.
@@ -330,11 +333,11 @@ if [[ -d "${SKILL_DIR}/seed_memory" ]]; then
         fi
         target="${MEMORY_DIR}/$(basename "${seed}")"
         if [[ -f "${target}" ]]; then
-            log "  - $(basename "${seed}") 已存在, 跳过 (cp -n)"
+            log "  - $(basename "${seed}") already exists, skipping (cp -n)"
             SEED_SKIPPED=$((SEED_SKIPPED + 1))
         else
-            # M9 fix: 替换 seed memory 里的私有 originSessionId 为通用 seed 标记
-            # M14 fix: 显式 PYTHONIOENCODING=utf-8 防用户终端 LANG 不是 utf-8
+            # Replace the private originSessionId in seed memory with a generic seed marker.
+            # Set PYTHONIOENCODING=utf-8 explicitly in case the user's terminal LANG isn't utf-8.
             run env PYTHONIOENCODING=utf-8 python3 -c "
 import sys, re
 src, dst = sys.argv[1], sys.argv[2]
@@ -348,92 +351,92 @@ content = re.sub(
 with open(dst, 'w', encoding='utf-8') as f:
     f.write(content)
 " "${seed}" "${target}"
-            log "  ✓ $(basename "${seed}") (originSessionId 已通用化)"
+            log "  ✓ $(basename "${seed}") (originSessionId genericized)"
         fi
     done
-    # M11 fix: 若有 skip, 提示用户 frontmatter 可能 stale 没 params: 块
+    # If any seeds were skipped, warn that their frontmatter may be stale and missing a params: block.
     if [[ "${SEED_SKIPPED}" -gt 0 ]]; then
         log ""
-        log "  ⚠ ${SEED_SKIPPED} 个 seed memory 已存在, 没覆盖 (保你已有数据)"
-        log "    若它们是老版没 'params:' 块, Phase 7 自适应阈值 fallback 到代码默认"
-        log "    新阈值参数显式化加进 frontmatter: 看 ${SKILL_DIR}/seed_memory/*.md 的 'params:' 段, 复制进你已有 memory 文件"
+        log "  ⚠ ${SEED_SKIPPED} seed memory file(s) already exist and were not overwritten (preserving your data)"
+        log "    if they are an old version without a 'params:' block, adaptive thresholds fall back to code defaults"
+        log "    to make the new threshold params explicit, copy the 'params:' section from ${SKILL_DIR}/seed_memory/*.md into your existing memory files"
     fi
 else
-    log "  - seed_memory/ 不存在, 跳过 (用户已有 memory)"
+    log "  - seed_memory/ does not exist, skipping (user already has memory)"
 fi
 
 # ============================================================
-# Phase 3: 收集 (验日志路径可写)
+# Phase 3: Collect (verify log paths writable)
 # ============================================================
 log ""
-log "[3/5] 收集: 验日志路径可写"
+log "[3/5] Collect: verify log paths are writable"
 if [[ "${DRY_RUN}" == true ]]; then
-    log "  [dry-run] 跳过日志路径可写检查 (Phase 2 的 dir 创建在 dry-run 下被跳过了, 不是失败)"
+    log "  [dry-run] skipping log path writability check (Phase 2 dir creation is skipped under dry-run, not a failure)"
 else
     for d in "${OBS_LOG_DIR}" "${STATE_DIR}"; do
         if [[ ! -d "${d}" ]]; then
-            log "❌ ${d} 不存在 (Phase 2 应创了)"
+            log "❌ ${d} does not exist (Phase 2 should have created it)"
             exit 1
         fi
         test_file="${d}/.write_test_$$"
         if ! touch "${test_file}" 2>/dev/null; then
-            log "❌ ${d} 不可写"
+            log "❌ ${d} is not writable"
             exit 1
         fi
         rm -f "${test_file}"
     done
-    log "  ✓ ${OBS_LOG_DIR} 可写"
-    log "  ✓ ${STATE_DIR} 可写"
+    log "  ✓ ${OBS_LOG_DIR} writable"
+    log "  ✓ ${STATE_DIR} writable"
 fi
 
 # ============================================================
-# Phase 4: 执行 (跑 doctor)
+# Phase 4: Execute (run doctor)
 # ============================================================
 log ""
-log "[4/5] 执行: 跑 doctor.sh 自检"
+log "[4/5] Execute: run doctor.sh self-check"
 if [[ -x "${SKILL_DIR}/doctor.sh" ]]; then
     run bash "${SKILL_DIR}/doctor.sh"
 else
-    log "  ⚠ doctor.sh 不存在 / 不可执行 (skill 包不完整). 跑基础测试:"
+    log "  ⚠ doctor.sh missing / not executable (incomplete skill package). Running basic tests:"
     run python3 "${SKILL_DIR}/lib/test_path_config.py"
 fi
 
 # ============================================================
-# Phase 5: 卸载机制就绪 (verify uninstall.sh executable per M7 fix)
+# Phase 5: Uninstall mechanism ready (verify uninstall.sh is executable)
 # ============================================================
 log ""
-log "[5/5] 卸载机制就绪:"
+log "[5/5] Uninstall mechanism ready:"
 if [[ -x "${SKILL_DIR}/uninstall.sh" ]]; then
-    log "  ✓ uninstall.sh 可执行: bash ${SKILL_DIR}/uninstall.sh"
+    log "  ✓ uninstall.sh executable: bash ${SKILL_DIR}/uninstall.sh"
 else
-    log "  ⚠ ${SKILL_DIR}/uninstall.sh 不存在或无执行权限"
+    log "  ⚠ ${SKILL_DIR}/uninstall.sh missing or not executable"
     log "    → chmod +x ${SKILL_DIR}/uninstall.sh"
-    log "    或 bash ${SKILL_DIR}/uninstall.sh (强制走 bash 不依赖执行位)"
+    log "    or bash ${SKILL_DIR}/uninstall.sh (force via bash, no exec bit needed)"
 fi
 
-# 关闭 trap (后续 echo 不算 ERR)
+# Disable the trap (subsequent echo isn't an ERR)
 trap - ERR
 
 log ""
-log "✅ Preference-Tracker 装好了"
+log "✅ Preference-Tracker installed"
 log ""
-log "关键路径:"
+log "Key paths:"
 log "  - skill: ${SKILL_DIR}"
 log "  - hooks: ${HOOKS_DIR}"
 log "  - state: ${STATE_DIR}"
 log "  - memory: ${MEMORY_DIR}"
 log ""
-log "提示 (避免新用户误会):"
-log "  - 默认 observe 模式: 只记录+提醒, 不硬拦截、不调用 LLM。"
-log "  - shadow judge 只在 full 模式跑, 且首次有冷启动延迟 (会拉起一个 claude -p 子进程,"
-log "    可能几十秒到几分钟) —— 这不是卡死/装坏。observe 模式根本不跑它。"
-log "    想彻底关掉: export B5_SHADOW_DISABLED=1"
+log "Notes (to avoid confusion for new users):"
+log "  - Default observe mode: record + remind only; no hard blocking, no LLM calls."
+log "  - The shadow judge only runs in full mode, and its first run has cold-start latency (it spawns a claude -p"
+log "    subprocess that may take tens of seconds to a few minutes) — this is not a hang or a broken install. Observe mode never runs it."
+log "    To disable it entirely: export B5_SHADOW_DISABLED=1"
 log ""
-log "下一步:"
-log "  - 看 README.md / FAQ.md"
-log "  - 跑 dashboard.sh 看 7 天 compliance summary"
-log "  - 关 shadow judge: export B5_SHADOW_DISABLED=1 (没 claude CLI 时建议)"
-log "  - 关 deterministic: export B5_DETERMINISTIC_DISABLED=1"
-log "  - 卸载: bash ${SKILL_DIR}/uninstall.sh"
+log "Next steps:"
+log "  - Read README.md / FAQ.md"
+log "  - Run dashboard.sh for a 7-day compliance summary"
+log "  - Disable shadow judge: export B5_SHADOW_DISABLED=1 (recommended when no claude CLI)"
+log "  - Disable deterministic: export B5_DETERMINISTIC_DISABLED=1"
+log "  - Uninstall: bash ${SKILL_DIR}/uninstall.sh"
 log ""
 log "Install log: ${LOG_FILE}"

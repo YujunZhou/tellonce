@@ -1,6 +1,6 @@
-# Preference-Tracker hook 文件名 source-of-truth (per Phase 8 I-NEW review fix).
-# install.sh / doctor.sh / uninstall.sh / _install_merge_settings.py 全 source 这个列表.
-# 改动 hook 集合时只在这里加 / 删 1 个文件名, 三处都同步.
+# Preference-Tracker hook filename source-of-truth.
+# install.sh / doctor.sh / uninstall.sh / _install_merge_settings.py all source this list.
+# When changing the hook set, add/remove one filename here and all three stay in sync.
 memory-deterministic-block.sh
 memory-shadow-judge.sh
 memory-shadow-alert-inject.sh

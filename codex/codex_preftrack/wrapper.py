@@ -178,7 +178,7 @@ def run_wrapped(
     )
 
     child_env = _filter_env(os.environ.copy())
-    # Codex review H1 fix (2026-05-01) + Round-5 H1 follow-up:
+    # Byte-mode I/O handling:
     # 1. Byte-mode Popen — text=True would crash a tee thread with
     #    UnicodeDecodeError when the child writes non-UTF-8 bytes (compilers,
     #    binaries, locale-mismatched logs).

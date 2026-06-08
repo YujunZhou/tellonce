@@ -9,7 +9,7 @@ word-check only when the user prefers an urgent response. Defaults to urgent
 CLI: python3 detect_user_prefer.py <transcript_path>
 Stdout: single char 'u' or 'c'.
 
-C6 fix (2026-05-01 review): default is now NO-API. The previous behaviour
+Default is now NO-API. The previous behaviour
 silently called Anthropic SDK on every Stop where last obs entry had
 detected=false (the base-rate path), charging the user's API key without
 any visible signal. Reviewed env contract:

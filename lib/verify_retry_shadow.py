@@ -41,7 +41,7 @@ from datetime import datetime, timezone, timedelta
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 import path_config  # central path config
-import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
+import redaction  # redact secrets pre-disk
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
 MEMORY_DIR = path_config.get_memory_dir()
@@ -209,7 +209,7 @@ def _cost_lock():
 def _bump_daily_cost(extra_usd):
     """Add extra_usd to today's cost log.
 
-    M4 fix: the read-modify-write is wrapped in a cross-process lock so two
+    The read-modify-write is wrapped in a cross-process lock so two
     concurrent shadow-judge calls can't each read the same prior total and
     overwrite each other (which would let the daily cost cap be exceeded).
     Best-effort lock — falls through unlocked if the filesystem doesn't support
@@ -263,9 +263,9 @@ def _is_rate_limited(rule_id, hours=24):
 
 def _append_shadow_log(entry):
     """Append entry dict to b5_shadow_log.jsonl. Restrict to user-only readable
-    (H10 fix: shadow log contains evidence/feedback excerpts of user content).
+    (shadow log contains evidence/feedback excerpts of user content).
 
-    H2 fix: sanitize entry before serialize — judge evidence/feedback can quote
+    Sanitize entry before serialize — judge evidence/feedback can quote
     user content that contains API keys / SSH keys / DB URIs.
     """
     os.makedirs(os.path.dirname(SHADOW_LOG), exist_ok=True)
@@ -309,7 +309,7 @@ def _update_alert_md(violation_alerts):
     try:
         with open(SHADOW_ALERT_MD, 'w', encoding='utf-8') as f:
             f.write(body)
-        # H10 fix: contains violation evidence; restrict to user-only.
+        # Contains violation evidence; restrict to user-only.
         path_config.chmod_or_warn(SHADOW_ALERT_MD, 0o600)
     except Exception:
         pass
@@ -389,7 +389,7 @@ def _judge_call_sdk(rules, last_user, response):
     """Optional: Anthropic SDK call (only when B5_USE_SDK=1 + B5_SDK_MODULE set).
 
     Charges API credit per call. Default install path (CLI subscription) is 0
-    cost; SDK only matters for paper-replication / SDK-only environments.
+    cost; SDK only matters for SDK-only environments.
 
     To enable: set both env vars
       B5_USE_SDK=1
@@ -464,7 +464,7 @@ def _judge_call(rules, last_user, response):
 
 
 def _just_blocked_by_deterministic(within_sec=5):
-    """I1 fix: check if deterministic_block just fired within `within_sec` seconds.
+    """Check if deterministic_block just fired within `within_sec` seconds.
 
     If it was just deterministically blocked, the shadow judge skips — already hard-blocked, no need to log violation again
     (saves ~1 CLI call per blocked Stop).
@@ -507,7 +507,7 @@ def evaluate(stdin_data):
         log_entry['b5_check'] = {'shadow_judge_status': 'disabled'}
         return 'disabled', log_entry
 
-    # I1 fix: skip shadow judge if deterministic_block just fired this turn
+    # Skip shadow judge if deterministic_block just fired this turn
     # (within 5s) — already hard-blocked, no need to invoke judge again
     if _just_blocked_by_deterministic(within_sec=5):
         log_entry['b5_check'] = {'shadow_judge_status': 'skipped_post_deterministic_block'}
@@ -641,7 +641,7 @@ def main():
 
     status, log_entry = evaluate(data)
 
-    # Append to compliance log; H10 fix chmod 0600 (contains response excerpts)
+    # Append to compliance log; chmod 0600 (contains response excerpts)
     try:
         os.makedirs(os.path.dirname(COMPLIANCE_LOG), exist_ok=True)
         with open(COMPLIANCE_LOG, 'a', encoding='utf-8') as f:
