@@ -34,7 +34,7 @@ _GENERIC_LEAK_HEURISTIC: tuple[re.Pattern, ...] = (
     # Note: removed the `/scratch\d*/[a-z]` rule because legitimate HPC users
     # work out of /scratch/<user>/ and would hit the heuristic on every event.
     # If a fork wants to detect a specific cluster path leak, set
-    # CODEX_PT_PRIVATE_PATTERNS=/scratch365 explicitly.
+    # CODEX_PT_PRIVATE_PATTERNS=/scratch/<your-id> explicitly.
 )
 _REGISTRATION_FILES = {"registration.json", "install_record.json"}
 # Skip very large files (likely captured stdout) — they're already sanitized

@@ -541,10 +541,13 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                 "PT_TEST_FORCE_VIOLATION": "1"},
             ):
                 install(project)
-                # default mode is audit_only
+                # default mode is audit_only. PT_TEST_FORCE_VIOLATION drives a
+                # synthetic 'test-synthetic' violation: the public build ships no
+                # built-in rules and the adapter strips lang-* rules.
                 payload = {
                     "tool_name": "Write",
                     "tool_input": {"content": "我们今天要把 stub 占位代码处理完, 然后 merge 进主分支, 整个流程跑一遍, 这一段必须够长."},
@@ -562,7 +565,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 lines = log.read_text(encoding="utf-8").strip().split("\n")
                 last = json.loads(lines[-1])
                 self.assertEqual(last["mode"], "audit_only")
-                self.assertIn("lang-pit-130", last["violations"])
+                self.assertIn("test-synthetic", last["violations"])
 
     def test_posttooluse_adapter_blocking_mode_returns_2_on_violation(self):
         from codex_preftrack import codex_posttooluse_block as cpb
@@ -574,7 +577,8 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                 "PT_TEST_FORCE_VIOLATION": "1"},
             ):
                 install(project)
                 # Force blocking mode for the test
@@ -582,7 +586,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 m = json.loads(mode_path.read_text())
                 m["mode"] = "blocking"
                 mode_path.write_text(json.dumps(m, indent=2))
-                # High Chinese ratio + a few English loanwords to trigger lang-pit-130
+                # PT_TEST_FORCE_VIOLATION yields a synthetic violation; blocking mode must return rc=2.
                 payload = {
                     "tool_name": "Write",
                     "tool_input": {"content": "我们今天要把这个 stub 占位代码全部处理干净, 然后 merge 进入主分支, 整个测试流程跑过一遍特别重要, 我们要保证中文比例足够高才能触发偏好规则的检查机制."},

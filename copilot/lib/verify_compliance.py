@@ -10,7 +10,7 @@ session has accumulated > THRESHOLD_PENDING obs entries with detection.detected=
 minutes, return Stop hook decision='block' (exit 2) so agent must finalize before
 stopping.
 
-Scope: per ROBUSTNESS_PROPOSAL_V22 §1.4, blocking is ONLY for pending-finalize.
+Scope: blocking is ONLY for pending-finalize.
 Cite-rate / lang-ratio / fp-match remain log-only to avoid over-blocking. B4
 threshold loose by design — see experiment/B4_BLOCKING_OBSERVATION_PROTOCOL.md
 for the 1-week observation period and tuning method.
@@ -534,7 +534,6 @@ def main():
         entry['fp_rules_in_response'] = detect_rules_for_response(response_text)
         entry['lang_ratio'] = check_lang_compliance(response_text)
 
-        # A.3 language dry-run advisory (v22 2026-04-24, per ROBUSTNESS_PROPOSAL_V22 Layer 1.3)
         # Optional advisory telemetry (log-only; never blocks). Flags a long,
         # low-target-language response that also reads like a session wrap-up.
         # Marker list is a generic heuristic; tune or disable per deployment.

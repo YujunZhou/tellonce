@@ -83,7 +83,7 @@ def test_T1_shadow_judge_cli_raises():
                 status, log_entry = vrs.evaluate({'session_id': 'T1', 'transcript_path': tr})
                 # expect judge_error (CLI raises → catch → status='judge_error') OR 'no_credit'/'cost_capped'
                 # the main point is that evaluate() does not crash
-                assert status in ('judge_error', 'cost_capped', 'no_credit', 'skip_short', 'no_rules_loaded'), f'unexpected: {status}'
+                assert status in ('judge_error', 'cost_capped', 'no_credit', 'skip_short', 'no_rules'), f'unexpected: {status}'
                 return True
             finally:
                 os.unlink(tr)
