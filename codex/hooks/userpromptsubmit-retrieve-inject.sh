@@ -8,7 +8,8 @@
 # Round-10 (2026-05-02): default backend is local `cli` (codex exec) semantic
 # retrieval, matching the other variants. No prompt data leaves the machine to
 # a third-party API by default. Opt into an external provider via
-# B5_RETRIEVE_BACKEND=api + B5_RETRIEVE_API_PROVIDER/B5_RETRIEVE_MODEL.
+# PT_RETRIEVE_BACKEND=api + PT_RETRIEVE_API_PROVIDER/PT_RETRIEVE_MODEL
+# (legacy B5_ names still work).
 #
 # Defensive: any failure -> exit 0 silently (never block codex turns).
 set +e
@@ -28,8 +29,8 @@ if [[ ! -f "${SHARED_LIB}/retrieve_inject.py" ]]; then
 fi
 
 # Per-runtime default: local `cli` (codex) retrieval — no external network
-# egress by default. Set B5_RETRIEVE_BACKEND=api to opt into a third-party
-# provider (B5_RETRIEVE_API_PROVIDER/B5_RETRIEVE_MODEL then apply).
+# egress by default. Set PT_RETRIEVE_BACKEND=api to opt into a third-party
+# provider (PT_RETRIEVE_API_PROVIDER/PT_RETRIEVE_MODEL then apply; legacy B5_ ok).
 export B5_RETRIEVE_BACKEND="${PT_RETRIEVE_BACKEND:-${B5_RETRIEVE_BACKEND:-cli}}"
 export B5_RETRIEVE_CLI="${PT_RETRIEVE_CLI:-${B5_RETRIEVE_CLI:-codex}}"
 
