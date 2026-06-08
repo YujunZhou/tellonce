@@ -524,11 +524,8 @@ def _resolve_api_endpoint() -> tuple[str, dict, str]:
     provider = RETRIEVE_API_PROVIDER
     if provider == 'deepinfra':
         base = os.environ.get('B5_RETRIEVE_API_BASE_URL', 'https://api.deepinfra.com/v1/openai')
-        # DeepInfra accepts both DEEPINFRA_API_KEY and DeepInfra_API_KEY (user
-        # has both set; pick whichever resolves).
         api_key = (
             os.environ.get('DEEPINFRA_API_KEY')
-            or os.environ.get('DeepInfra_API_KEY')
             or os.environ.get('B5_RETRIEVE_API_KEY')
             or ''
         )

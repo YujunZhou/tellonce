@@ -67,6 +67,16 @@ def main():
     dry_run = '--dry-run' in sys.argv
     actions = []
 
+    # MP-B3: build atomic_id -> path once (single pass) instead of re-globbing
+    # the whole memory dir for every superseded file (was O(n^2)).
+    id_map = {}
+    for _p in glob.glob(os.path.join(MEMORY_DIR, '*.md')):
+        if os.path.basename(_p).startswith('_archived_'):
+            continue
+        _aid = parse_frontmatter(_p).get('atomic_id')
+        if _aid:
+            id_map.setdefault(_aid, _p)
+
     for path in sorted(glob.glob(os.path.join(MEMORY_DIR, '*.md'))):
         fname = os.path.basename(path)
         if fname == 'MEMORY.md' or fname.startswith('_archived_'):
@@ -82,7 +92,7 @@ def main():
             # malformed atomic_id; skip
             continue
 
-        pair_path = find_pair_atomic_id(sup_id)
+        pair_path = id_map.get(sup_id)
         if not pair_path:
             actions.append({
                 'file': fname,
