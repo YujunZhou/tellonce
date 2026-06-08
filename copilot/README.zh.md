@@ -95,3 +95,7 @@ python "<plugin>/lib/register_plugin.py --status"
 ```
 
 注册后**必须重启 Copilot**。还不行就跑 `doctor.py` 看哪一项 FAIL。
+
+## 注意：会话进行中新记的偏好
+
+在 GitHub Copilot CLI 上，已记录的偏好只在**会话开始时**注入 agent 的上下文。你在会话**进行中**新记的偏好会**立即存盘**，但要等**下次会话**才会被重新端给 agent —— Copilot 的逐条 prompt hook（`UserPromptSubmit` / `PreToolUse`）不能注入 context（属平台限制，非本工具 bug）。想让新偏好立刻生效，开一个新会话即可。（Claude Code 与 Codex 变体每轮都重新注入，没有此限制。）

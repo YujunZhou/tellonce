@@ -122,3 +122,13 @@ python "<plugin>/lib/register_plugin.py --status"
 
 After registering you **must restart Copilot**. Still stuck? Run `doctor.py` to
 see which check FAILs.
+
+## Note: preferences recorded mid-session
+
+On the GitHub Copilot CLI, recorded preferences are injected into the agent's
+context at **session start**. A preference you record **mid-session** is saved to
+memory immediately, but won't be re-surfaced to the agent until your **next
+session** — Copilot's per-prompt hooks (`UserPromptSubmit` / `PreToolUse`) can't
+inject context (a platform limitation, not a bug in this tool). To apply a new
+preference right away, start a new session. (The Claude Code and Codex variants
+re-inject every turn, so they don't have this limitation.)
