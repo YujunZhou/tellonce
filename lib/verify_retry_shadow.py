@@ -42,7 +42,6 @@ LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 import path_config  # central path config
 import redaction  # codex review H2 fix (2026-05-01): redact secrets pre-disk
-import deterministic_block  # local guard for language-related shadow false positives
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
 MEMORY_DIR = path_config.get_memory_dir()
@@ -464,40 +463,6 @@ def _judge_call(rules, last_user, response):
     return _judge_call_cli(rules, last_user, response)
 
 
-def _last_user_allows_english(last_user):
-    """Return True when the last user prompt explicitly asks for English output.
-
-    Keep this in sync with deterministic_block's lang-pref-001 bypass so the
-    shadow judge cannot be stricter than the hard-block layer.
-    """
-    if not last_user:
-        return False
-    return bool(
-        deterministic_block._EXPLICIT_ENGLISH_KW.search(last_user)
-        or deterministic_block._PAPER_CTX_KW.search(last_user)
-    )
-
-
-def _shadow_suppression_reason(verdict, last_user, response):
-    """Local false-positive guard after LLM judge verdicts.
-
-    The judge is useful for semantic misses, but it can over-alert on
-    lang-pref-001 when a Chinese user-facing response contains some technical
-    English. lang-pref-001 should mean "reply is effectively English", while
-    mixed Chinese/technical terms belong to lang-pit-130 and its whitelist.
-    """
-    rid = verdict.get('rule_id', '')
-    if rid != 'lang-pref-001':
-        return ''
-    if _last_user_allows_english(last_user):
-        return 'last_user_requested_english_or_paper_context'
-    cr = deterministic_block.chinese_ratio(response)
-    threshold = deterministic_block._CHINESE_RATIO_PREF_001()
-    if cr >= threshold:
-        return f'response_not_mostly_english: chinese_ratio={cr:.3f} >= {threshold:.3f}'
-    return ''
-
-
 def _just_blocked_by_deterministic(within_sec=5):
     """I1 fix: check if deterministic_block just fired within `within_sec` seconds.
 
@@ -597,17 +562,12 @@ def evaluate(stdin_data):
     # bucket per-rule directly, without reading b5_shadow_log.jsonl as a second source.
     raw_violations = [v for v in verdicts
                       if v.get('applicable', True) and not v.get('compliant', True)]
-    violations = []
+    violations = list(raw_violations)
+    # Shadow suppression (the maintainer's language false-positive guard) was
+    # removed; all raw violations now count. `suppressed` stays empty so the
+    # log_entry's shadow_suppressed_rule_ids / shadow_suppression_reasons fields
+    # still populate without error.
     suppressed = []
-    for v in raw_violations:
-        reason = _shadow_suppression_reason(v, last_user, response)
-        if reason:
-            suppressed.append({
-                'rule_id': v.get('rule_id'),
-                'reason': reason,
-            })
-        else:
-            violations.append(v)
 
     log_entry['b5_check'] = {
         'shadow_judge_status': 'violation' if violations else 'compliant',

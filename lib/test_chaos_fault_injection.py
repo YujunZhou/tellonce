@@ -243,24 +243,6 @@ def test_T7_cost_cap_triggered():
         os.environ.pop('B5_DAILY_COST_CAP', None)
 
 
-def test_T8_fingerprint_no_falsepositive_postgresql():
-    """T8: Chinese reply + PostgreSQL/Redis/Sonnet → deterministic does not block (whitelist hit)."""
-    tmp = tempfile.mkdtemp()
-    try:
-        reset_state(tmp)
-        import importlib
-        import deterministic_block as db
-        importlib.reload(db)
-        db._WHITELIST_CACHE = None
-        # all are whitelist proper nouns (PostgreSQL/Redis/Sonnet/Docker/FastAPI/Pinecone)
-        text = '我们用 PostgreSQL 跟 Redis 做缓存, Docker 跑 FastAPI 和 Pinecone, Sonnet 模型跑得很顺'
-        flagged = db.has_inline_english_word(text)
-        assert flagged == False, f'whitelist hit failed: 全 proper noun 应被 skip, got flagged={flagged}'
-        return True
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
 def test_T9_streak_bypass_after_3():
     """T9: after the same rule fires 3 times, the 4th gets status='streak_bypass' + does not block."""
     tmp = tempfile.mkdtemp()
@@ -424,7 +406,6 @@ def main():
         ('T5 install --add 重跑 idempotent', test_T5_install_idempotent_rerun),
         ('T6 streak per-sid 隔离', test_T6_streak_isolated_per_session_id),
         ('T7 cost cap 触发', test_T7_cost_cap_triggered),
-        ('T8 PostgreSQL/Redis/Sonnet whitelist 不阻断', test_T8_fingerprint_no_falsepositive_postgresql),
         ('T9 streak bypass after 3', test_T9_streak_bypass_after_3),
         ('T10 三 env opt-out 全跳过', test_T10_all_env_opt_out),
         ('T11 装-卸-重装 state 持久', test_T11_install_uninstall_reinstall_state_persistent),
@@ -436,8 +417,7 @@ def main():
         # Reset env for each test (avoid pollution)
         for k in ['B5_STATE_DIR', 'B5_OBS_LOG_DIR', 'B5_PROJECT_ROOT', 'B5_MEMORY_DIR',
                   'B5_DAILY_COST_CAP', 'B5_DETERMINISTIC_DISABLED', 'B5_SHADOW_DISABLED',
-                  'B5_INJECT_DISABLED', 'B5_TEST_MOCK_VERDICT', 'B5_USE_SDK',
-                  'B5_WHITELIST_USER']:
+                  'B5_INJECT_DISABLED', 'B5_TEST_MOCK_VERDICT', 'B5_USE_SDK']:
             os.environ.pop(k, None)
         try:
             ok = fn()

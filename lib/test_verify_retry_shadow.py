@@ -246,96 +246,6 @@ def test_shadow_compliant_no_alert():
     return True
 
 
-def test_shadow_lang_pref_mixed_chinese_suppressed():
-    """lang-pref-001 judge false-positive on Chinese-majority reply is suppressed."""
-    state = isolated_state_dir()
-    transcript = make_transcript_file([
-        {'type': 'user', 'message': {'content': '现在进展怎么样了'}},
-        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': (
-            '目前实验已经完成，PROGRESS.md 已更新，summary_metrics.json 都存在，'
-            'runtime_error 是 0。Codex 和 Claude 的 all-ClawArena 主结果都已经落盘，'
-            '下一步是按 ID/OOD 分开报告 objective task pass 和 overlay violation。'
-        )}]}},
-    ])
-    mock = json.dumps([
-        {'rule_id': 'lang-pref-001', 'applicable': True, 'compliant': False,
-         'judge_confidence': 0.95, 'evidence': '含英文术语', 'feedback': '改用中文回复'},
-    ])
-    shadow.B5_TEST_MOCK_VERDICT = mock
-    orig_credit = shadow.ANTHROPIC_CREDIT_OK
-    shadow.ANTHROPIC_CREDIT_OK = True
-    orig_log = shadow.SHADOW_LOG
-    orig_alert = shadow.SHADOW_ALERT_MD
-    orig_cost = shadow.COST_LOG_DIR
-    orig_compliance = shadow.COMPLIANCE_LOG
-    shadow.SHADOW_LOG = os.path.join(state, 'b5_shadow_log.jsonl')
-    shadow.SHADOW_ALERT_MD = os.path.join(state, 'B5_SHADOW_ALERT.md')
-    shadow.COST_LOG_DIR = os.path.join(state, 'cost')
-    shadow.COMPLIANCE_LOG = os.path.join(state, 'compliance_log.jsonl')
-    try:
-        status, log_entry = shadow.evaluate({'session_id': 'test-lang-pref-suppressed', 'transcript_path': transcript})
-    finally:
-        shadow.SHADOW_LOG = orig_log
-        shadow.SHADOW_ALERT_MD = orig_alert
-        shadow.COST_LOG_DIR = orig_cost
-        shadow.COMPLIANCE_LOG = orig_compliance
-        shadow.ANTHROPIC_CREDIT_OK = orig_credit
-        shadow.B5_TEST_MOCK_VERDICT = ''
-    os.unlink(transcript)
-
-    assert status == 'compliant', f'expected compliant after suppression, got {status}'
-    b5 = log_entry['b5_check']
-    assert b5['shadow_violation_count'] == 0, f'expected 0 unsuppressed violations, got {b5}'
-    assert b5['shadow_alerted_count'] == 0, f'expected 0 alerts, got {b5}'
-    assert b5['shadow_suppressed_rule_ids'] == ['lang-pref-001'], f'expected suppressed lang-pref-001, got {b5}'
-    return True
-
-
-def test_shadow_lang_pref_mostly_english_still_alerts():
-    """A genuinely English user-facing response still triggers lang-pref-001."""
-    state = isolated_state_dir()
-    transcript = make_transcript_file([
-        {'type': 'user', 'message': {'content': '现在进展怎么样了'}},
-        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': (
-            'The experiments are complete and the progress file has been updated. '
-            'All summaries are available and there are no runtime errors in the final records. '
-            'The next step is to report ID and OOD metrics separately.'
-        )}]}},
-    ])
-    mock = json.dumps([
-        {'rule_id': 'lang-pref-001', 'applicable': True, 'compliant': False,
-         'judge_confidence': 0.95, 'evidence': '全英文用户回复', 'feedback': '改用中文回复'},
-    ])
-    shadow.B5_TEST_MOCK_VERDICT = mock
-    orig_credit = shadow.ANTHROPIC_CREDIT_OK
-    shadow.ANTHROPIC_CREDIT_OK = True
-    orig_log = shadow.SHADOW_LOG
-    orig_alert = shadow.SHADOW_ALERT_MD
-    orig_cost = shadow.COST_LOG_DIR
-    orig_compliance = shadow.COMPLIANCE_LOG
-    shadow.SHADOW_LOG = os.path.join(state, 'b5_shadow_log.jsonl')
-    shadow.SHADOW_ALERT_MD = os.path.join(state, 'B5_SHADOW_ALERT.md')
-    shadow.COST_LOG_DIR = os.path.join(state, 'cost')
-    shadow.COMPLIANCE_LOG = os.path.join(state, 'compliance_log.jsonl')
-    try:
-        status, log_entry = shadow.evaluate({'session_id': 'test-lang-pref-alert', 'transcript_path': transcript})
-    finally:
-        shadow.SHADOW_LOG = orig_log
-        shadow.SHADOW_ALERT_MD = orig_alert
-        shadow.COST_LOG_DIR = orig_cost
-        shadow.COMPLIANCE_LOG = orig_compliance
-        shadow.ANTHROPIC_CREDIT_OK = orig_credit
-        shadow.B5_TEST_MOCK_VERDICT = ''
-    os.unlink(transcript)
-
-    assert status == 'violation', f'expected violation, got {status}'
-    b5 = log_entry['b5_check']
-    assert b5['shadow_violation_count'] == 1, f'expected 1 violation, got {b5}'
-    assert b5['shadow_alerted_count'] == 1, f'expected 1 alert, got {b5}'
-    assert b5['shadow_suppressed_rule_ids'] == [], f'expected no suppression, got {b5}'
-    return True
-
-
 def test_shadow_cost_capped():
     """Pre-populate today's cost > cap → exit 0, status='cost_capped'."""
     state = isolated_state_dir()
@@ -490,8 +400,6 @@ def main():
         ('shadow violation with mock judge', test_shadow_violation_with_mock),
         ('shadow low confidence no alert', test_shadow_low_confidence_no_alert),
         ('shadow compliant no alert', test_shadow_compliant_no_alert),
-        ('shadow lang-pref mixed Chinese suppressed', test_shadow_lang_pref_mixed_chinese_suppressed),
-        ('shadow lang-pref mostly English still alerts', test_shadow_lang_pref_mostly_english_still_alerts),
         ('shadow cost capped', test_shadow_cost_capped),
         ('inject disabled env', test_inject_disabled_env),
         ('inject empty no alert file', test_inject_empty_no_alert_file),

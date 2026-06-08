@@ -71,15 +71,14 @@ semantics to dedupe (idempotent) and won't add the same hook twice.
 
 ### Q8: How do I change a threshold?
 
-**Simple version** (Phase 7, already shipped): edit the `params:` block in the
-enforce rule's memory `.md` frontmatter:
+**Simple version** (already shipped): for an enforce rule you recorded, edit the
+`params:` block in its memory `.md` frontmatter:
 
 ```yaml
 ---
-atomic_id: lang-pit-130
+atomic_id: <your-rule-id>
 params:
-  chinese_ratio_threshold: 0.55   # default 0.7
-  min_length: 80                   # default 50
+  some_threshold: 0.55
 ---
 ```
 
@@ -117,15 +116,13 @@ Or install Claude Code: https://claude.com/code
 
 ---
 
-### Q11: After a block, Claude's follow-up is too wordy — what can I do?
+### Q11: After a block, the follow-up is too wordy — what can I do?
 
-`build_block_reason` already includes prohibitions:
-- no apologizing / no restating / no explaining the rule / no preamble
-- forces a `[correction]` prefix
-- soft-injection keeps a quiet tone (doesn't encourage a preamble this turn)
-
-If it's still wordy, file an issue and we'll tune the prohibition text. During
-testing, a streak of >= 3 bypasses that rule.
+The block reason is intentionally minimal: it lists the flagged rule plus the
+fix direction, and nothing else. The public release ships **no built-in
+writing-style rules** — if you want a terse-reply preference, record one and it
+becomes part of the enforced set. During testing, a streak of >= 3 consecutive
+hits on the same rule auto-bypasses it to avoid livelock.
 
 ---
 
@@ -147,7 +144,7 @@ B5_PROJECT_ROOT=/custom/project bash install.sh
 ```
 
 Or write `~/.preference-tracker.config.json` (schema:
-`{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"...","whitelist_user":"..."}`;
+`{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"..."}`;
 any field left unset falls back to auto-detect).
 
 ---

@@ -267,7 +267,7 @@ print("  ✓ state subdirs created")
 # C7 fix (2026-05-01): 改成 OVERWRITE 这次 install 的 path_root / state / obs_log
 # (不是 setdefault). 之前 setdefault 在跨项目重装时让旧 project_root 卡住, 新装
 # 的 hooks 永远写到旧项目的 state dir. 我们假设最近一次 install 反映用户当前
-# project; 老 config 字段 (whitelist_user / memory_dir 等) 保留.
+# project; 老 config 字段 (memory_dir 等) 保留.
 log ""
 # Issue #1 fix (#2): do NOT pin project_root/state_dir/obs_log_dir in the GLOBAL
 # ~/.preference-tracker.config.json by default. That single-file anchor is
@@ -434,7 +434,6 @@ log "  - 看 README.md / FAQ.md"
 log "  - 跑 dashboard.sh 看 7 天 compliance summary"
 log "  - 关 shadow judge: export B5_SHADOW_DISABLED=1 (没 claude CLI 时建议)"
 log "  - 关 deterministic: export B5_DETERMINISTIC_DISABLED=1"
-log "  - 加专名 whitelist: echo 'MyProject' >> ${SKILL_DIR}/lib/deterministic_block_whitelist_user.txt"
 log "  - 卸载: bash ${SKILL_DIR}/uninstall.sh"
 log ""
 log "Install log: ${LOG_FILE}"

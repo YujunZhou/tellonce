@@ -22,8 +22,7 @@ import path_config as pc
 
 def _reset_env_and_cache(env_vars: dict = None):
     """test fixture: clear env, set new env, reset cache."""
-    for v in ['B5_STATE_DIR', 'B5_MEMORY_DIR', 'B5_OBS_LOG_DIR', 'B5_PROJECT_ROOT',
-              'B5_WHITELIST_USER']:
+    for v in ['B5_STATE_DIR', 'B5_MEMORY_DIR', 'B5_OBS_LOG_DIR', 'B5_PROJECT_ROOT']:
         os.environ.pop(v, None)
     if env_vars:
         for k, v in env_vars.items():
@@ -166,36 +165,6 @@ def test_shadow_log_path_built_from_state_dir():
     return True
 
 
-def test_whitelist_paths_returns_two():
-    """get_whitelist_paths returns [base, user] of length 2."""
-    _reset_env_and_cache()
-    pc.CONFIG_PATH = '/nonexistent/.config'
-    pc._read_config_file.cache_clear()
-    try:
-        paths = pc.get_whitelist_paths()
-        assert isinstance(paths, list) and len(paths) == 2, f'got {paths}'
-        assert paths[0].endswith('deterministic_block_whitelist.txt'), f'base path wrong: {paths[0]}'
-        assert paths[1].endswith('deterministic_block_whitelist_user.txt'), f'user path wrong: {paths[1]}'
-    finally:
-        _reset_env_and_cache()
-        _reset_config()
-    return True
-
-
-def test_whitelist_user_env_override():
-    """B5_WHITELIST_USER env should override the default user whitelist path."""
-    _reset_env_and_cache({'B5_WHITELIST_USER': '/custom/my_whitelist.txt'})
-    pc.CONFIG_PATH = '/nonexistent/.config'
-    pc._read_config_file.cache_clear()
-    try:
-        paths = pc.get_whitelist_paths()
-        assert paths[1] == '/custom/my_whitelist.txt', f'expected override, got {paths[1]}'
-    finally:
-        _reset_env_and_cache()
-        _reset_config()
-    return True
-
-
 def test_ensure_dirs_idempotent():
     """ensure_dirs should not crash on re-run, and creates all state subdirs."""
     tmp = tempfile.mkdtemp()
@@ -261,8 +230,6 @@ def main():
         ('missing config not crash', test_missing_config_not_crash),
         ('compliance_log built from obs_log_dir', test_compliance_log_path_built_from_obs_log_dir),
         ('shadow_log built from state_dir', test_shadow_log_path_built_from_state_dir),
-        ('whitelist_paths returns two', test_whitelist_paths_returns_two),
-        ('whitelist_user env override', test_whitelist_user_env_override),
         ('ensure_dirs idempotent', test_ensure_dirs_idempotent),
         ('real user config (if any) honored end-to-end', test_real_user_config_honored),
     ]

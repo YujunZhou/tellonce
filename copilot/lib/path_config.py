@@ -5,10 +5,9 @@ All lib modules import this; no hard-coded path constants elsewhere.
 Uses env / config / auto-detect 3-layer fallback.
 
 Priority (high → low):
-  1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT /
-              B5_WHITELIST_USER)
+  1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT)
   2. ~/.preference-tracker.config.json (key: state_dir / memory_dir / obs_log_dir /
-              project_root / whitelist_user)
+              project_root)
   3. Auto-detect:
      - skill_dir = Path(__file__).parent.parent (plugin root)
      - project_root = os.getcwd()
@@ -316,22 +315,6 @@ def get_b5_alerts_threshold_dir() -> str:
     return os.path.join(get_state_dir(), 'b5_alerts_threshold')
 
 
-def get_whitelist_paths() -> list:
-    """Return [base_whitelist, per_user_whitelist] paths.
-
-    Base: <skill_dir>/lib/deterministic_block_whitelist.txt
-    Per-user: <skill_dir>/lib/deterministic_block_whitelist_user.txt
-              (env B5_WHITELIST_USER can override)
-    """
-    skill_dir = get_skill_dir()
-    base = os.path.join(skill_dir, 'lib', 'deterministic_block_whitelist.txt')
-    user = _resolve(
-        'B5_WHITELIST_USER', 'whitelist_user',
-        lambda: os.path.join(skill_dir, 'lib', 'deterministic_block_whitelist_user.txt')
-    )
-    return [base, user]
-
-
 def ensure_dirs():
     """Create all state subdirectories. Called by install script + lib self-check.
 
@@ -370,7 +353,6 @@ if __name__ == '__main__':
     print(f'streak_dir      = {get_streak_dir()}')
     print(f'retire_log      = {get_retire_log_path()}')
     print(f'b5_summary_dir  = {get_b5_summary_dir()}')
-    print(f'whitelist_paths = {get_whitelist_paths()}')
     print()
     print(f'Config file: {CONFIG_PATH} (exists: {os.path.exists(CONFIG_PATH)})')
     print(f'Config loaded: {_read_config_file()}')

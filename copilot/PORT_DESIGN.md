@@ -130,8 +130,6 @@ copilot/
     apply_threshold.py     # Unchanged
     auto_retire_superseded.py # Unchanged
     fingerprints.yaml      # Data file (copy)
-    deterministic_block_whitelist.txt      # Data (copy)
-    deterministic_block_whitelist_user.txt # Data (copy)
   hooks/
     check-observation-log.sh      # Stop — gate function
     memory-deterministic-block.sh # Stop — deterministic blocker

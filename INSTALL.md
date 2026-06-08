@@ -135,9 +135,8 @@ python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --set
 python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --add
 ```
 
-Upgrading preserves: registered hooks, written preference thresholds, your local
-whitelist (`lib/deterministic_block_whitelist_user.txt`), and the state + memory
-already accumulated in each project.
+Upgrading preserves: registered hooks, written preference thresholds, and the
+state + memory already accumulated in each project.
 
 ---
 

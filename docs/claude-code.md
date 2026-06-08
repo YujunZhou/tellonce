@@ -62,15 +62,8 @@ export B5_DETERMINISTIC_DISABLED=1   # disable hard-blocking
 export B5_SHADOW_DISABLED=1          # disable the LLM shadow judge
 export B5_INJECT_DISABLED=1          # disable soft injection
 
-# Thresholds (used when frontmatter sets no params; adaptive thresholds: see Phase 7)
-#   lang-pit-130   chinese_ratio >= 0.7 and length > 50
-#   lang-pref-001  chinese_ratio < 0.1 and length > 200
-#   oth-pref-001   active code block contains /tmp/
-
-# Add a proper-noun whitelist (per-user, additive, leaves the global list intact)
-echo "MyProject"  >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
-echo "MyTeammate" >> ~/.claude/skills/preference-tracker/lib/deterministic_block_whitelist_user.txt
-# No reload needed; the next hook call reads it.
+# The public release ships NO built-in enforcement rules; enforcement only acts
+# on the preferences you record (and is opt-in via PT_ENFORCE / PT_SHADOW).
 
 # Run the shadow judge through the SDK instead of the CLI (uses API credit; default False)
 export B5_USE_SDK=1

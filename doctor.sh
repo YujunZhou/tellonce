@@ -125,22 +125,6 @@ EOF
 }
 run_test "state/obs_log/memory dirs 可写" state_writable_test
 
-# 2.3 chinese_ratio sanity (10 chinese chars + "stub" 4 english = 10/14 ≈ 0.71)
-chinese_ratio_test() {
-    # H14 fix: env-channel SKILL_DIR (avoids breaking when path contains ').
-    env PT_LIB="${SKILL_DIR}/lib" PYTHONIOENCODING=utf-8 python3 - <<'EOF'
-import os, sys
-sys.path.insert(0, os.environ["PT_LIB"])
-from deterministic_block import chinese_ratio
-r = chinese_ratio('好好好好好好好好好好 stub')
-assert 0.6 < r < 1.0, f'chinese_ratio sanity failed: {r}'
-r2 = chinese_ratio('hello world all english')
-assert r2 < 0.1, f'chinese_ratio english sanity failed: {r2}'
-print('OK')
-EOF
-}
-run_test "chinese_ratio helper" chinese_ratio_test
-
 # ============================================================
 # Test group 3: Hook 注册 + CLI
 # ============================================================
