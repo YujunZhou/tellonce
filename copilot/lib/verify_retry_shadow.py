@@ -60,7 +60,7 @@ ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1'
 B5_DAILY_COST_CAP = float(os.environ.get('B5_DAILY_COST_CAP', '0.50'))
 B5_USE_DEEPINFRA = os.environ.get('B5_USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
 B5_USE_SDK = os.environ.get('B5_USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = use the CLI channel
-B5_JUDGE_MODEL = os.environ.get('B5_JUDGE_MODEL', 'claude-haiku-4-5')  # small/cheap default model
+B5_JUDGE_MODEL = os.environ.get('B5_JUDGE_MODEL', '')  # empty = let `copilot -p` pick its own default (auto)
 B5_CONFIDENCE_THRESHOLD = float(os.environ.get('B5_CONFIDENCE_THRESHOLD', '0.85'))
 ALERT_ROLLING_CAP = int(os.environ.get('B5_ALERT_ROLLING_CAP', '3'))
 RATE_LIMIT_HOURS = float(os.environ.get('B5_RATE_LIMIT_HOURS', '24'))
@@ -326,9 +326,13 @@ Output strict one-line JSON in this format:
             'PT_CHILD_SESSION': '1',
         }
         _child_env.pop('COPILOT_SESSION_ID', None)
+        _cmd = ['copilot', '-p', prompt, '--output-format', 'text']
+        if B5_JUDGE_MODEL:
+            # Only pass --model when explicitly set; otherwise copilot uses its
+            # own default model (passing a Claude model name here would fail).
+            _cmd += ['--model', B5_JUDGE_MODEL]
         proc = subprocess.run(
-            ['copilot', '-p', prompt, '--model', B5_JUDGE_MODEL,
-             '--output-format', 'text'],
+            _cmd,
             capture_output=True, text=True, encoding='utf-8', timeout=60,
             env=_child_env,
         )
@@ -603,8 +607,8 @@ def evaluate(stdin_data):
         'shadow_judge_latency_ms': round(latency_ms, 2),
         'shadow_judge_cost_usd': round(cost_usd, 6),
         'shadow_judge_model': ('mock' if B5_TEST_MOCK_VERDICT
-                               else (B5_JUDGE_MODEL + '/sdk' if B5_USE_SDK
-                                     else B5_JUDGE_MODEL + '/cli')),
+                               else ((B5_JUDGE_MODEL or 'auto') + '/sdk' if B5_USE_SDK
+                                     else (B5_JUDGE_MODEL or 'auto') + '/cli')),
     }
 
     # Process violations: confidence threshold + rate limit + alert
