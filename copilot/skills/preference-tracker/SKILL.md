@@ -132,7 +132,7 @@ BEFORE considering your response complete:
 Skip any step = compliance failure.
 ```
 
-### Gate mechanics (2026-04-19 robustness rewrite)
+### Gate mechanics
 
 **Only HARD check is active**: the observation log file must be appended within 600s of Stop. That's the entire gate.
 
@@ -140,10 +140,10 @@ Skip any step = compliance failure.
 
 **Practical rule for every turn**:
 - Append **one** entry to `observations.jsonl` before stopping. Any entry. detected=true or detected=false, doesn't matter for the gate.
-- Keep doing rich structured entries (detection fields, root_cause notes, confirmation_text) — those are for future analysis / model-training data, even though gate doesn't check them.
+- Keep doing rich structured entries (detection fields, root_cause notes, confirmation_text) — they make the local memory/audit trail more useful, even though the gate doesn't check them. Truncate any user-message excerpt to ~200 chars and never copy secrets/credentials into the log.
 - No need to paste SCAN markers in response text.
 
-**Why it matters**: User feedback 2026-04-19: "不能时常报错，用户观感很差". The gate now only blocks when log genuinely wasn't written (real miss), not when my text wording failed a regex.
+**Why it matters**: the gate blocks only when the log genuinely wasn't written (a real miss), not when response wording fails a text regex — this avoids spurious blocks.
 
 ---
 
@@ -249,35 +249,6 @@ Examples:
 1. **每条消息强制执行**（Gate Function）：扫描信号 → 记录 → 存 memory
 2. **初始化/审计模式**（用户调用时）：审计整个 memory 结构，迁移到结构化格式
 3. **手动管理**：处理复杂冲突、批量整理、删除操作、大规模重组
-
----
-
-## 观察模式（Observation Mode）
-
-用户正在**跨项目**测试本 skill 的真实行为，作为 "LLM preference compliance" 研究的第一手数据。
-
-**无论你在哪个 project 工作，只要触发了 preference 扫描**（不管是否检测到信号、不管是否被用户确认），都必须**同步 append 一条 JSONL 记录**到 path_config 给的 observations log path：
-
-```
-<state_dir>/obs_log/observations.jsonl
-# 真实 runtime 路径: 跑 python3 <skill_dir>/lib/path_config.py
-# 看 observations_log; 默认 <project_root>/.copilot/preference-tracker-state/obs_log/observations.jsonl
-```
-
-**schema 和写法**见 path_config 给的 obs_log 目录下的 `README.md` (若存在).
-
-**要记录的情况**：
-1. 扫描后检测到 signal（preference / pitfall / friction）→ 写一条 `detected=true`
-2. 扫描后没检测到任何 signal → 写一条 `detected=false`（base rate 数据同样重要）
-3. 用户对之前的建议 push back / 修改 / 拒绝 → 写一条 follow-up 引用之前的 entry_id
-
-**不需要记录的情况**：
-- 纯任务性指令（"帮我改下这个 bug"）且显然没有 preference signal
-- 闲聊 / 澄清问题 / 代码 review 等非 first-person 偏好表达
-
-**隐私**：user_message_excerpt 截断到 200 字符，不复制 API key / password / 任何敏感凭证。
-
-**写入方式**：Bash 的 `jq` + `>>`，或 Python `with open(..., 'a')`，不要用 Edit tool（Edit 不适合 append-only 场景）。
 
 ---
 

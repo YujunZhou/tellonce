@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import copy
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows has no fcntl
+    fcntl = None
 import hashlib
 import json
 import os
@@ -277,7 +280,8 @@ def append_event(state_root: Path, event: dict) -> str:
     with lock_path.open("a+", encoding="utf-8") as lock:
         # Lockfile mode is a hardening hint, not security-critical (no secrets here).
         _chmod_or_warn(lock_path, 0o600, critical=False)
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         # Tail-only dedup: only check the last 1000 events. event_id is now
         # uuid4-backed (122 bits) so collisions across full history are
         # negligible, and a tail window is enough to catch caller-side
@@ -290,7 +294,8 @@ def append_event(state_root: Path, event: dict) -> str:
             f.flush()
             os.fsync(f.fileno())
         _chmod_or_warn(path, 0o600)
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        if fcntl is not None:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return event["event_id"]
 
 

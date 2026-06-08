@@ -5,9 +5,10 @@
 # Codex hook stdin: JSON with `prompt`, `cwd`, `session_id`, `transcript_path`.
 # Output: JSON with hookSpecificOutput.additionalContext.
 #
-# Round-10 (2026-05-02): default backend is now api/deepinfra semantic
-# retrieval. User can override via B5_RETRIEVE_BACKEND/
-# B5_RETRIEVE_API_PROVIDER/B5_RETRIEVE_MODEL.
+# Round-10 (2026-05-02): default backend is local `cli` (codex exec) semantic
+# retrieval, matching the other variants. No prompt data leaves the machine to
+# a third-party API by default. Opt into an external provider via
+# B5_RETRIEVE_BACKEND=api + B5_RETRIEVE_API_PROVIDER/B5_RETRIEVE_MODEL.
 #
 # Defensive: any failure -> exit 0 silently (never block codex turns).
 set +e
@@ -26,12 +27,10 @@ if [[ ! -f "${SHARED_LIB}/retrieve_inject.py" ]]; then
     exit 0
 fi
 
-# Per-runtime default: Codex hook uses the same api/deepinfra retrieval
-# path as the shared config. Keep B5_RETRIEVE_CLI for explicit cli-mode
-# overrides only.
-export B5_RETRIEVE_BACKEND="${B5_RETRIEVE_BACKEND:-api}"
-export B5_RETRIEVE_API_PROVIDER="${B5_RETRIEVE_API_PROVIDER:-deepinfra}"
-export B5_RETRIEVE_MODEL="${B5_RETRIEVE_MODEL:-deepseek-ai/DeepSeek-V4-Flash}"
+# Per-runtime default: local `cli` (codex) retrieval — no external network
+# egress by default. Set B5_RETRIEVE_BACKEND=api to opt into a third-party
+# provider (B5_RETRIEVE_API_PROVIDER/B5_RETRIEVE_MODEL then apply).
+export B5_RETRIEVE_BACKEND="${B5_RETRIEVE_BACKEND:-cli}"
 export B5_RETRIEVE_CLI="${B5_RETRIEVE_CLI:-codex}"
 
 # Capture stdin once so we can route to PYTHONPATH-augmented subprocess.
