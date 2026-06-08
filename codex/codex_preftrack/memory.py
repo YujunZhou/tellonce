@@ -119,7 +119,7 @@ def write_memory_atomic(path: Path, data: dict, body: str) -> str:
     CX-B7 fix: previously used a fixed `.tmp` suffix, so two concurrent
     promotes of the SAME atomic_id wrote to the same temp file and clobbered
     each other before the rename. Use a per-pid + uuid8 suffix (mirroring
-    ledger.secure_write_text's M1 fix) so concurrent writers never collide.
+    ledger.secure_write_text) so concurrent writers never collide.
     """
     import uuid as _uuid
 

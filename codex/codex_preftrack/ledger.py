@@ -421,7 +421,7 @@ def _repair_tail_locked(state_root: Path, path: Path) -> RepairResult:
         _chmod_or_warn(quarantine_path, 0o600)
 
     # Atomically rewrite events.jsonl to contain only good lines.
-    # M1 fix: per-pid+uuid suffix to dodge concurrent-writer races.
+    # Per-pid+uuid suffix to dodge concurrent-writer races.
     import uuid as _uuid
     tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}.{_uuid.uuid4().hex[:8]}")
     try:

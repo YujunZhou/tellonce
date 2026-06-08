@@ -369,11 +369,11 @@ updated: YYYY-MM-DD
 - [fmt-pit-001](pit_md_nested_codeblock.md) — 嵌套```用4+反引号包裹
 
 ## Language
-- [lang-pref-001](pref_doc_language.md) — 文档用中文，代码标识符用英文
+- [lang-pref-001](pref_reply_language.md) — 回复 / 交付物的语言偏好（示例）
 
 ## Workflow
-- [wf-pref-001](pref_preflight_check.md) — 大改动前先小范围验证
-- [wf-fric-001](fric_cross_session_memory.md) — 跨session memory粒度不对齐
+- [wf-pref-001](pref_branch_workflow.md) — 某项工作流偏好（示例）
+- [wf-fric-001](fric_context_handoff.md) — 某个反复出现的摩擦点（示例）
 
 ## Experiment
 ...

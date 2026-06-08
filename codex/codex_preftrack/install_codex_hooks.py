@@ -87,7 +87,7 @@ def _save_hooks_json(path: str, data: dict) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     # pid + uuid8 suffix avoids tmp-file race when concurrent installers run
-    # (mirror codex/codex_preftrack/ledger.py M1 fix).
+    # (mirror codex/codex_preftrack/ledger.py).
     tmp = p.with_suffix(p.suffix + f".tmp.{os.getpid()}.{_uuid.uuid4().hex[:8]}")
     try:
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

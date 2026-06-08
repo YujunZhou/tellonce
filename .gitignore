@@ -10,7 +10,7 @@ install.log
 *.tmp
 *.bak
 
-# Versioned 备份 (per `wf-pref-027` — 本地保留, 仓库不收)
+# Versioned backups (kept locally, not committed)
 *.pre_*.bak
 *.v3_pre_pt_*.json
 *.bak_*
