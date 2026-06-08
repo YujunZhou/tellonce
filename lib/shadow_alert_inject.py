@@ -150,26 +150,19 @@ def _read_recent_alerted_violations(hours=24):
 
 
 def build_inject_context(alerts):
-    """Build additionalContext markdown from alert list. v2: internalize the reminder, do not
-    encourage front-loaded preamble / apology / declarations of compliance in this turn.
-    """
+    """Build additionalContext markdown from the alert list: which rules the
+    shadow judge flagged last turn, and the suggested fix direction."""
     if not alerts:
         return None
-    lines = ['### B5 影子判官上轮 flag 的规则 (静默遵守, 不要在本轮显式提及):']
+    lines = ['### Rules the shadow judge flagged last turn:']
     for a in alerts:
         rid = a.get('rule_id', '<unknown>')
         desc = a.get('rule_desc', '')
         conf = a.get('judge_confidence', '?')
         feedback = a.get('feedback', '')[:150]
-        lines.append(f'- **[{rid}]** {desc} (信心 {conf})')
+        lines.append(f'- **[{rid}]** {desc} (confidence {conf})')
         if feedback:
-            lines.append(f'  修正方向: {feedback}')
-    lines.append('')
-    lines.append('🔇 **本轮回复中静默遵守即可**, 不要做以下任何动作:')
-    lines.append('  ❌ 不要道歉或确认收到 (\"我注意到\" / \"上轮我违反了\" / \"会改正\")')
-    lines.append('  ❌ 不要前置声明本轮会遵守这些规则')
-    lines.append('  ❌ 不要在回复开头铺垫上轮违规背景')
-    lines.append('  ✅ 直接给本轮用户问题的答案, 内容自然遵守上述规则')
+            lines.append(f'  fix: {feedback}')
     return '\n'.join(lines)
 
 

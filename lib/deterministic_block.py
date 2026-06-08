@@ -325,8 +325,7 @@ def evaluate_rules(response, transcript_lines):
 
 def build_block_reason(violations):
     """Build the block-reason text shown to the agent: list the triggered rules
-    and a terse continuation protocol. No built-in fix hints — each violation
-    carries its own reason/fix."""
+    and their fix direction. No personal writing-style dictation."""
     if not violations:
         return ''
     triggered_lines = []
@@ -342,12 +341,6 @@ def build_block_reason(violations):
     reason = (
         f"⛔ {', '.join(v.get('rule_id', 'rule') for v in violations)} triggered\n\n"
         f"{triggered}\n\n"
-        f"🔧 Continuation rules (follow strictly, minimize transcript echo):\n"
-        f"  ❌ Do not apologize\n"
-        f"  ❌ Do not restate the previous turn (the user already saw it)\n"
-        f"  ❌ Do not explain the rule (the user already saw this notice)\n"
-        f"  ❌ Do not add a preamble like \"correction / I noticed / I violated...\"\n"
-        f"  ✅ Start directly with `[fix]` then the corrected snippet, as short as possible\n\n"
         f"Override: env `B5_DETERMINISTIC_DISABLED=1` disables all; `B5_STREAK_BYPASS=N` "
         f"sets the consecutive-violation bypass threshold (default 3)."
     )
