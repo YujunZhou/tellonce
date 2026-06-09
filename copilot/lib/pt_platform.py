@@ -22,6 +22,14 @@ import os
 # Directory name under the project root where this runtime keeps its state.
 STATE_DIR_NAME = '.copilot'
 
+# CLI used for subscription-mode subprocess calls (preference classifier, etc.).
+CLI_COMMAND = 'copilot'
+
+# Default model for the CLI preference classifier (detect_user_prefer). Empty
+# means "omit --model and let copilot pick its own" (copilot rejects an explicit
+# Claude model name like claude-haiku-4-5).
+PREFER_MODEL_DEFAULT = ''
+
 
 def default_state_dir(project_root: str) -> str:
     """Default runtime state dir: <project_root>/.copilot/preference-tracker-state/runtime."""

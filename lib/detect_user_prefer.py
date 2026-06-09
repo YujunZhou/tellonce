@@ -20,7 +20,7 @@ any visible signal. Reviewed env contract:
                                       identical to prior behaviour ON FAILURE.
   PT_PREFER_BACKEND=sdk             → Anthropic Python SDK (legacy path).
                                       Charges per call; user opts in.
-  PT_PREFER_BACKEND=cli             → Use `claude -p` subprocess (subscription
+  PT_PREFER_BACKEND=cli             → Use the platform CLI in print mode (subscription
                                       mode, 0 metered cost).
 
 This means the deterministic_block short-circuit still works (urgent = skip)
@@ -31,6 +31,9 @@ import json
 import os
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pt_platform  # platform-specific values (this variant)
 
 
 _BACKEND = os.environ.get('PT_PREFER_BACKEND', 'off').strip().lower()
@@ -99,13 +102,19 @@ def _classify_via_sdk(user_msg: str) -> str:
 
 
 def _classify_via_cli(user_msg: str) -> str:
-    """`claude -p` subprocess (subscription mode, 0 metered cost). Opt-in via
+    """Platform CLI (-p) subprocess (subscription mode, 0 metered cost). Opt-in via
     PT_PREFER_BACKEND=cli. Falls back to 'u' on any error."""
     try:
+        _cmd = [pt_platform.CLI_COMMAND, '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg)]
+        _cli_model = os.environ.get('PT_PREFER_MODEL', pt_platform.PREFER_MODEL_DEFAULT).strip()
+        if _cli_model:
+            # Only pass --model when set; otherwise the CLI uses its own default
+            # (some runtimes reject an explicit Claude model name).
+            _cmd += ['--model', _cli_model]
+        _cmd += ['--output-format', 'text']
         proc = subprocess.run(
-            ['claude', '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg),
-             '--model', _PREFER_MODEL, '--output-format', 'text'],
-            capture_output=True, text=True, timeout=15,
+            _cmd,
+            capture_output=True, text=True, encoding='utf-8', timeout=15,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return 'u'

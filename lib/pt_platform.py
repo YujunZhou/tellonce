@@ -22,6 +22,14 @@ import os
 # Directory name under the project root where this runtime keeps its state.
 STATE_DIR_NAME = '.claude'
 
+# CLI used for subscription-mode subprocess calls (preference classifier, etc.).
+CLI_COMMAND = 'claude'
+
+# Default model for the CLI preference classifier (detect_user_prefer). Empty
+# means "omit --model and let the CLI pick its own" (for runtimes that reject an
+# explicit Claude model name).
+PREFER_MODEL_DEFAULT = 'claude-haiku-4-5'
+
 
 def default_state_dir(project_root: str) -> str:
     """Default runtime state dir: <project_root>/.claude/preference-tracker-state/runtime."""
