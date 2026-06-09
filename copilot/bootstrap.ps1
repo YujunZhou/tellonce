@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 $REPO   = 'https://github.com/YujunZhou/preference-tracker'
 # Pinned to a release tag (immutable) for integrity. git clone --branch accepts
 # a tag; archive uses refs/tags for a tag (refs/heads for a branch).
-$REF    = 'v1.0.0'
+$REF    = 'v1.1.0'
 $REFKIND = 'tags'
 
 function Fail($msg) { Write-Host "[X] $msg" -ForegroundColor Red; exit 1 }

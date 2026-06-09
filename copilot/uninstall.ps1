@@ -1,6 +1,6 @@
 # uninstall.ps1 — ONE-COMMAND uninstaller for preference-tracker (GitHub Copilot CLI, Windows).
 #
-#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.0.0/copilot/uninstall.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/uninstall.ps1 | iex"
 #
 # WHY THIS EXISTS: the hooks keep firing as long as the plugin is REGISTERED in
 # ~/.copilot/config.json — deleting the files alone is not enough. This removes

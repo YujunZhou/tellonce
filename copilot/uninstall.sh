@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # uninstall.sh — ONE-COMMAND uninstaller for preference-tracker (GitHub Copilot CLI, macOS/Linux).
 #
-#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.0.0/copilot/uninstall.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/uninstall.sh | bash
 #
 # WHY THIS EXISTS: the hooks keep firing as long as the plugin is REGISTERED in
 # ~/.copilot/config.json — deleting the files alone is not enough. This removes

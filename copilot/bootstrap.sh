@@ -12,7 +12,7 @@ set -euo pipefail
 
 REPO="https://github.com/YujunZhou/preference-tracker"
 # Pinned to a release tag (immutable) for integrity.
-REF="v1.0.0"
+REF="v1.1.0"
 REFKIND="tags"
 
 fail() { printf '\033[31m[X] %s\033[0m\n' "$1" >&2; exit 1; }
