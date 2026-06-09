@@ -30,6 +30,9 @@ CLI_COMMAND = 'claude'
 # explicit Claude model name).
 PREFER_MODEL_DEFAULT = 'claude-haiku-4-5'
 
+# Default CLI for the session-rule retriever (retrieve_inject / B5_RETRIEVE_CLI).
+RETRIEVE_CLI_DEFAULT = 'claude'
+
 
 def default_state_dir(project_root: str) -> str:
     """Default runtime state dir: <project_root>/.claude/preference-tracker-state/runtime."""

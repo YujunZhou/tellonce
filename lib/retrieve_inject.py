@@ -10,16 +10,18 @@ B5_RETRIEVE_BACKEND env var:
   - 'keyword': legacy fingerprints.yaml literal/regex matcher. Cheap and
     instant but only as good as the trigger lists in fingerprints.yaml.
 
-CLI dispatch is governed by B5_RETRIEVE_CLI:
-  - 'claude' (default, CC runtime): `claude -p --model <model>`
-  - 'codex'  (codex runtime): `codex exec --ephemeral ... -m <model>`
+CLI dispatch is governed by B5_RETRIEVE_CLI (default per platform via
+pt_platform.RETRIEVE_CLI_DEFAULT):
+  - 'copilot': `copilot -p` (no --model; copilot picks its own model)
+  - 'claude':  `claude -p --model <model>`
+  - 'codex':   `codex exec --ephemeral ... -m <model>`
 
 Default model is derived from B5_RETRIEVE_CLI when B5_RETRIEVE_MODEL is unset:
-  claude → claude-haiku-4-5, codex → gpt-5.4-mini.
+  claude → claude-haiku-4-5, codex → gpt-5.4-mini, copilot → (none / omitted).
 
 Recursion guard: when retrieve_inject invokes the CLI, it sets
 B5_RETRIEVE_RECURSION_GUARD=1 in the child env. The hook scripts in
-~/.claude/skills/preference-tracker/hooks/memory-retrieve-inject.sh and
+<PLUGIN_ROOT>/hooks/memory-retrieve-inject.sh and
 ~/.codex/skills/preference-tracker/hooks/userpromptsubmit-retrieve-inject.sh
 honor this flag and exit 0 immediately, so a nested CLI session doesn't
 re-trigger the retrieve hook and loop.
@@ -33,6 +35,7 @@ import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config
+import pt_platform  # platform-specific values (this variant)
 
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
 # Private overlay: the shipped fingerprints.yaml is empty by default. Users keep
@@ -41,6 +44,29 @@ FP_USER_YAML = os.path.join(_LIB_DIR, 'fingerprints.user.yaml')
 MEMORY_DIR = path_config.get_memory_dir()
 MAX_SHOW = 10
 PROMPT_TRUNCATE = 4000
+
+
+def _load_fingerprints():
+    """Return the merged `fingerprints` dict: shipped fingerprints.yaml plus the
+    optional private fingerprints.user.yaml overlay (user entries win). Requires
+    PyYAML; returns {} if unavailable or both files missing/unreadable."""
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    merged = {}
+    for path in (FP_YAML, FP_USER_YAML):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            fps = (data or {}).get('fingerprints', {}) or {}
+            if isinstance(fps, dict):
+                merged.update(fps)
+        except Exception:
+            continue
+    return merged
 
 
 # Persist retrieve defaults in
@@ -59,7 +85,7 @@ def _load_user_config() -> dict:
     if not os.path.exists(_USER_CONFIG_PATH):
         return {}
     try:
-        with open(_USER_CONFIG_PATH, encoding='utf-8') as f:
+        with open(_USER_CONFIG_PATH, encoding='utf-8-sig') as f:
             data = json.load(f)
     except Exception:
         return {}
@@ -118,8 +144,9 @@ RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _U
 # Backwards compat: 'haiku' alias 'cli'.
 if RETRIEVE_BACKEND == 'haiku':
     RETRIEVE_BACKEND = 'cli'
-RETRIEVE_CLI = _config_setting('B5_RETRIEVE_CLI', 'retrieve_cli', _USER_CONFIG, 'claude').lower()
+RETRIEVE_CLI = _config_setting('B5_RETRIEVE_CLI', 'retrieve_cli', _USER_CONFIG, pt_platform.RETRIEVE_CLI_DEFAULT).lower()
 _DEFAULT_MODEL_BY_CLI = {
+    'copilot': '',
     'claude': 'claude-haiku-4-5',
     'codex': 'gpt-5.4-mini',
 }
@@ -221,26 +248,22 @@ def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
       - 'codex':  prompt via stdin, output written to --output-last-message file
     Returns (None, None) on unknown CLI.
     """
-    if RETRIEVE_CLI == 'claude':
-        # Nested-call guard: inner claude -p must NOT
-        # load any PT hook. Outer session's user-global hooks
-        # (~/.claude/settings.json) plus any project-local settings would
-        # otherwise fire on inner's Stop event — usually
-        # check-observation-log returns decision=block, leaving
-        # terminal_reason=stop_hook_prevented + empty result.
-        #
-        # `--setting-sources project` excludes user-global. The caller
-        # (_retrieve_via_cli below) ALSO sets subprocess.run cwd to a
-        # known clean dir (/tmp) so no project .claude/settings.json gets
-        # loaded either. Together that means the inner session loads zero
-        # hooks and returns its real text.
-        return (
-            ['claude', '-p', prompt,
-             '--model', RETRIEVE_MODEL,
-             '--output-format', 'text',
-             '--setting-sources', 'project'],
-            None,
-        )
+    if RETRIEVE_CLI in ('copilot', 'claude'):
+        # Copilot/Claude CLI: prompt is positional arg, output on stdout.
+        cli_cmd = 'copilot' if RETRIEVE_CLI == 'copilot' else 'claude'
+        cmd = [cli_cmd, '-p', prompt]
+        # Only pass --model when set; some runtimes (Copilot) reject an explicit
+        # Claude model name, so RETRIEVE_MODEL is empty there and the CLI uses
+        # its own default model.
+        if RETRIEVE_MODEL:
+            cmd.extend(['--model', RETRIEVE_MODEL])
+        cmd.extend(['--output-format', 'text'])
+        # --setting-sources project: excludes user-global hooks so nested
+        # session doesn't fire PT hooks and block itself. Claude-only flag;
+        # for Copilot we rely on the B5_RETRIEVE_RECURSION_GUARD env var.
+        if RETRIEVE_CLI == 'claude':
+            cmd.extend(['--setting-sources', 'project'])
+        return (cmd, None)
     if RETRIEVE_CLI == 'codex':
         # codex exec reads prompt from stdin, writes last assistant text to a
         # file via --output-last-message. --ephemeral + --ignore-user-config +
@@ -353,20 +376,19 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
     child_env['B5_DETERMINISTIC_DISABLED'] = '1'
     child_env['B5_SHADOW_DISABLED'] = '1'
     child_env['B5_INJECT_DISABLED'] = '1'
-    # Strip outer Claude Code session markers so inner claude runs as a
-    # fresh top-level CLI session and writes its result to stdout.
+    # Strip outer session markers so inner CLI runs as a fresh top-level
+    # session and writes its result to stdout.
     for k in (
         'CLAUDECODE',
         'CLAUDE_CODE_SSE_PORT',
         'CLAUDE_CODE_ENTRYPOINT',
         'CLAUDE_CODE_EXECPATH',
+        'COPILOT_SESSION_ID',
         'AI_AGENT',
     ):
         child_env.pop(k, None)
 
-    # Run inner CLI from a temp dir so no project .claude/settings.json gets
-    # loaded. Combined with --setting-sources project (claude) /
-    # --ignore-user-config (codex), the inner session loads zero hooks.
+    # Run inner CLI from temp dir so no project settings get loaded.
     inner_cwd = os.environ.get('TEMP', os.environ.get('TMPDIR', '/tmp'))
     out = ''
     try:
@@ -375,20 +397,17 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
             # codex reads prompt from stdin
             proc = subprocess.run(
                 cmd, input=prompt,
-                capture_output=True, text=True,
+                capture_output=True, text=True, encoding='utf-8',
                 timeout=RETRIEVE_TIMEOUT_S, env=child_env,
                 cwd=inner_cwd,
             )
         else:
-            # claude -p has prompt as argv positional. We MUST close inner
-            # stdin (DEVNULL) — otherwise claude -p inherits the hook
-            # process's stdin (already drained by json.load) and waits 3s
-            # for input, then sometimes returns empty stdout. Setting
-            # stdin=DEVNULL makes inner claude proceed immediately.
+            # copilot/claude -p has prompt as argv positional. Close inner
+            # stdin (DEVNULL) so it doesn't wait for input.
             proc = subprocess.run(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                capture_output=True, text=True,
+                capture_output=True, text=True, encoding='utf-8',
                 timeout=RETRIEVE_TIMEOUT_S, env=child_env,
                 cwd=inner_cwd,
             )
@@ -401,7 +420,8 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         # claude: stdout = response. codex: read out_path file.
         if out_path and os.path.isfile(out_path):
             try:
-                out = open(out_path, encoding='utf-8', errors='replace').read()
+                with open(out_path, encoding='utf-8', errors='replace') as _f:
+                    out = _f.read()
             except OSError:
                 out = proc.stdout or ''
         else:
@@ -719,25 +739,11 @@ def main():
     prompt_scan = prompt[:PROMPT_TRUNCATE].lower()
 
     try:
-        import yaml
+        import yaml  # noqa: F401  (kept so the guard below still exits cleanly if missing)
     except ImportError:
         sys.exit(0)
 
-    if not (os.path.exists(FP_YAML) or os.path.exists(FP_USER_YAML)):
-        sys.exit(0)
-
-    fps = {}
-    for _p in (FP_YAML, FP_USER_YAML):
-        if not os.path.exists(_p):
-            continue
-        try:
-            with open(_p, encoding='utf-8') as f:
-                _d = yaml.safe_load(f) or {}
-        except Exception:
-            continue
-        _fps = (_d or {}).get('fingerprints', {}) or {}
-        if isinstance(_fps, dict):
-            fps.update(_fps)
+    fps = _load_fingerprints()
 
     # Backend dispatch. cli/api both fall back to keyword
     # on any failure so the user never loses retrieval.
@@ -790,9 +796,81 @@ def main():
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
 
 
+def session_start_summary():
+    """SessionStart mode: inject top critical/high rules without prompt matching.
+
+    At session start there is no user prompt, so keyword/CLI/API matching can't
+    fire.  Instead, scan the memory dir for all rules and inject those marked
+    critical or high priority so the agent has context from turn 1.
+    """
+    try:
+        import yaml
+    except ImportError:
+        sys.exit(0)
+
+    fps = _load_fingerprints()
+    memory_idx = _build_index()
+
+    # Collect all rules that have critical or high priority
+    priority_order = {'critical': 0, 'high': 1, 'normal': 2}
+    candidates = []
+    seen_ids = set()
+
+    # From fingerprints.yaml
+    for atomic_id, rule in fps.items():
+        if not isinstance(rule, dict):
+            continue
+        pri = rule.get('priority', 'normal')
+        if pri in ('critical', 'high'):
+            candidates.append({
+                'id': atomic_id,
+                'priority': pri,
+                'desc': rule.get('desc', ''),
+                'action': rule.get('action', ''),
+            })
+            seen_ids.add(atomic_id)
+
+    # Memory-dir-only rules (not in fingerprints.yaml) lack a priority field
+    # in their .md frontmatter, so we cannot reliably classify them as
+    # critical/high. Skip them at session start; they'll be matched per-prompt
+    # via keyword/CLI/API retrieval when available.
+
+    if not candidates:
+        sys.exit(0)
+
+    candidates.sort(key=lambda h: priority_order.get(h['priority'], 3))
+
+    lines = ['### Session-start memory rules summary (all critical/high + memory-dir rules):']
+    lines.append('(Verify applies_when/condition against context before applying. Skip inapplicable rules.)')
+    lines.append('')
+    for h in candidates[:MAX_SHOW]:
+        applies_when, condition = read_rule_applicability(h['id'])
+        desc = h.get('desc') or read_rule_description(h['id'])
+        lines.append(f"- **[{h['id']}]** ({h['priority']}) {desc}")
+        if h['action']:
+            lines.append(f"    • action: {h['action']}")
+        if applies_when:
+            lines.append(f"    • applies_when: {applies_when[:200]}")
+        if condition:
+            lines.append(f"    • condition: {condition[:120]}")
+    lines.append('')
+    lines.append('(Session-start memory retrieval. Full prompt-based matching fires per-turn in Claude; Copilot injects at session start only.)')
+
+    out = {
+        'hookSpecificOutput': {
+            'hookEventName': 'SessionStart',
+            'additionalContext': '\n'.join(lines),
+        }
+    }
+    sys.stdout.write(json.dumps(out, ensure_ascii=False))
+
+
 if __name__ == '__main__':
     try:
-        main()
+        if '--session-start' in sys.argv:
+            session_start_summary()
+        else:
+            main()
     except SystemExit:
         raise
     except Exception:

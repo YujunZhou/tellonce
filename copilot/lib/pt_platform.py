@@ -30,6 +30,9 @@ CLI_COMMAND = 'copilot'
 # Claude model name like claude-haiku-4-5).
 PREFER_MODEL_DEFAULT = ''
 
+# Default CLI for the session-rule retriever (retrieve_inject / B5_RETRIEVE_CLI).
+RETRIEVE_CLI_DEFAULT = 'copilot'
+
 
 def default_state_dir(project_root: str) -> str:
     """Default runtime state dir: <project_root>/.copilot/preference-tracker-state/runtime."""

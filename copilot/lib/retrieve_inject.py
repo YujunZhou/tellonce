@@ -10,13 +10,14 @@ B5_RETRIEVE_BACKEND env var:
   - 'keyword': legacy fingerprints.yaml literal/regex matcher. Cheap and
     instant but only as good as the trigger lists in fingerprints.yaml.
 
-CLI dispatch is governed by B5_RETRIEVE_CLI:
-  - 'copilot' (default, Copilot CLI runtime): `copilot -p --model <model>`
-  - 'claude'  (Claude Code runtime): `claude -p --model <model>`
-  - 'codex'   (codex runtime): `codex exec --ephemeral ... -m <model>`
+CLI dispatch is governed by B5_RETRIEVE_CLI (default per platform via
+pt_platform.RETRIEVE_CLI_DEFAULT):
+  - 'copilot': `copilot -p` (no --model; copilot picks its own model)
+  - 'claude':  `claude -p --model <model>`
+  - 'codex':   `codex exec --ephemeral ... -m <model>`
 
 Default model is derived from B5_RETRIEVE_CLI when B5_RETRIEVE_MODEL is unset:
-  copilot → claude-haiku-4-5, claude → claude-haiku-4-5, codex → gpt-5.4-mini.
+  claude → claude-haiku-4-5, codex → gpt-5.4-mini, copilot → (none / omitted).
 
 Recursion guard: when retrieve_inject invokes the CLI, it sets
 B5_RETRIEVE_RECURSION_GUARD=1 in the child env. The hook scripts in
@@ -34,6 +35,7 @@ import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config
+import pt_platform  # platform-specific values (this variant)
 
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
 # Private overlay: the shipped fingerprints.yaml is empty by default. Users keep
@@ -142,9 +144,9 @@ RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _U
 # Backwards compat: 'haiku' alias 'cli'.
 if RETRIEVE_BACKEND == 'haiku':
     RETRIEVE_BACKEND = 'cli'
-RETRIEVE_CLI = _config_setting('B5_RETRIEVE_CLI', 'retrieve_cli', _USER_CONFIG, 'copilot').lower()
+RETRIEVE_CLI = _config_setting('B5_RETRIEVE_CLI', 'retrieve_cli', _USER_CONFIG, pt_platform.RETRIEVE_CLI_DEFAULT).lower()
 _DEFAULT_MODEL_BY_CLI = {
-    'copilot': 'claude-haiku-4-5',
+    'copilot': '',
     'claude': 'claude-haiku-4-5',
     'codex': 'gpt-5.4-mini',
 }
@@ -249,9 +251,13 @@ def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
     if RETRIEVE_CLI in ('copilot', 'claude'):
         # Copilot/Claude CLI: prompt is positional arg, output on stdout.
         cli_cmd = 'copilot' if RETRIEVE_CLI == 'copilot' else 'claude'
-        cmd = [cli_cmd, '-p', prompt,
-               '--model', RETRIEVE_MODEL,
-               '--output-format', 'text']
+        cmd = [cli_cmd, '-p', prompt]
+        # Only pass --model when set; some runtimes (Copilot) reject an explicit
+        # Claude model name, so RETRIEVE_MODEL is empty there and the CLI uses
+        # its own default model.
+        if RETRIEVE_MODEL:
+            cmd.extend(['--model', RETRIEVE_MODEL])
+        cmd.extend(['--output-format', 'text'])
         # --setting-sources project: excludes user-global hooks so nested
         # session doesn't fire PT hooks and block itself. Claude-only flag;
         # for Copilot we rely on the B5_RETRIEVE_RECURSION_GUARD env var.
