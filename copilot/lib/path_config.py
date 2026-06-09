@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
-"""Central path detection — Copilot CLI port.
+"""Central path detection (shared across runtime variants).
 
-All lib modules import this; no hard-coded path constants elsewhere.
-Uses env / config / auto-detect 3-layer fallback.
+All lib modules import this instead of hard-coding path constants. Resolution is
+a 3-layer fallback: env var > ~/.preference-tracker.config.json > per-variant
+default. The runtime-specific defaults (state/obs/memory dirs) live in
+``pt_platform`` so this module stays identical across variants.
 
 Priority (high → low):
   1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT)
   2. ~/.preference-tracker.config.json (key: state_dir / memory_dir / obs_log_dir /
               project_root)
-  3. Auto-detect:
-     - skill_dir = Path(__file__).parent.parent (plugin root)
-     - project_root = os.getcwd()
-     - state_dir = <project_root>/.copilot/preference-tracker-state/runtime
-     - obs_log_dir = <project_root>/.copilot/preference-tracker-state/obs_log
-     - memory_dir = <project_root>/.copilot/preference-tracker/memory
-
-Ported from Claude Code version. Key changes:
-  - .claude/ → .copilot/ in all default paths
-  - memory_dir simplified to project-local (no escaped home path)
+  3. Auto-detect: project_root = os.getcwd(); state/obs/memory dirs come from
+     pt_platform.default_state_dir / default_obs_log_dir / default_memory_dir.
 """
 import json
 import os
@@ -185,7 +179,7 @@ def enforcement_enabled() -> bool:
 
 def shadow_enabled() -> bool:
     """Opt-in for the shadow LLM judge, which sends the last user message +
-    assistant reply to an LLM (`copilot -p`).
+    assistant reply to an LLM (the platform CLI in print mode).
 
     PUBLIC DEFAULT = False (privacy + cost). Turn on with env `PT_SHADOW=1`
     or config {"shadow": true}.
@@ -195,25 +189,19 @@ def shadow_enabled() -> bool:
 
 @lru_cache(maxsize=1)
 def get_skill_dir() -> str:
-    """Plugin root directory. Path(__file__).parent.parent.
-
-    e.g. ~/.copilot/installed-plugins/_direct/preference-tracker/copilot/
-    """
+    """Package/plugin root: Path(__file__).parent.parent."""
     return str(Path(__file__).resolve().parent.parent)
 
 
 @lru_cache(maxsize=1)
 def get_project_root() -> str:
-    """Project root (cwd when hook fires).
-
-    Stop/SessionStart hooks inherit the Copilot CLI session's cwd.
-    """
+    """Project root: the cwd when the hook fires (the agent session's cwd)."""
     return _resolve('B5_PROJECT_ROOT', 'project_root', os.getcwd)
 
 
 @lru_cache(maxsize=1)
 def get_state_dir() -> str:
-    """State runtime root. Default: <cwd>/.copilot/preference-tracker-state/runtime."""
+    """State runtime root. Default from pt_platform.default_state_dir(project_root)."""
     return _resolve(
         'B5_STATE_DIR', 'state_dir',
         lambda: pt_platform.default_state_dir(get_project_root())
@@ -224,7 +212,7 @@ def get_state_dir() -> str:
 def get_obs_log_dir() -> str:
     """Observation log + compliance log + pending queue root.
 
-    Default: <cwd>/.copilot/preference-tracker-state/obs_log.
+    Default from pt_platform.default_obs_log_dir(project_root).
     """
     return _resolve(
         'B5_OBS_LOG_DIR', 'obs_log_dir',
@@ -234,14 +222,8 @@ def get_obs_log_dir() -> str:
 
 @lru_cache(maxsize=1)
 def get_memory_dir() -> str:
-    """Memory rules directory.
-
-    Copilot port: project-local at <cwd>/.copilot/preference-tracker/memory.
-    Migration fallback: if the new path has no .md files, check the legacy
-    Claude Code path (~/.claude/projects/<cwd_escaped>/memory) and use it
-    if it has content. This ensures existing rules aren't invisible after
-    switching from Claude Code to Copilot CLI.
-    """
+    """Memory rules directory. Default from pt_platform.default_memory_dir(project_root)
+    (per-variant location, including any migration fallback)."""
     return _resolve('B5_MEMORY_DIR', 'memory_dir',
                     lambda: pt_platform.default_memory_dir(get_project_root()))
 

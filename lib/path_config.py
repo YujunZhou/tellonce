@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
-"""Central path detection.
+"""Central path detection (shared across runtime variants).
 
-Every lib `.py` imports this module instead of hardcoding constants. Path resolution falls
-back through three layers: env / config / auto-detect.
+All lib modules import this instead of hard-coding path constants. Resolution is
+a 3-layer fallback: env var > ~/.preference-tracker.config.json > per-variant
+default. The runtime-specific defaults (state/obs/memory dirs) live in
+``pt_platform`` so this module stays identical across variants.
 
 Priority (high → low):
   1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT)
   2. ~/.preference-tracker.config.json (key: state_dir / memory_dir / obs_log_dir /
               project_root)
-  3. Auto-detect:
-     - skill_dir = Path(__file__).parent.parent (preference-tracker package root)
-     - project_root = os.getcwd()
-     - state_dir = <project_root>/.claude/preference-tracker-state/runtime
-     - obs_log_dir = <project_root>/.claude/preference-tracker-state/obs_log
-     - memory_dir = ~/.claude/projects/<cwd_escaped>/memory
-                    cwd_escaped = cwd.replace('/', '-')
-
-Versioned backup — this is an additive new file, existing files untouched.
-State lives under .claude/preference-tracker-state/, not /tmp.
+  3. Auto-detect: project_root = os.getcwd(); state/obs/memory dirs come from
+     pt_platform.default_state_dir / default_obs_log_dir / default_memory_dir.
 """
 import json
 import os
@@ -27,6 +21,28 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pt_platform  # platform-specific values (this variant)
+
+
+def force_utf8_io():
+    """Make stdout/stderr emit UTF-8 regardless of the platform console code page.
+
+    Windows pipes default to cp1252. Hook modules print Chinese/emoji block
+    reasons and `additionalContext`; on cp1252 that raises UnicodeEncodeError,
+    which the hooks' defensive `except` swallows into a silent exit 0 — so
+    blocking and memory injection silently break on native Windows. Forcing
+    UTF-8 here fixes both. No-op on Linux/macOS (already UTF-8) and idempotent.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
+
+# Apply at import time: every hook module imports path_config before printing,
+# so this guarantees UTF-8 stdout for block decisions / additionalContext.
+force_utf8_io()
 
 CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
 
@@ -63,10 +79,7 @@ def chmod_or_warn(path, mode, critical=True):
 
 
 def _clear_cache():
-    """test only — reset all lru_cache decorators in this module.
-
-    For tests (re-eval after changing env / config); not used on the production hot path.
-    """
+    """Test only — reset all lru_cache decorators in this module."""
     for fn in [_read_config_file, get_skill_dir, get_project_root, get_state_dir,
                get_obs_log_dir, get_memory_dir, get_b5_summary_dir,
                get_b5_alerts_threshold_dir]:
@@ -78,14 +91,13 @@ def _clear_cache():
 
 @lru_cache(maxsize=1)
 def _read_config_file() -> dict:
-    """Read ~/.preference-tracker.config.json. Return empty dict if missing or corrupt."""
+    """Read ~/.preference-tracker.config.json. Returns empty dict if missing/corrupt."""
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding='utf-8-sig') as f:
             return json.load(f)
     except Exception:
-        # corrupt JSON / permission error both return empty; do not crash
         return {}
 
 
@@ -112,7 +124,7 @@ def _read_env(env_var: str):
 
 
 def _resolve(env_var: str, config_key: str, default_func):
-    """Three-layer priority detection: env > config file > default_func()."""
+    """3-layer priority: env > config file > default_func()."""
     v = _read_env(env_var)
     if v:
         return v
@@ -123,7 +135,7 @@ def _resolve(env_var: str, config_key: str, default_func):
 
 
 def _bool_setting(env_var: str, config_key: str, default: bool) -> bool:
-    """Three-layer boolean: env > config file > default. Truthy = 1/true/yes/on."""
+    """3-layer boolean: env > config file > default. Truthy = 1/true/yes/on."""
     v = _read_env(env_var)
     if v is not None:
         return v.strip().lower() in ('1', 'true', 'yes', 'on')
@@ -138,9 +150,23 @@ def _bool_setting(env_var: str, config_key: str, default: bool) -> bool:
     return default
 
 
+def stop_block_exit_code() -> int:
+    """Exit code a Stop hook uses when it BLOCKs. Delegates to the platform layer
+    (Copilot: 0 = block via stdout JSON + exit 0; override via env
+    PT_STOP_BLOCK_EXIT)."""
+    return pt_platform.stop_block_exit_code()
+
+
+def is_child_session() -> bool:
+    """True inside a nested CLI subprocess this skill spawned (e.g. the shadow
+    judge); hook entry points early-exit when set. Delegates to the platform
+    layer (env PT_CHILD_SESSION)."""
+    return pt_platform.is_child_session()
+
+
 def enforcement_enabled() -> bool:
-    """Master opt-in for hard-blocking gates (deterministic block + B4 pending-
-    finalize gate).
+    """Master opt-in for hard-blocking gates (deterministic block, B4 pending-
+    finalize gate, observation-log gate).
 
     PUBLIC DEFAULT = False (observe-only). A freshly installed skill records
     preferences and surfaces them, but NEVER hard-blocks a session — so a
@@ -153,7 +179,7 @@ def enforcement_enabled() -> bool:
 
 def shadow_enabled() -> bool:
     """Opt-in for the shadow LLM judge, which sends the last user message +
-    assistant reply to an LLM (`claude -p`).
+    assistant reply to an LLM (the platform CLI in print mode).
 
     PUBLIC DEFAULT = False (privacy + cost). Turn on with env `PT_SHADOW=1`
     or config {"shadow": true}.
@@ -161,40 +187,21 @@ def shadow_enabled() -> bool:
     return _bool_setting('PT_SHADOW', 'shadow', False)
 
 
-def stop_block_exit_code() -> int:
-    """Exit code a Stop hook uses when it BLOCKs. Delegates to the platform layer
-    (Claude: 2; override via env PT_STOP_BLOCK_EXIT)."""
-    return pt_platform.stop_block_exit_code()
-
-
-def is_child_session() -> bool:
-    """True inside a nested CLI subprocess this skill spawned (e.g. the shadow
-    judge); hook entry points early-exit when set. Delegates to the platform
-    layer (env PT_CHILD_SESSION)."""
-    return pt_platform.is_child_session()
-
-
 @lru_cache(maxsize=1)
 def get_skill_dir() -> str:
-    """preference-tracker package root. Path(__file__).parent.parent.
-
-    e.g. /users/<user>/.claude/skills/preference-tracker/
-    """
+    """Package/plugin root: Path(__file__).parent.parent."""
     return str(Path(__file__).resolve().parent.parent)
 
 
 @lru_cache(maxsize=1)
 def get_project_root() -> str:
-    """Project root (the cwd when the user invokes the hook).
-
-    When the Stop hook fires, the process cwd = the user's Claude Code session cwd.
-    """
+    """Project root: the cwd when the hook fires (the agent session's cwd)."""
     return _resolve('B5_PROJECT_ROOT', 'project_root', os.getcwd)
 
 
 @lru_cache(maxsize=1)
 def get_state_dir() -> str:
-    """State runtime root. Defaults to <cwd>/.claude/preference-tracker-state/runtime."""
+    """State runtime root. Default from pt_platform.default_state_dir(project_root)."""
     return _resolve(
         'B5_STATE_DIR', 'state_dir',
         lambda: pt_platform.default_state_dir(get_project_root())
@@ -203,9 +210,9 @@ def get_state_dir() -> str:
 
 @lru_cache(maxsize=1)
 def get_obs_log_dir() -> str:
-    """observation log + compliance log + pending queue root.
+    """Observation log + compliance log + pending queue root.
 
-    Defaults to <cwd>/.claude/preference-tracker-state/obs_log.
+    Default from pt_platform.default_obs_log_dir(project_root).
     """
     return _resolve(
         'B5_OBS_LOG_DIR', 'obs_log_dir',
@@ -215,11 +222,8 @@ def get_obs_log_dir() -> str:
 
 @lru_cache(maxsize=1)
 def get_memory_dir() -> str:
-    """memory rules directory. Claude Code standard: ~/.claude/projects/<cwd_escaped>/memory.
-
-    cwd_escaped = cwd.replace('/', '-')
-    e.g. /home/alice/projects/foo → -home-alice-projects-foo
-    """
+    """Memory rules directory. Default from pt_platform.default_memory_dir(project_root)
+    (per-variant location, including any migration fallback)."""
     return _resolve('B5_MEMORY_DIR', 'memory_dir',
                     lambda: pt_platform.default_memory_dir(get_project_root()))
 
@@ -283,9 +287,9 @@ def get_b5_alerts_threshold_dir() -> str:
 
 
 def ensure_dirs():
-    """Called once by install.sh and by lib self-checks to create all state subdirs.
+    """Create all state subdirectories. Called by install script + lib self-check.
 
-    Idempotent (mkdir -p), safe to re-run.
+    Idempotent (mkdir -p equivalent).
     """
     for d in [
         get_state_dir(),
@@ -303,7 +307,6 @@ def ensure_dirs():
         try:
             os.makedirs(d, exist_ok=True)
         except OSError:
-            # permission / disk-full etc. → defensive skip, handled by caller
             pass
 
 
