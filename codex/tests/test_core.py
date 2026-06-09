@@ -59,7 +59,7 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             with patch.dict(os.environ, {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"}):
                 registration = register_project(project)
             self.assertEqual(registration.project_root, project.resolve())
-            self.assertEqual(registration.state_root, project / ".codex" / "preference-tracker")
+            self.assertEqual(registration.state_root, project.resolve() / ".codex" / "preference-tracker")
             self.assertTrue((registration.state_root / "registration.json").is_file())
             self.assertTrue((registration.state_root / "mode.json").is_file())
             self.assertEqual(load_mode(registration.state_root).mode, "audit_only")

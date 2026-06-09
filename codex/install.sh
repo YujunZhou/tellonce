@@ -69,7 +69,7 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         local current="${p}"
         local chain=()
         while [[ -n "${current}" && "${current}" != "/" && ! -e "${current}" ]]; do
-            chain=("${current}" "${chain[@]}")
+            chain=("${current}" ${chain[@]+"${chain[@]}"})
             current="$(dirname "${current}")"
         done
         # `current` is the deepest existing ancestor.
