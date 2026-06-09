@@ -258,6 +258,7 @@ def write_pending_alert(session_id, pending_count, session_age_min, oldest_pendi
     """Write a pending-alert markdown file (under the B4 alert dir, see ALERT_DIR)
     describing the block reason so the agent has a machine-readable alert when the
     retry-stop gate triggers."""
+    _ensure_alert_retry_dirs()  # write_pending_alert may be called directly (tests / edge paths), not only via main()
     sid = session_id or 'unknown'
     sid_safe = re.sub(r'[^a-zA-Z0-9_-]', '_', sid)[:64]
     path = os.path.join(ALERT_DIR, f'session_pending_alert_{sid_safe}.md')

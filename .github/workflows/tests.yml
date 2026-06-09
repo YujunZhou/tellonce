@@ -54,11 +54,13 @@ jobs:
       - name: Root POSIX-only tests
         if: runner.os != 'Windows'
         run: |
-          python lib/test_path_config.py
-          python lib/test_auto_light_entry.py
-          python lib/test_b4_blocking.py
-          python lib/test_verify_retry_shadow.py
-          python lib/test_chaos_fault_injection.py
+          fail=0
+          for t in test_path_config test_auto_light_entry test_b4_blocking test_verify_retry_shadow test_chaos_fault_injection; do
+            echo "::group::$t"
+            python "lib/$t.py" || { echo "::error::FAILED $t"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit $fail
 
       - name: Codex test suite
         if: runner.os != 'Windows'
