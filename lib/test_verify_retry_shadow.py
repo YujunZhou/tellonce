@@ -26,6 +26,21 @@ os.environ.setdefault('PT_SHADOW', '1')
 # exercise the judge against the maintainer's example rule IDs, so set them here.
 shadow.SHADOW_RULE_IDS = ['lang-pit-130', 'oth-pref-001', 'lang-pref-001']
 
+# These tests judge against the example rule IDs above. evaluate() builds the
+# rule list by reading rule .md files from shadow.MEMORY_DIR via _read_rule_text;
+# in a clean environment (e.g. CI) that dir is empty, so seed a temp memory dir
+# with matching rule files and point the module at it. Otherwise evaluate()
+# returns 'no_rules' and the judge path is never exercised.
+_TEST_MEMORY_DIR = tempfile.mkdtemp(prefix='b5_shadow_rules_')
+for _rid, _desc in [
+    ('lang-pit-130', 'example language pitfall rule'),
+    ('oth-pref-001', 'example preference rule'),
+    ('lang-pref-001', 'example language preference rule'),
+]:
+    with open(os.path.join(_TEST_MEMORY_DIR, f'{_rid}.md'), 'w', encoding='utf-8') as _f:
+        _f.write(f'---\natomic_id: {_rid}\ndescription: {_desc}\n---\n\n{_desc} (test rule body).\n')
+shadow.MEMORY_DIR = _TEST_MEMORY_DIR
+
 
 # ----------------------- Helper test fixtures -----------------------
 
