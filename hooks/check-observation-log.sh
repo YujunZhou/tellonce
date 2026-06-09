@@ -49,6 +49,20 @@ if [[ -z "${OBS_LOG}" ]]; then
   exit 0
 fi
 
+# Public default: observe-only. This gate only HARD-BLOCKS the Stop when
+# enforcement is explicitly opted in (env PT_ENFORCE=1 or config {"enforce":true}).
+# Single source of truth = path_config.enforcement_enabled(). Without it, the gate
+# still logs/traces but never blocks — a stranger can't be locked out.
+PT_ENFORCE_ON=$(env PT_LIB="${_PT_LIB}" PYTHONIOENCODING=utf-8 python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["PT_LIB"])
+try:
+    import path_config
+    print("1" if path_config.enforcement_enabled() else "0")
+except Exception:
+    print("0")
+' 2>/dev/null || echo "0")
+
 # Trace log: opt-in via PT_TRACE=1 (default OFF; legacy B5_TRACE still honored).
 # When opt-in, write to
 # state_dir (per project) instead of /tmp — /tmp is world-readable on shared
@@ -300,7 +314,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════
 # OUTPUT
 # ══════════════════════════════════════════════════════════════════════════
-if [ -n "$WARNINGS" ]; then
+if [ -n "$WARNINGS" ] && [ "$PT_ENFORCE_ON" = "1" ]; then
   MSG=$(echo -e "$WARNINGS" | head -10)
   # Use decision=block → CC forces model to re-engage BEFORE truly stopping.
   # continue=false also ensures the stop is rejected until gate is satisfied.
