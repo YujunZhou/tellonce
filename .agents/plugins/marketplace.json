@@ -1,0 +1,17 @@
+{
+  "name": "preference-tracker",
+  "plugins": [
+    {
+      "name": "preference-tracker",
+      "source": {
+        "source": "local",
+        "path": "./codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

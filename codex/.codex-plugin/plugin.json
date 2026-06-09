@@ -1,0 +1,24 @@
+{
+  "name": "preference-tracker",
+  "version": "1.1.0",
+  "description": "Automatic preference/pitfall/friction detection and memory enforcement for AI coding agents (Codex variant: audit log + wrapper enforcement via codex_preftrack).",
+  "author": {
+    "name": "Yujun Zhou",
+    "email": "yzhou25@nd.edu",
+    "url": "https://github.com/YujunZhou"
+  },
+  "homepage": "https://github.com/YujunZhou/preference-tracker",
+  "repository": "https://github.com/YujunZhou/preference-tracker",
+  "license": "MIT",
+  "keywords": ["memory", "preferences", "pitfalls", "enforcement", "audit", "personalization"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Preference Tracker",
+    "shortDescription": "Records and enforces your coding-agent preferences",
+    "longDescription": "preference-tracker watches each turn, records the preferences, pitfalls and workflow rules it detects, and can enforce the ones you care about. Safe by default: out of the box it only records and reminds.",
+    "developerName": "Yujun Zhou",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://github.com/YujunZhou/preference-tracker"
+  }
+}
