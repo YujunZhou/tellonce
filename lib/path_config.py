@@ -25,6 +25,9 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pt_platform  # platform-specific values (this variant)
+
 CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
 
 
@@ -158,6 +161,19 @@ def shadow_enabled() -> bool:
     return _bool_setting('PT_SHADOW', 'shadow', False)
 
 
+def stop_block_exit_code() -> int:
+    """Exit code a Stop hook uses when it BLOCKs. Delegates to the platform layer
+    (Claude: 2; override via env PT_STOP_BLOCK_EXIT)."""
+    return pt_platform.stop_block_exit_code()
+
+
+def is_child_session() -> bool:
+    """True inside a nested CLI subprocess this skill spawned (e.g. the shadow
+    judge); hook entry points early-exit when set. Delegates to the platform
+    layer (env PT_CHILD_SESSION)."""
+    return pt_platform.is_child_session()
+
+
 @lru_cache(maxsize=1)
 def get_skill_dir() -> str:
     """preference-tracker package root. Path(__file__).parent.parent.
@@ -181,7 +197,7 @@ def get_state_dir() -> str:
     """State runtime root. Defaults to <cwd>/.claude/preference-tracker-state/runtime."""
     return _resolve(
         'B5_STATE_DIR', 'state_dir',
-        lambda: os.path.join(get_project_root(), '.claude', 'preference-tracker-state', 'runtime')
+        lambda: pt_platform.default_state_dir(get_project_root())
     )
 
 
@@ -193,7 +209,7 @@ def get_obs_log_dir() -> str:
     """
     return _resolve(
         'B5_OBS_LOG_DIR', 'obs_log_dir',
-        lambda: os.path.join(get_project_root(), '.claude', 'preference-tracker-state', 'obs_log')
+        lambda: pt_platform.default_obs_log_dir(get_project_root())
     )
 
 
@@ -204,11 +220,8 @@ def get_memory_dir() -> str:
     cwd_escaped = cwd.replace('/', '-')
     e.g. /home/alice/projects/foo → -home-alice-projects-foo
     """
-    def default():
-        cwd = get_project_root()
-        escaped = cwd.replace('/', '-')
-        return os.path.expanduser(f'~/.claude/projects/{escaped}/memory')
-    return _resolve('B5_MEMORY_DIR', 'memory_dir', default)
+    return _resolve('B5_MEMORY_DIR', 'memory_dir',
+                    lambda: pt_platform.default_memory_dir(get_project_root()))
 
 
 def get_compliance_log_path() -> str:

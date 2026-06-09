@@ -25,6 +25,9 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import pt_platform  # platform-specific values (this variant)
+
 
 def force_utf8_io():
     """Make stdout/stderr emit UTF-8 regardless of the platform console code page.
@@ -154,36 +157,17 @@ def _bool_setting(env_var: str, config_key: str, default: bool) -> bool:
 
 
 def stop_block_exit_code() -> int:
-    """Exit code a Stop hook uses when it decides to BLOCK.
-
-    Per copilot/PORT_DESIGN.md §2.2 the Copilot CLI treats a Stop hook's
-    `exit 2` as a warning only; to actually block it wants `{"decision":"block"}`
-    on stdout plus `exit 0`. We therefore default to 0 here so the Windows
-    (PowerShell-direct python) path and the bash-wrapper path behave identically
-    and per-spec — the previous `sys.exit(2)` silently degraded to a warning on
-    Windows. Override with env `PT_STOP_BLOCK_EXIT=2` if a runtime is found to
-    honor exit-2 blocking (see SESSION_HANDOFF Test B).
-
-    REVERSE RISK (write it down so future-you remembers): if the live test shows
-    Copilot honors `exit 2` but IGNORES stdout JSON, then defaulting to 0 means a
-    real violation is SILENTLY let through (not even a warning) on the Windows
-    python-direct path. In that case set PT_STOP_BLOCK_EXIT=2. Defaulting to 0 is
-    only safe under the assumption (PORT_DESIGN §2.2) that stdout JSON + exit 0 is
-    what Copilot reads.
-    """
-    v = os.environ.get('PT_STOP_BLOCK_EXIT')
-    if v and v.strip().isdigit():
-        return int(v.strip())
-    return 0
+    """Exit code a Stop hook uses when it BLOCKs. Delegates to the platform layer
+    (Copilot: 0 = block via stdout JSON + exit 0; override via env
+    PT_STOP_BLOCK_EXIT)."""
+    return pt_platform.stop_block_exit_code()
 
 
 def is_child_session() -> bool:
-    """True inside a nested `copilot -p` subprocess that this skill spawned
-    (e.g. the shadow judge). All Stop/SessionStart hook entry points early-exit
-    when this is set, so a nested agent session can't re-fire the gates, re-inject
-    context, promote the shared pending queue, or pollute the compliance log.
-    Set via env `PT_CHILD_SESSION=1` on the child (see verify_retry_shadow)."""
-    return os.environ.get('PT_CHILD_SESSION', '').strip().lower() in ('1', 'true', 'yes', 'on')
+    """True inside a nested CLI subprocess this skill spawned (e.g. the shadow
+    judge); hook entry points early-exit when set. Delegates to the platform
+    layer (env PT_CHILD_SESSION)."""
+    return pt_platform.is_child_session()
 
 
 def enforcement_enabled() -> bool:
@@ -232,7 +216,7 @@ def get_state_dir() -> str:
     """State runtime root. Default: <cwd>/.copilot/preference-tracker-state/runtime."""
     return _resolve(
         'B5_STATE_DIR', 'state_dir',
-        lambda: os.path.join(get_project_root(), '.copilot', 'preference-tracker-state', 'runtime')
+        lambda: pt_platform.default_state_dir(get_project_root())
     )
 
 
@@ -244,7 +228,7 @@ def get_obs_log_dir() -> str:
     """
     return _resolve(
         'B5_OBS_LOG_DIR', 'obs_log_dir',
-        lambda: os.path.join(get_project_root(), '.copilot', 'preference-tracker-state', 'obs_log')
+        lambda: pt_platform.default_obs_log_dir(get_project_root())
     )
 
 
@@ -258,25 +242,8 @@ def get_memory_dir() -> str:
     if it has content. This ensures existing rules aren't invisible after
     switching from Claude Code to Copilot CLI.
     """
-    def default():
-        new_dir = os.path.join(get_project_root(), '.copilot', 'preference-tracker', 'memory')
-        # If new dir already has memory files, use it
-        try:
-            if os.path.isdir(new_dir) and any(f.endswith('.md') for f in os.listdir(new_dir)):
-                return new_dir
-        except Exception:
-            pass
-        # Migration fallback: check legacy Claude Code path
-        try:
-            cwd = get_project_root()
-            escaped = cwd.replace('/', '-').replace('\\', '-').replace(':', '-')
-            legacy_dir = os.path.expanduser(f'~/.claude/projects/{escaped}/memory')
-            if os.path.isdir(legacy_dir) and any(f.endswith('.md') for f in os.listdir(legacy_dir)):
-                return legacy_dir
-        except Exception:
-            pass
-        return new_dir
-    return _resolve('B5_MEMORY_DIR', 'memory_dir', default)
+    return _resolve('B5_MEMORY_DIR', 'memory_dir',
+                    lambda: pt_platform.default_memory_dir(get_project_root()))
 
 
 def get_compliance_log_path() -> str:
