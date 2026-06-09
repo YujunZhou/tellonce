@@ -64,7 +64,8 @@ jobs:
 
       - name: Codex test suite
         if: runner.os != 'Windows'
-        run: python -m pytest codex/tests/test_core.py -q
+        working-directory: codex
+        run: python -m pytest tests/test_core.py -q
 
       - name: Cross-variant parity check
         if: runner.os != 'Windows'
