@@ -30,7 +30,7 @@ import path_config
 
 @lru_cache(maxsize=64)
 def read_rule_params(atomic_id):
-    """Read a rule .md's frontmatter `params:` block, return a dict. Missing / parse failure → {}."""
+    """Read the frontmatter `params:` block of a rule .md, return a dict. Missing / parse failure → {}."""
     memory_dir = path_config.get_memory_dir()
     if not os.path.isdir(memory_dir):
         return {}
@@ -56,8 +56,7 @@ def read_rule_params(atomic_id):
 def _parse_params_block(content):
     """Extract the `params:` block from a markdown file (with frontmatter `--- ... ---`).
 
-    Hand-written minimal parser (no PyYAML dependency). Only supports simple key: value
-    pairs (int / float / string).
+    Hand-written minimal parser (no PyYAML dependency). Supports only simple key: value pairs (int / float / string).
     """
     parts = re.split(r'^---\s*$', content, maxsplit=2, flags=re.MULTILINE)
     if len(parts) < 3:

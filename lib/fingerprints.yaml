@@ -4,6 +4,12 @@
 # personal preference rules. Your rules accumulate as YOU teach the agent
 # (the Gate Function records them), and you can hand-author fingerprints here.
 #
+# Fingerprints are an optional keyword/priority index that lets the skill
+# (a) keyword-retrieve a rule and (b) inject critical/high rules at session
+# start. Without any fingerprints, deterministic blocking + preference
+# recording still work; only the keyword-retrieval / session-start-injection
+# of fingerprinted rules is empty until you add some.
+#
 # To add your own, drop entries under `fingerprints:` here, OR keep a private
 # overlay at `fingerprints.user.yaml` (gitignored) — both are merged at load.
 #

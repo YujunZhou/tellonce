@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """CLI: apply threshold_advisor suggestions to memory rule frontmatter.
 
-Changes are applied only when the user decides, never autonomously. The CLI accepts
---rule / --param / --value, makes a versioned backup of the original file, writes atomically
-(tmp + rename), and modifies only the specified key in the `params:` block.
+Changes are applied only when the user approves, never silently. The CLI
+accepts --rule / --param / --value, makes a versioned backup of the original file,
+does an atomic write (tmp + rename), and edits only the given key in the `params:` block.
 
 Usage:
   python3 apply_threshold.py --rule <domain>-<kind>-NNN --param some_threshold --value 0.55

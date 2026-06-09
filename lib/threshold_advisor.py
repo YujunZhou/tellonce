@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """Full adaptive-threshold advisor.
 
-Runs over historical compliance + shadow logs to compute per-rule firing rates, and writes
+Runs over historical compliance + shadow logs to compute per-rule fire rates, and writes
 suggested threshold changes to `state/runtime/b5_alerts_threshold/<date>.md`, which the user
-decides on at the SessionStart inject.
+approves at SessionStart inject time.
 
-Never changes frontmatter autonomously — only emits suggestions. The user accepts them by
-running `apply_threshold.py`.
+Never edits frontmatter silently — only emits suggestions. The user runs `apply_threshold.py` to accept.
 
 Algorithm (per HANDOFF §8 Step 3, conservative):
   - false-positive rate > 5% → suggest raising threshold by 0.05
   - false-positive rate = 0% AND miss rate > 50% → suggest lowering threshold by 0.05
   - otherwise → keep (no-suggestion)
 
-Miss rate: fraction where the shadow judge voted violated but deterministic did not block.
-           If the shadow log is missing / data < 5 conditions, skip that rule.
-False-positive rate: deterministic fired but the user did not correct the same message —
-           heuristic, defaults to 0 (conservative when there is no explicit ground-truth source).
+Miss rate definition: fraction where the shadow judge voted violated but deterministic didn't block.
+            If the shadow log is missing / has < 5 conditions of data, skip that rule.
+False-positive rate definition: deterministic fired but the user didn't correct after the same
+            message — heuristic, default 0 (conservative when there's no explicit ground-truth source).
 
 Paths are decoupled via path_config.get_*(). apply_threshold.py makes a versioned
 backup before writing frontmatter. State lives under the configured state dir, not /tmp.
