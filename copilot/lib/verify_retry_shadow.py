@@ -5,7 +5,7 @@ An optional semantic judge that runs on Stop events to catch violations of the
 user's recorded rules that the deterministic checks miss. It NEVER blocks
 (always exits 0); it only logs and surfaces a rolling alert.
 
-Per-runtime dispatch: the Copilot CLI runtime uses a `copilot -p` subprocess
+Per-runtime dispatch: the CLI judge uses the platform CLI in print mode
 (_judge_call_cli, the default). An optional SDK path (_judge_call_sdk) is a
 fallback (B5_USE_SDK=1).
 
@@ -43,6 +43,7 @@ sys.path.insert(0, LIB_DIR)
 import path_config  # central path config
 import redaction  # redact secrets pre-disk
 import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
+import pt_platform  # platform-specific values (this variant)
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
 MEMORY_DIR = path_config.get_memory_dir()
@@ -59,7 +60,7 @@ ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1'
 B5_DAILY_COST_CAP = float(path_config.pt_env('DAILY_COST_CAP', '0.50'))
 B5_USE_DEEPINFRA = path_config.pt_env('USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
 B5_USE_SDK = path_config.pt_env('USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = use the CLI channel
-B5_JUDGE_MODEL = path_config.pt_env('JUDGE_MODEL', '')  # empty = let `copilot -p` pick its own default (auto)
+B5_JUDGE_MODEL = path_config.pt_env('JUDGE_MODEL', pt_platform.JUDGE_MODEL_DEFAULT)  # empty = let the CLI pick its own (auto)
 B5_CONFIDENCE_THRESHOLD = float(path_config.pt_env('CONFIDENCE_THRESHOLD', '0.85'))
 ALERT_ROLLING_CAP = int(path_config.pt_env('ALERT_ROLLING_CAP', '3'))
 RATE_LIMIT_HOURS = float(path_config.pt_env('RATE_LIMIT_HOURS', '24'))
@@ -284,9 +285,9 @@ def _update_alert_md(violation_alerts):
 
 
 def _judge_call_cli(rules, last_user, response):
-    """Invoke copilot -p CLI subprocess judge. 0 API charge (CLI subscription).
+    """Invoke the platform CLI (-p) subprocess judge. 0 API charge (CLI subscription).
 
-    Model defaults to copilot's own (auto) unless B5_JUDGE_MODEL/PT_JUDGE_MODEL is set.
+    Model defaults to the CLI's own (auto) unless B5_JUDGE_MODEL/PT_JUDGE_MODEL is set.
     Returns (verdicts_list, cost_usd=0.0, latency_ms, error_str_or_None).
     """
     import subprocess
@@ -309,8 +310,8 @@ Rules:
 Output strict one-line JSON in this format:
 {{"verdicts":[{{"rule_id":"<id>","applicable":true|false,"compliant":true|false,"judge_confidence":0.0-1.0,"evidence":"<10-30 chars>","feedback":"<fix instruction if not compliant>"}}]}}"""
     try:
-        # Recursion / fan-out guard: the judge spawns `copilot -p`, a nested
-        # agent session that may itself fire Stop hooks. Without disabling the
+        # Recursion / fan-out guard: the judge spawns a nested CLI agent
+        # session that may itself fire Stop hooks. Without disabling the
         # enforcement/shadow/inject layers in the child, that nested Stop could
         # re-invoke this judge → unbounded recursion / fork-bomb. Mirror the
         # guard retrieve_inject.py uses for its nested CLI call.
@@ -324,11 +325,15 @@ Output strict one-line JSON in this format:
             'PT_SHADOW': '0',
             'PT_CHILD_SESSION': '1',
         }
-        _child_env.pop('COPILOT_SESSION_ID', None)
-        _cmd = ['copilot', '-p', prompt, '--output-format', 'text']
+        # Strip outer session markers (union across runtimes) so the nested CLI
+        # runs as a fresh top-level session. Popping absent keys is a no-op.
+        for _k in ('CLAUDECODE', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENTRYPOINT',
+                   'CLAUDE_CODE_EXECPATH', 'COPILOT_SESSION_ID', 'AI_AGENT'):
+            _child_env.pop(_k, None)
+        _cmd = [pt_platform.CLI_COMMAND, '-p', prompt, '--output-format', 'text']
         if B5_JUDGE_MODEL:
-            # Only pass --model when explicitly set; otherwise copilot uses its
-            # own default model (passing a Claude model name here would fail).
+            # Only pass --model when set; otherwise the CLI uses its own default
+            # (some runtimes reject an explicit Claude model name).
             _cmd += ['--model', B5_JUDGE_MODEL]
         proc = subprocess.run(
             _cmd,
@@ -364,7 +369,7 @@ Output strict one-line JSON in this format:
     except subprocess.TimeoutExpired:
         return [], 0.0, 60000.0, 'CLI timeout 60s'
     except FileNotFoundError:
-        return [], 0.0, (time.time() - t0) * 1000, 'copilot CLI not in PATH'
+        return [], 0.0, (time.time() - t0) * 1000, f'{pt_platform.CLI_COMMAND} CLI not in PATH'
     except Exception as e:
         return [], 0.0, (time.time() - t0) * 1000, f'CLI exception: {type(e).__name__}: {str(e)[:200]}'
 

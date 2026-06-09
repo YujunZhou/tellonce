@@ -5,7 +5,7 @@ An optional semantic judge that runs on Stop events to catch violations of the
 user's recorded rules that the deterministic checks miss. It NEVER blocks
 (always exits 0); it only logs and surfaces a rolling alert.
 
-Per-runtime dispatch: the Claude Code runtime uses a `claude -p` subprocess
+Per-runtime dispatch: the CLI judge uses the platform CLI in print mode
 (_judge_call_cli, the default). An optional SDK path (_judge_call_sdk) is a
 fallback (B5_USE_SDK=1).
 
@@ -35,13 +35,15 @@ import contextlib
 try:
     import fcntl
 except ImportError:
-    fcntl = None  # Windows
+    fcntl = None
 from datetime import datetime, timezone, timedelta
 
 LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 import path_config  # central path config
 import redaction  # redact secrets pre-disk
+import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
+import pt_platform  # platform-specific values (this variant)
 
 # Module-level paths via path_config (lazy evaluated at module load, lru_cached)
 MEMORY_DIR = path_config.get_memory_dir()
@@ -52,12 +54,13 @@ COST_LOG_DIR = path_config.get_cost_log_dir()
 
 # Env opt-out and gates
 B5_SHADOW_DISABLED = path_config.pt_env('SHADOW_DISABLED', '').lower() in ('1', 'true', 'yes')
-# Defaults to True (assumes credit available); only disabled when ANTHROPIC_CREDIT_OK=0/false is set explicitly
+# Legacy credit gate (only consulted on the SDK path). The real send-gate is
+# path_config.shadow_enabled() (PUBLIC DEFAULT = False).
 ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1', 'true', 'yes')
 B5_DAILY_COST_CAP = float(path_config.pt_env('DAILY_COST_CAP', '0.50'))
 B5_USE_DEEPINFRA = path_config.pt_env('USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
 B5_USE_SDK = path_config.pt_env('USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = use the CLI channel
-B5_JUDGE_MODEL = path_config.pt_env('JUDGE_MODEL', 'claude-haiku-4-5')  # small/cheap default model
+B5_JUDGE_MODEL = path_config.pt_env('JUDGE_MODEL', pt_platform.JUDGE_MODEL_DEFAULT)  # empty = let the CLI pick its own (auto)
 B5_CONFIDENCE_THRESHOLD = float(path_config.pt_env('CONFIDENCE_THRESHOLD', '0.85'))
 ALERT_ROLLING_CAP = int(path_config.pt_env('ALERT_ROLLING_CAP', '3'))
 RATE_LIMIT_HOURS = float(path_config.pt_env('RATE_LIMIT_HOURS', '24'))
@@ -105,61 +108,14 @@ def _read_rule_text(atomic_id):
 
 
 def _read_response_and_last_user(stdin_data):
-    """Extract last assistant response + last user prompt from transcript."""
-    transcript_path = stdin_data.get('transcript_path')
-    if not transcript_path or not os.path.exists(transcript_path):
-        return '', ''
-    try:
-        with open(transcript_path, errors='ignore') as f:
-            lines = f.readlines()
-    except Exception:
-        return '', ''
-    response = ''
-    last_user = ''
-    # Find last assistant text + last user text
-    for line in reversed(lines[-300:]):
-        try:
-            o = json.loads(line)
-        except Exception:
-            continue
-        if not response and o.get('type') == 'assistant':
-            msg = o.get('message') or {}
-            content = msg.get('content', [])
-            if isinstance(content, str):
-                response = content
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        response = item.get('text', '')
-                        break
-        if not last_user and o.get('type') == 'user':
-            msg = o.get('message') or {}
-            content = msg.get('content', '')
-            if isinstance(content, str):
-                last_user = content
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get('type') == 'text':
-                        last_user = item.get('text', '')
-                        break
-            elif content:
-                last_user = str(content)
-        if response and last_user:
-            break
+    """Extract last assistant response + last user prompt from transcript.
+
+    Delegates to transcript_adapter so Copilot (transcriptPath +
+    assistant.message/data.content) and Claude (transcript_path +
+    assistant/message.content) schemas both work.
+    """
+    response, last_user, _tools, _lines = transcript_adapter.read_transcript(stdin_data)
     return response, last_user
-
-
-def _read_daily_cost():
-    """Read today's accumulated judge cost (USD)."""
-    path = os.path.join(COST_LOG_DIR, f'{_today_str()}.json')
-    if not os.path.exists(path):
-        return 0.0
-    try:
-        with open(path) as f:
-            d = json.load(f)
-        return float(d.get('total_usd', 0.0))
-    except Exception:
-        return 0.0
 
 
 @contextlib.contextmanager
@@ -206,14 +162,27 @@ def _cost_lock():
                 pass
 
 
+def _read_daily_cost():
+    """Read today's accumulated judge cost (USD)."""
+    path = os.path.join(COST_LOG_DIR, f'{_today_str()}.json')
+    if not os.path.exists(path):
+        return 0.0
+    try:
+        with open(path) as f:
+            d = json.load(f)
+        return float(d.get('total_usd', 0.0))
+    except Exception:
+        return 0.0
+
+
 def _bump_daily_cost(extra_usd):
     """Add extra_usd to today's cost log.
 
     The read-modify-write is wrapped in a cross-process lock so two
     concurrent shadow-judge calls can't each read the same prior total and
-    overwrite each other (which would let the daily cost cap be exceeded).
-    Best-effort lock — falls through unlocked if the filesystem doesn't support
-    flock.
+    overwrite each other (which would undercount spend and let the daily cost
+    cap be exceeded). Best-effort lock — falls through unlocked if the
+    filesystem doesn't support flock, matching `_queue_lock` semantics.
     """
     os.makedirs(COST_LOG_DIR, exist_ok=True)
     path = os.path.join(COST_LOG_DIR, f'{_today_str()}.json')
@@ -316,15 +285,13 @@ def _update_alert_md(violation_alerts):
 
 
 def _judge_call_cli(rules, last_user, response):
-    """Invoke claude -p CLI subprocess judge. 0 API charge (uses the CLI subscription).
+    """Invoke the platform CLI (-p) subprocess judge. 0 API charge (CLI subscription).
 
-    Default: prefer the CLI when both CLI subscription and SDK are available.
-    Default model: claude-haiku-4-5 (a small/cheap model suffices for the shadow judge).
+    Model defaults to the CLI's own (auto) unless B5_JUDGE_MODEL/PT_JUDGE_MODEL is set.
     Returns (verdicts_list, cost_usd=0.0, latency_ms, error_str_or_None).
     """
     import subprocess
     t0 = time.time()
-    # Keep the judge prompt small.
     rules_text = '\n'.join(
         f'- {r["rule_id"]}: {r["rule_text"][:200]}'
         for r in rules
@@ -343,18 +310,41 @@ Rules:
 Output strict one-line JSON in this format:
 {{"verdicts":[{{"rule_id":"<id>","applicable":true|false,"compliant":true|false,"judge_confidence":0.0-1.0,"evidence":"<10-30 chars>","feedback":"<fix instruction if not compliant>"}}]}}"""
     try:
+        # Recursion / fan-out guard: the judge spawns a nested CLI agent
+        # session that may itself fire Stop hooks. Without disabling the
+        # enforcement/shadow/inject layers in the child, that nested Stop could
+        # re-invoke this judge → unbounded recursion / fork-bomb. Mirror the
+        # guard retrieve_inject.py uses for its nested CLI call.
+        _child_env = {
+            **os.environ,
+            'B5_SHADOW_DISABLED': '1',
+            'B5_DETERMINISTIC_DISABLED': '1',
+            'B5_INJECT_DISABLED': '1',
+            'B5_RETRIEVE_RECURSION_GUARD': '1',
+            'PT_ENFORCE': '0',
+            'PT_SHADOW': '0',
+            'PT_CHILD_SESSION': '1',
+        }
+        # Strip outer session markers (union across runtimes) so the nested CLI
+        # runs as a fresh top-level session. Popping absent keys is a no-op.
+        for _k in ('CLAUDECODE', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENTRYPOINT',
+                   'CLAUDE_CODE_EXECPATH', 'COPILOT_SESSION_ID', 'AI_AGENT'):
+            _child_env.pop(_k, None)
+        _cmd = [pt_platform.CLI_COMMAND, '-p', prompt, '--output-format', 'text']
+        if B5_JUDGE_MODEL:
+            # Only pass --model when set; otherwise the CLI uses its own default
+            # (some runtimes reject an explicit Claude model name).
+            _cmd += ['--model', B5_JUDGE_MODEL]
         proc = subprocess.run(
-            ['claude', '-p', prompt, '--model', B5_JUDGE_MODEL,
-             '--output-format', 'text'],
-            capture_output=True, text=True, timeout=60,
+            _cmd,
+            capture_output=True, text=True, encoding='utf-8', timeout=60,
+            env=_child_env,
         )
         latency_ms = (time.time() - t0) * 1000
         if proc.returncode != 0:
             return [], 0.0, latency_ms, f'CLI exit {proc.returncode}: {proc.stderr[:200]}'
-        # Find JSON in stdout (model may add prose despite instruction)
         m = re.search(r'\{[^{}]*"verdicts"[^{}]*\[.*?\]\s*\}', proc.stdout, re.DOTALL)
         if not m:
-            # Fallback: try last {} block
             m = re.search(r'\{.*\}', proc.stdout, re.DOTALL)
         if not m:
             return [], 0.0, latency_ms, f'no JSON in output: {proc.stdout[:200]}'
@@ -375,12 +365,11 @@ Output strict one-line JSON in this format:
                 'evidence': v_dict.get('evidence', '')[:300],
                 'feedback': v_dict.get('feedback', '')[:300],
             })
-        # 0 cost — CLI uses the subscription
         return verdicts, 0.0, latency_ms, None
     except subprocess.TimeoutExpired:
         return [], 0.0, 60000.0, 'CLI timeout 60s'
     except FileNotFoundError:
-        return [], 0.0, (time.time() - t0) * 1000, 'claude CLI not in PATH'
+        return [], 0.0, (time.time() - t0) * 1000, f'{pt_platform.CLI_COMMAND} CLI not in PATH'
     except Exception as e:
         return [], 0.0, (time.time() - t0) * 1000, f'CLI exception: {type(e).__name__}: {str(e)[:200]}'
 
@@ -422,7 +411,7 @@ def _judge_call_sdk(rules, last_user, response):
         loaded_rules = [{'rule_id': r['rule_id'], 'rule_text': r['rule_text']} for r in rules]
         result = v.verify_all_global(loaded_rules, last_user, response)
         verdicts_raw = result.get('verdicts', [])
-        # Cost estimate (Haiku 4-5: $1/M input, $5/M output). Used only when SDK
+        # Cost estimate (~$1/M input, $5/M output assumption). Used only when SDK
         # path doesn't surface real usage; consumers may overwrite if they have
         # actual token counts.
         n_rules = len(loaded_rules)
@@ -458,6 +447,11 @@ def _judge_call(rules, last_user, response):
             return verdicts, 0.0, (time.time() - t0) * 1000, None
         except Exception as e:
             return [], 0.0, (time.time() - t0) * 1000, f'mock parse error: {e}'
+    # Redact secrets before anything leaves the machine for the LLM judge.
+    # Rebinding here is local to this dispatcher; downstream suppression logic
+    # in the caller still sees the raw text it needs for keyword checks.
+    last_user = redaction.redact(last_user or '')
+    response = redaction.redact(response or '')
     if B5_USE_SDK:
         return _judge_call_sdk(rules, last_user, response)
     return _judge_call_cli(rules, last_user, response)
@@ -466,7 +460,7 @@ def _judge_call(rules, last_user, response):
 def _just_blocked_by_deterministic(within_sec=5):
     """Check if deterministic_block just fired within `within_sec` seconds.
 
-    If it was just deterministically blocked, the shadow judge skips — already hard-blocked, no need to log violation again
+    If just hard-blocked by deterministic, shadow judge skip — already hard-blocked, no need to log violation again
     (saves ~1 CLI call per blocked Stop).
     """
     if not os.path.exists(COMPLIANCE_LOG):
@@ -495,7 +489,7 @@ def evaluate(stdin_data):
     Status one of: 'disabled' / 'no_credit' / 'cost_capped' / 'skip_short' /
                    'compliant' / 'violation' / 'no_rules' / 'judge_error'
     """
-    session_id = stdin_data.get('session_id', '')
+    session_id = transcript_adapter.get_session_id(stdin_data)
     log_entry = {
         'timestamp': _now().isoformat(),
         'session_id': session_id,
@@ -558,8 +552,8 @@ def evaluate(stdin_data):
         _bump_daily_cost(cost_usd)
 
     # Pre-collect violation rule_ids for the main compliance log:
-    # the main entry writes a shadow_violation_rule_ids list so analyze_b5_compliance.py can
-    # bucket per-rule directly, without reading b5_shadow_log.jsonl as a second source.
+    # the main entry writes a shadow_violation_rule_ids list so analyze_b5_compliance.py can do
+    # per-rule bucketing directly, without reading b5_shadow_log.jsonl as a second source.
     raw_violations = [v for v in verdicts
                       if v.get('applicable', True) and not v.get('compliant', True)]
     violations = list(raw_violations)
@@ -578,8 +572,8 @@ def evaluate(stdin_data):
         'shadow_judge_latency_ms': round(latency_ms, 2),
         'shadow_judge_cost_usd': round(cost_usd, 6),
         'shadow_judge_model': ('mock' if B5_TEST_MOCK_VERDICT
-                               else (B5_JUDGE_MODEL + '/sdk' if B5_USE_SDK
-                                     else B5_JUDGE_MODEL + '/cli')),
+                               else ((B5_JUDGE_MODEL or 'auto') + '/sdk' if B5_USE_SDK
+                                     else (B5_JUDGE_MODEL or 'auto') + '/cli')),
     }
 
     # Process violations: confidence threshold + rate limit + alert

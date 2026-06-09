@@ -33,6 +33,11 @@ PREFER_MODEL_DEFAULT = ''
 # Default CLI for the session-rule retriever (retrieve_inject / B5_RETRIEVE_CLI).
 RETRIEVE_CLI_DEFAULT = 'copilot'
 
+# Default model for the shadow LLM judge (verify_retry_shadow). Empty means
+# "omit --model and let copilot pick its own" (copilot rejects an explicit
+# Claude model name).
+JUDGE_MODEL_DEFAULT = ''
+
 
 def default_state_dir(project_root: str) -> str:
     """Default runtime state dir: <project_root>/.copilot/preference-tracker-state/runtime."""

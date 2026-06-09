@@ -33,6 +33,11 @@ PREFER_MODEL_DEFAULT = 'claude-haiku-4-5'
 # Default CLI for the session-rule retriever (retrieve_inject / B5_RETRIEVE_CLI).
 RETRIEVE_CLI_DEFAULT = 'claude'
 
+# Default model for the shadow LLM judge (verify_retry_shadow). Empty means
+# "omit --model and let the CLI pick its own" (for runtimes that reject an
+# explicit Claude model name).
+JUDGE_MODEL_DEFAULT = 'claude-haiku-4-5'
+
 
 def default_state_dir(project_root: str) -> str:
     """Default runtime state dir: <project_root>/.claude/preference-tracker-state/runtime."""
