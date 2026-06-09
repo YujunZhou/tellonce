@@ -136,7 +136,7 @@ def main():
             except Exception:
                 _lock_f = None
             try:
-                os.rename(path, new_path)
+                os.replace(path, new_path)
             finally:
                 if _lock_f is not None:
                     try:
