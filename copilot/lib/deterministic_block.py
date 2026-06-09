@@ -26,7 +26,7 @@ import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/C
 
 B5_DETERMINISTIC_DISABLED = path_config.pt_env('DETERMINISTIC_DISABLED', '').lower() in ('1', 'true', 'yes')
 
-# Idea D safety valve: once the same atomic_id fires >= STREAK_BYPASS times in a row
+# Safety valve: once the same atomic_id fires >= STREAK_BYPASS times in a row
 # within a session, that atomic_id is auto-bypassed for the rest of the session
 # (logs a warning but does not block). Prevents cascading transcript disasters.
 STREAK_BYPASS = int(path_config.pt_env('STREAK_BYPASS', '3'))
@@ -135,7 +135,7 @@ def _bump_streak(session_id, rule_ids):
 
 
 def _filter_bypass_streaked(violations, streak):
-    """Idea D: same atomic_id streak >= STREAK_BYPASS → bypass that rule (drop from violations).
+    """Safety valve: same atomic_id streak >= STREAK_BYPASS → bypass that rule (drop from violations).
     Returns (filtered_violations, bypassed_rule_ids).
     """
     filtered = []
@@ -199,7 +199,7 @@ def main():
 
     violations = evaluate_rules(response, transcript_lines, last_user=last_user, tool_commands=tool_commands)
 
-    # Idea D: safety valve — bypass a rule after it fires STREAK_BYPASS times in a row
+    # Safety valve: bypass a rule after it fires STREAK_BYPASS times in a row
     if violations:
         streak = _load_streak(session_id)
         violations, bypassed = _filter_bypass_streaked(violations, streak)
