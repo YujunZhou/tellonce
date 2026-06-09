@@ -40,12 +40,12 @@ _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config
 import redaction  # redact secrets before disk
+import transcript_adapter  # cross-runtime stdin + transcript parsing (Copilot/Claude)
 
 LOG_PATH = path_config.get_compliance_log_path()
 # B4_TEST_OBS_OVERRIDE: lets test_b4_blocking.py inject a fixture obs file (I2 from code review)
 OBS_LOG = os.environ.get('B4_TEST_OBS_OVERRIDE', path_config.get_observations_log_path())
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
-# Private overlay (gitignored), merged at load — see retrieve_inject.py.
 FP_USER_YAML = os.path.join(_LIB_DIR, 'fingerprints.user.yaml')
 # Alert + retry state lives in project-local persistent state dir (path_config-driven),
 # not /tmp — many shared hosts wipe /tmp on a schedule.
@@ -256,7 +256,8 @@ def bump_retry_state(session_id):
 
 def write_pending_alert(session_id, pending_count, session_age_min, oldest_pending_age_min, retry_count=0):
     """Write a pending-alert markdown file (under the B4 alert dir, see ALERT_DIR)
-    describing the block reason so the agent has a machine-readable alert."""
+    describing the block reason so the agent has a machine-readable alert when the
+    retry-stop gate triggers."""
     sid = session_id or 'unknown'
     sid_safe = re.sub(r'[^a-zA-Z0-9_-]', '_', sid)[:64]
     path = os.path.join(ALERT_DIR, f'session_pending_alert_{sid_safe}.md')
@@ -323,7 +324,7 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
       2. Read existing obs_log content under lock.
       3. Write existing + new entry line to <obs_log>.tmp.<pid>.<us>.
       4. fsync tmp.
-      5. os.rename(tmp, obs_log) — atomic on POSIX.
+      5. os.replace(tmp, obs_log) — atomic on POSIX, works on Windows too.
       6. Release lock.
 
     Args:
@@ -435,7 +436,7 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
             f.write(line.encode('utf-8'))
             f.flush()
             os.fsync(f.fileno())
-        os.rename(tmp_path, obs_log_path)
+        os.replace(tmp_path, obs_log_path)
     finally:
         try:
             if fcntl:
@@ -514,7 +515,10 @@ def main():
     except Exception:
         sys.exit(0)
 
-    session_id = data.get('session_id', '')
+    if path_config.is_child_session():
+        sys.exit(0)
+
+    session_id = transcript_adapter.get_session_id(data)
 
     entry = {
         'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -522,26 +526,7 @@ def main():
         'event': 'Stop',
     }
 
-    response_text = ''
-    try:
-        if 'transcript_path' in data and os.path.exists(data['transcript_path']):
-            with open(data['transcript_path']) as f:
-                lines = f.readlines()
-            for line in reversed(lines[-200:]):
-                try:
-                    o = json.loads(line)
-                    if o.get('type') == 'assistant':
-                        msg = o.get('message', {})
-                        for item in msg.get('content', []):
-                            if item.get('type') == 'text':
-                                response_text = item.get('text', '')
-                                break
-                    if response_text:
-                        break
-                except Exception:
-                    continue
-    except Exception:
-        pass
+    response_text, _last_user, _tools, _lines = transcript_adapter.read_transcript(data)
 
     if response_text:
         entry['response_excerpt'] = response_text[:400]
@@ -666,7 +651,7 @@ def main():
             'reason': reason,
         }
         print(json.dumps(decision, ensure_ascii=False))
-        sys.exit(2)
+        sys.exit(path_config.stop_block_exit_code())
 
     # Default: log-only, exit 0
     sys.exit(0)
