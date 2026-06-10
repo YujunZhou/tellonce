@@ -2,7 +2,10 @@
 # Preference-Tracker one-shot installer — standard install/doctor/uninstall interface.
 #
 # Usage:
-#   bash ~/.claude/skills/preference-tracker/install.sh [--state-dir <path>] [--quiet] [--dry-run]
+#   bash <skill_dir>/install.sh [--state-dir <path>] [--quiet] [--dry-run]
+#                               [--i-know-i-am-installing-globally]
+#   (the last flag allows running from HOME and registers into the user-scope
+#    ~/.claude/settings.json so every project is covered — INSTALL.md Option A)
 #
 # Five robust phases:
 #   1. Prepare (pre-install doctor-style checks)
@@ -19,6 +22,7 @@ set -euo pipefail
 QUIET=false
 DRY_RUN=false
 STATE_DIR_OVERRIDE=""
+ALLOW_GLOBAL=false
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -26,6 +30,7 @@ while [[ $# -gt 0 ]]; do
         --quiet) QUIET=true; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
         --state-dir) STATE_DIR_OVERRIDE="$2"; shift 2 ;;
+        --i-know-i-am-installing-globally) ALLOW_GLOBAL=true; shift ;;
         -h|--help)
             sed -n '2,17p' "$0"
             exit 0 ;;
@@ -33,14 +38,34 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-SKILL_DIR="${HOME}/.claude/skills/preference-tracker"
+# Self-locate: the skill dir is wherever this script lives (doctor.sh does the
+# same). A hardcoded ~/.claude/skills path broke installs from any other clone
+# location and wrote logs into the wrong directory.
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(pwd)"
 HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"
+# Global install = user scope. settings.local.json under HOME would only apply
+# to sessions whose cwd is HOME itself; ~/.claude/settings.json is what Claude
+# Code loads for every project (matches INSTALL.md Option A).
+if [[ "${ALLOW_GLOBAL}" == true ]]; then
+    SETTINGS="${HOME}/.claude/settings.json"
+fi
 BACKUP_FILE=""
 
+# Security note (see section 2.3): hooks are registered by absolute path from
+# this skill directory. If that directory sits INSIDE the project being
+# gated, the agent itself can edit the hook scripts — keep the clone outside
+# your working repos (e.g. ~/.claude/skills/).
+case "${SKILL_DIR}/" in
+    "${PROJECT_ROOT}"/*)
+        echo "⚠ skill dir is inside the project root (${SKILL_DIR})."
+        echo "  The agent being gated can modify its own gates. Consider cloning to ~/.claude/skills/ instead."
+        ;;
+esac
+
 # Refuse install when PROJECT_ROOT is HOME / /tmp / has no .claude
-if [[ "${PROJECT_ROOT}" == "${HOME}" ]]; then
+if [[ "${PROJECT_ROOT}" == "${HOME}" && "${ALLOW_GLOBAL}" != true ]]; then
     echo "❌ PROJECT_ROOT == HOME (${HOME})"
     echo "   You appear to be running install.sh in HOME — cd into your project root first."
     echo "   If you really want a user-level (cross-project) install, use --i-know-i-am-installing-globally"
@@ -182,8 +207,9 @@ log "[2/5] Install: update settings + copy hooks + create state"
 # 2.1 detect cwd / paths (PYTHONIOENCODING=utf-8 prevents stdout crashes when the user's LANG isn't utf-8)
 CWD_ESCAPED="$(PYTHONIOENCODING=utf-8 python3 -c "import sys; print(sys.argv[1].replace('/', '-'))" "${PROJECT_ROOT}")"
 MEMORY_DIR="${HOME}/.claude/projects/${CWD_ESCAPED}/memory"
-STATE_DIR="${STATE_DIR_OVERRIDE:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}}"
-OBS_LOG_DIR="${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/obs_log}"
+# PT_* are the documented names; B5_* kept as legacy aliases (Python layer accepts both).
+STATE_DIR="${STATE_DIR_OVERRIDE:-${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}}}"
+OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/obs_log}}"
 
 log "  PROJECT_ROOT: ${PROJECT_ROOT}"
 log "  STATE_DIR: ${STATE_DIR}"
@@ -331,6 +357,11 @@ if [[ -d "${SKILL_DIR}/seed_memory" ]]; then
         if [[ ! -f "${seed}" ]]; then
             continue
         fi
+        # seed_memory/README.md documents the (intentionally empty) seed dir —
+        # it is not a rule file and must not be copied into the user's memory.
+        if [[ "$(basename "${seed}")" == "README.md" ]]; then
+            continue
+        fi
         target="${MEMORY_DIR}/$(basename "${seed}")"
         if [[ -f "${target}" ]]; then
             log "  - $(basename "${seed}") already exists, skipping (cp -n)"
@@ -430,13 +461,13 @@ log "Notes (to avoid confusion for new users):"
 log "  - Default observe mode: record + remind only; no hard blocking, no LLM calls."
 log "  - The shadow judge only runs in full mode, and its first run has cold-start latency (it spawns a claude -p"
 log "    subprocess that may take tens of seconds to a few minutes) — this is not a hang or a broken install. Observe mode never runs it."
-log "    To disable it entirely: export B5_SHADOW_DISABLED=1"
+log "    To disable it entirely: export PT_SHADOW_DISABLED=1"
 log ""
 log "Next steps:"
 log "  - Read README.md / FAQ.md"
 log "  - Run dashboard.sh for a 7-day compliance summary"
-log "  - Disable shadow judge: export B5_SHADOW_DISABLED=1 (recommended when no claude CLI)"
-log "  - Disable deterministic: export B5_DETERMINISTIC_DISABLED=1"
+log "  - Disable shadow judge: export PT_SHADOW_DISABLED=1 (recommended when no claude CLI)"
+log "  - Disable deterministic: export PT_DETERMINISTIC_DISABLED=1"
 log "  - Uninstall: bash ${SKILL_DIR}/uninstall.sh"
 log ""
 log "Install log: ${LOG_FILE}"

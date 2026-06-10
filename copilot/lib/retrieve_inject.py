@@ -29,6 +29,8 @@ re-trigger the retrieve hook and loop.
 Emits JSON with hookSpecificOutput.additionalContext naming the matched atomic_ids.
 Non-destructive: any failure → exit 0 silently (no block).
 """
+from __future__ import annotations
+
 import json, sys, re, os, glob, subprocess, tempfile, time
 
 import sys as _sys

@@ -12,6 +12,16 @@
 #     JSON output".
 set +e
 
+# Portable timeout: GNU `timeout` is absent on stock macOS. Fall back to
+# gtimeout (brew coreutils) or, failing that, run without a timeout.
+_pt_timeout() {
+    _pt_secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "${_pt_secs}" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "${_pt_secs}" "$@"
+    else "$@"; fi
+}
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="${SCRIPT_DIR}/.."
 
@@ -39,6 +49,6 @@ fi
 # nothing to inject) and silence stderr too (any Python noise must not
 # surface to the user during routine SessionStart).
 PYTHONIOENCODING=utf-8 PYTHONPATH="${SKILL_DIR}" \
-    timeout 10 python3 -m codex_preftrack install --project-root "${CODEX_CWD}" --no-hooks \
+    _pt_timeout 10 python3 -m codex_preftrack install --project-root "${CODEX_CWD}" --no-hooks \
     > /dev/null 2>/dev/null
 exit 0

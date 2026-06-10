@@ -10,7 +10,7 @@
 #                   (only required when CONFIRM contains friction/pitfall/preference)
 #
 # Enforcement:
-#   HARD: observation log file must be updated within 120s
+#   HARD: observation log file must be updated within OBSERVATION_LOG_AGE_THRESHOLD_SEC (default 1800s)
 #   SOFT: response text must contain markers for all steps
 
 set -uo pipefail   # NB: no -e — this hook does plenty of optional jq parses
@@ -31,6 +31,15 @@ _PT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"
 INPUT=$(cat)
 CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || echo "")
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
+
+# Infinite-loop guard (Claude Code contract): when stop_hook_active is true the
+# agent is ALREADY continuing as a result of a previous Stop-hook block this
+# turn. Blocking again would loop forever if the gate can never be satisfied
+# (e.g. obs log path unwritable). Allow the stop.
+STOP_HOOK_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
+if [[ "${STOP_HOOK_ACTIVE}" == "true" ]]; then
+  exit 0
+fi
 
 # Detect OBS_LOG via path_config (single source of truth). Use env-channel argv
 # rather than string-interpolated `sys.path.insert(0, '${HOME}...')` to avoid
@@ -173,7 +182,28 @@ if [ -f "$OBS_LOG" ]; then
     fi
   fi
 else
-  WARNINGS="${WARNINGS}⚠️ Observation log file not found at ${OBS_LOG}.\n"
+  # Missing log = typically the first turn after install (the agent has never
+  # scanned yet). Treat like a stale log: seed a synthetic detected=false entry
+  # via auto-fallback instead of blocking a brand-new user who enabled
+  # enforcement before the first scan ever ran.
+  AUTO_FALLBACK="${OBSERVATION_LOG_AUTO_FALLBACK:-1}"
+  VERIFY_PY="${_PT_LIB}/verify_compliance.py"
+  if [ "$AUTO_FALLBACK" = "1" ] && [ -f "$VERIFY_PY" ]; then
+    FB_OUT=$(python3 "$VERIFY_PY" --auto-light-fallback \
+               --session-id "${CURRENT_SESSION:-unknown}" \
+               --age-sec 0 \
+               --threshold-sec 0 \
+               --obs-log-path "$OBS_LOG" \
+               --cwd "${CWD:-$(pwd)}" \
+               --quiet 2>&1)
+    FB_RC=$?
+    echo "[auto-fallback missing-log] rc=${FB_RC} out=${FB_OUT}" >> "$TRACE_LOG"
+    if [ "$FB_RC" -ne 0 ]; then
+      WARNINGS="${WARNINGS}⚠️ Observation log file not found at ${OBS_LOG} and auto-fallback failed (rc=${FB_RC}).\n"
+    fi
+  else
+    WARNINGS="${WARNINGS}⚠️ Observation log file not found at ${OBS_LOG}.\n"
+  fi
 fi
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -317,19 +347,23 @@ fi
 if [ -n "$WARNINGS" ] && [ "$PT_ENFORCE_ON" = "1" ]; then
   MSG=$(echo -e "$WARNINGS" | head -10)
   # Use decision=block → CC forces model to re-engage BEFORE truly stopping.
-  # continue=false also ensures the stop is rejected until gate is satisfied.
+  # Do NOT also emit "continue": false — per the hooks contract `continue:false`
+  # takes precedence over decision:block and would terminate processing outright
+  # instead of letting the model complete the gate.
   # Stop event schema does NOT allow hookSpecificOutput — all context must go in `reason`.
   # (Only PreToolUse / UserPromptSubmit / PostToolUse support hookSpecificOutput.)
   OUTPUT=$(jq -n --arg msg "$MSG" '{
     "decision": "block",
-    "continue": false,
-    "stopReason": "Gate Function incomplete — resolve before stopping",
     "reason": ("🔴 PREFERENCE-TRACKER GATE CHECK FAILED\n\nMissing steps detected:\n" + $msg + "\nGate Function: SCAN → RECORD → CONFIRM → ROOT CAUSE (if signal detected)\n\nYou cannot stop until you: (1) SCAN the user message for preference/pitfall/friction signals, (2) RECORD an entry to observations.jsonl, (3) CONFIRM the scan result to the user, (4) ROOT CAUSE if signal detected.\n\nRoot cause = the general rule that prevents this CLASS of error, not the specific instance.\n\nDo this NOW in a brief follow-up, then stop. Not optional.")
   }')
   echo "[output] $OUTPUT" >> "$TRACE_LOG"
   echo "[exit_code] 2 (BLOCKING)" >> "$TRACE_LOG"
   echo "" >> "$TRACE_LOG"
   echo "$OUTPUT"
+  # Belt-and-braces: per the hooks contract stdout JSON is parsed on exit 0,
+  # while on exit 2 stderr is fed to the model. Emit the reason on BOTH
+  # channels so the gate instructions reach the model either way.
+  echo "$OUTPUT" | jq -r '.reason // empty' >&2 || true
   exit 2
 fi
 

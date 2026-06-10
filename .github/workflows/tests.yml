@@ -40,6 +40,34 @@ jobs:
       - name: Compile all core modules
         run: python -m compileall -q lib copilot/lib codex/codex_preftrack
 
+      # Import-smoke: compileall only parses; version-dependent constructs like
+      # un-futured `str | None` annotations explode at IMPORT time on the
+      # matrix floor (this caught nothing < the v1.1.0 retrieve_inject bug).
+      # HOME is pointed at a temp dir to isolate import-time side effects.
+      - name: Import-smoke every module on this Python
+        if: runner.os != 'Windows'
+        run: |
+          export HOME="$(mktemp -d)"
+          fail=0
+          for d in lib copilot/lib; do
+            for f in "$d"/*.py; do
+              base="$(basename "$f" .py)"
+              case "$base" in conftest|test_*) continue;; esac
+              if ! (cd "$d" && python -c "import ${base}") 2>err.txt; then
+                echo "::error::import failed: $f"; cat err.txt; fail=1
+              fi
+            done
+          done
+          # codex_preftrack uses package-relative imports — import via package.
+          for f in codex/codex_preftrack/*.py; do
+            base="$(basename "$f" .py)"
+            case "$base" in conftest|test_*|__init__|__main__) continue;; esac
+            if ! (cd codex && python -c "import codex_preftrack.${base}") 2>err.txt; then
+              echo "::error::import failed: $f"; cat err.txt; fail=1
+            fi
+          done
+          exit $fail
+
       # --- Windows-safe tests (run on every OS) ---
       - name: Copilot variant smoke
         run: python -m pytest copilot/lib/test_smoke.py -q

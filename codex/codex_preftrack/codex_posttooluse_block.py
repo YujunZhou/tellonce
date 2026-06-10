@@ -36,6 +36,63 @@ def _load_stdin() -> dict:
         return {}
 
 
+def _env_flag(*names: str) -> bool:
+    for n in names:
+        if os.environ.get(n, '').lower() in ('1', 'true', 'yes'):
+            return True
+    return False
+
+
+def _streak_threshold() -> int:
+    for n in ('PT_STREAK_BYPASS', 'B5_STREAK_BYPASS'):
+        v = os.environ.get(n, '')
+        if v:
+            try:
+                return int(v)
+            except ValueError:
+                pass
+    return 3
+
+
+def _apply_streak_bypass(state_root: Path, session_id, violations: list) -> list:
+    """Safety valve (parity with CC deterministic_block main): once the same
+    rule_id fires >= threshold times in a row within a session, auto-bypass it
+    for the rest of the session (warn instead of block). Prevents an
+    unsatisfiable rule from blocking every tool call. Counter lives in the
+    codex state dir; any failure -> no bypass (fail toward original behavior).
+    """
+    try:
+        threshold = _streak_threshold()
+        sid = str(session_id or 'unknown').replace('/', '_')
+        path = state_root / 'runtime' / 'streak_bypass.json'
+        data = {}
+        if path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding='utf-8')) or {}
+            except Exception:
+                data = {}
+        counts = data.get(sid, {})
+        kept = []
+        for v in violations:
+            rid = str(v.get('rule_id', '?'))
+            # Compare BEFORE incrementing (parity with CC deterministic_block:
+            # block `threshold` times, bypass from the next firing on).
+            if counts.get(rid, 0) >= threshold:
+                sys.stderr.write(
+                    f"[preference-tracker] streak bypass: rule {rid} already fired "
+                    f"{counts[rid]}x in this session (threshold {threshold}) — "
+                    "no longer blocking it this session\n")
+            else:
+                kept.append(v)
+            counts[rid] = counts.get(rid, 0) + 1
+        data = {sid: counts}  # keep only the current session (bounded file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+        return kept
+    except Exception:
+        return violations
+
+
 def _extract_agent_text(payload: dict) -> str:
     """Pull agent-authored text content out of a codex PostToolUse payload.
 
@@ -143,6 +200,12 @@ def main() -> int:
     if not payload:
         return 0
 
+    # Kill-switch: the block reason advertises PT_/B5_DETERMINISTIC_DISABLED as
+    # an override, and the CC variant honors it in deterministic_block.main().
+    # This adapter calls evaluate_rules() directly, so honor it here too.
+    if _env_flag('PT_DETERMINISTIC_DISABLED', 'B5_DETERMINISTIC_DISABLED'):
+        return 0
+
     state_root = _resolve_state_root(payload)
     mode = _read_mode(state_root)
 
@@ -193,14 +256,6 @@ def main() -> int:
     if not violations:
         return 0
 
-    # Build feedback text using CC's helper if available.
-    try:
-        reason = db.build_block_reason(violations)
-    except Exception:
-        reason = "preference-tracker: deterministic violations: " + ", ".join(
-            v.get("rule_id", "?") for v in violations
-        )
-
     if mode != "blocking":
         # Advisory only — print to stderr (codex shows it to user/agent without
         # blocking the tool call).
@@ -210,6 +265,20 @@ def main() -> int:
             + "\n"
         )
         return 0
+
+    # Streak bypass safety valve (parity with the CC variant — advertised in
+    # the block reason text, so it must actually work here).
+    violations = _apply_streak_bypass(state_root, payload.get("session_id"), violations)
+    if not violations:
+        return 0
+
+    # Build feedback text using CC's helper if available.
+    try:
+        reason = db.build_block_reason(violations)
+    except Exception:
+        reason = "preference-tracker: deterministic violations: " + ", ".join(
+            v.get("rule_id", "?") for v in violations
+        )
 
     # Blocking mode: emit codex PostToolUse-block JSON + exit 2.
     # If JSON serialization fails (shouldn't happen, but defensive), don't

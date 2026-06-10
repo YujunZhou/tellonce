@@ -16,6 +16,18 @@ PYTHON="${PYTHON:-python3}"
 GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker"
 HOOKS_JSON="${HOME}/.codex/hooks.json"
 
+# Match install.sh's clone detection (both conditions): when the user's
+# clone/checkout occupies the default path, the generated runtime lives in
+# the sibling -runtime dir. Never rm -rf the user's source tree via
+# --purge-skill.
+if [[ -d "${GLOBAL_DIR}" ]]; then
+    GLOBAL_DIR_REAL_PRE="$(cd "${GLOBAL_DIR}" && pwd -P)"
+    REPO_ROOT_REAL="$(cd "${REPO_ROOT}" && pwd -P)"
+    if [[ "${GLOBAL_DIR_REAL_PRE}" == "${REPO_ROOT_REAL}" || -e "${GLOBAL_DIR}/.git" ]]; then
+        GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker-runtime"
+    fi
+fi
+
 # Resolve where codex_preftrack module lives — prefer global install (most
 # common), fall back to repo-local source layout (development).
 if [[ -d "${GLOBAL_DIR}/codex_preftrack" ]]; then
@@ -38,6 +50,14 @@ while [[ $# -gt 0 ]]; do
         *) PASSTHRU+=("$1"); shift ;;
     esac
 done
+
+# --purge-skill implies --purge-hooks: deleting the runtime while keeping the
+# hooks.json registrations would leave every Codex event firing 5 missing
+# commands.
+if [[ "${PURGE_SKILL}" == true && "${PURGE_HOOKS}" != true ]]; then
+    echo "(--purge-skill implies --purge-hooks: registrations must not outlive the scripts they point to)"
+    PURGE_HOOKS=true
+fi
 
 # 1. Project-level uninstall via codex_preftrack
 PYTHONPATH="${PYTHON_PATH_ROOT}" "${PYTHON}" -m codex_preftrack uninstall \

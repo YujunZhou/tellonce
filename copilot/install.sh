@@ -23,9 +23,16 @@ while [ $# -gt 0 ]; do
         --project-root) PROJECT_ROOT="${2:-$PROJECT_ROOT}"; shift 2 || shift;;
         --mode)         MODE="${2:-observe}"; shift 2 || shift;;
         --python)       PY="${2:-}"; shift 2 || shift;;
-        *)              shift;;
+        *)              echo "Unknown arg: $1 (flags: --project-root <dir> --mode observe|enforce|full --python <path>)"; exit 1;;
     esac
 done
+
+# Validate --mode up front (mirrors install.ps1's ValidateSet) — otherwise a
+# typo'd mode only fails at step 6 and leaves a half-finished install.
+case "${MODE}" in
+    observe|enforce|full) : ;;
+    *) echo "❌ Invalid --mode '${MODE}' (must be observe | enforce | full)"; exit 1;;
+esac
 
 echo "╔═══════════════════════════════════════════════════════════════╗"
 echo "║  preference-tracker — Copilot CLI plugin post-install        ║"
@@ -34,6 +41,11 @@ echo ""
 echo "Plugin root:  ${SCRIPT_DIR}"
 echo "Project root: ${PROJECT_ROOT}"
 echo ""
+
+# Hooks are registered as shell command strings (sh -c "<path>"), which needs
+# the exec bit; restore it in case the transport (zip download, some tars)
+# dropped it.
+chmod +x "${SCRIPT_DIR}/hooks/"*.sh 2>/dev/null || true
 
 # 1. Resolve Python 3.7+ (prefer --python from bootstrap, else python3, else python).
 if [ -z "${PY}" ] || ! "${PY}" -c 'import sys; raise SystemExit(0 if sys.version_info>=(3,7) else 1)' 2>/dev/null; then
@@ -60,18 +72,18 @@ fi
 echo ""
 echo "Creating state directories..."
 env B5_PROJECT_ROOT="${PROJECT_ROOT}" "${PY}" "${PT_LIB}/path_config.py"
-env B5_PROJECT_ROOT="${PROJECT_ROOT}" "${PY}" -c "
+env B5_PROJECT_ROOT="${PROJECT_ROOT}" PT_LIB_DIR="${PT_LIB}" "${PY}" -c "
 import sys, os
-sys.path.insert(0, '${PT_LIB}')
+sys.path.insert(0, os.environ['PT_LIB_DIR'])
 import path_config
 path_config.ensure_dirs()
 print('✅ State directories created')
 "
 
 # 4. Seed memory (if not already present)
-MEMORY_DIR=$(env B5_PROJECT_ROOT="${PROJECT_ROOT}" "${PY}" -c "
+MEMORY_DIR=$(env B5_PROJECT_ROOT="${PROJECT_ROOT}" PT_LIB_DIR="${PT_LIB}" "${PY}" -c "
 import sys, os
-sys.path.insert(0, '${PT_LIB}')
+sys.path.insert(0, os.environ['PT_LIB_DIR'])
 import path_config
 print(path_config.get_memory_dir())
 ")
@@ -84,7 +96,13 @@ else
     # Issue #1 fix (#5): memory holds your recorded preferences — tighten to 700
     # so it isn't world/group-readable on a shared HOME / multi-user box.
     chmod 700 "${MEMORY_DIR}" 2>/dev/null || true
-    cp -n "${SCRIPT_DIR}/seed_memory/"*.md "${MEMORY_DIR}/" 2>/dev/null || true
+    # seed_memory/README.md documents the (intentionally empty) seed dir — it
+    # is not a rule file and must not be copied into the user's memory.
+    for seed in "${SCRIPT_DIR}/seed_memory/"*.md; do
+        [ -f "${seed}" ] || continue
+        [ "$(basename "${seed}")" = "README.md" ] && continue
+        cp -n "${seed}" "${MEMORY_DIR}/" 2>/dev/null || true
+    done
     echo "✅ Seeded $(ls "${MEMORY_DIR}"/*.md 2>/dev/null | wc -l) rules"
 fi
 
@@ -124,15 +142,18 @@ fi
 # Set the on/off switch for the user automatically (no hand-editing).
 echo ""
 echo "Setting mode = ${MODE} ..."
-"${PY}" "${PT_LIB}/pt_mode.py" "${MODE}" >/dev/null && echo "✅ Mode set to ${MODE}"
+# No >/dev/null: pt_mode prints important hints (e.g. the PT_SHADOW_RULE_IDS
+# reminder for full mode).
+"${PY}" "${PT_LIB}/pt_mode.py" "${MODE}" && echo "✅ Mode set to ${MODE}"
 
 # Register the plugin with Copilot so its hooks load (side-load installs only;
 # `copilot plugin install` already does this). Idempotent + backs up config.json.
+REGISTERED=false
 case "$(echo "${SCRIPT_DIR}" | tr '[:upper:]' '[:lower:]')" in
     *installed-plugins*)
         echo ""
         echo "Registering plugin with Copilot (so hooks load)..."
-        "${PY}" "${PT_LIB}/register_plugin.py" || true
+        "${PY}" "${PT_LIB}/register_plugin.py" && REGISTERED=true || true
         echo "  (restart Copilot to load the hooks)"
         ;;
     *)
@@ -147,7 +168,11 @@ echo ""
 echo "════════════════════════════════════════════════════════════════"
 echo "✅ Installation complete!"
 echo ""
-echo "The plugin hooks are now active for any Copilot CLI session."
+if [ "${REGISTERED}" = true ]; then
+    echo "The plugin hooks load for any Copilot CLI session after you restart Copilot."
+else
+    echo "[!] Hooks are NOT active yet — the plugin was not registered (see the NOTE above)."
+fi
 echo "Current mode = ${MODE}"
 echo ""
 echo "observe = records preferences + reminds you (safe default; never"

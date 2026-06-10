@@ -2,6 +2,8 @@
 # Codex preference-tracker install. Installs:
 #   1. Global runtime to ~/.codex/skills/preference-tracker/
 #      (codex_preftrack/ + shared_lib/ from CC + hooks/ + seed_memory/)
+#      If a git clone occupies that path, the runtime is installed to
+#      ~/.codex/skills/preference-tracker-runtime instead (keeps the clone clean).
 #   2. Hook registrations to ~/.codex/hooks.json
 #      (UserPromptSubmit x3 + PostToolUse + SessionStart)
 #   3. Per-project state in $CWD (.codex/preference-tracker/)
@@ -20,6 +22,11 @@ set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../preference-tracker/codex/
 REPO_ROOT="$(cd "${SKILL_DIR}/.." && pwd)"                  # .../preference-tracker/
 PYTHON="${PYTHON:-python3}"
+
+if ! command -v "${PYTHON}" >/dev/null 2>&1; then
+    echo "❌ ${PYTHON} not found in PATH. Install Python 3 (or set PYTHON=<path>) and re-run."
+    exit 1
+fi
 
 # shared_lib source resolution: try repo layout first, then standalone-bundle
 # layout. Standalone bundles ship a `shared_lib/` directory pre-populated
@@ -53,6 +60,21 @@ done
 
 GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker"
 HOOKS_JSON="${HOME}/.codex/hooks.json"
+
+# If the user cloned the repo to the GLOBAL_DIR path itself (the documented
+# clone location), installing runtime files there would dirty the git clone —
+# overwriting the tracked repo-root SKILL.md (the Claude Code skill entry) and
+# making the promised "safe to re-run after git pull" false (pull would
+# conflict). Redirect the generated runtime to a sibling -runtime dir; the
+# clone stays pristine.
+if [[ -d "${GLOBAL_DIR}" ]]; then
+    GLOBAL_DIR_REAL_PRE="$(cd "${GLOBAL_DIR}" && pwd -P)"
+    REPO_ROOT_REAL="$(cd "${REPO_ROOT}" && pwd -P)"
+    if [[ "${GLOBAL_DIR_REAL_PRE}" == "${REPO_ROOT_REAL}" || -e "${GLOBAL_DIR}/.git" ]]; then
+        GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker-runtime"
+        echo "  (clone detected at ~/.codex/skills/preference-tracker — installing runtime to ${GLOBAL_DIR} to keep the clone clean)"
+    fi
+fi
 
 # ============================================================
 # Phase 1: Global runtime install
@@ -212,15 +234,25 @@ WRAPPER_EOF
             ;;
     esac
 
-    # 1f. register hooks in ~/.codex/hooks.json
+    # 1f. register hooks in ~/.codex/hooks.json.
+    # Remove-then-add: cmd_remove drops ALL PT entries by path pattern, so an
+    # upgrade that changed the hooks location (e.g. clone → -runtime redirect)
+    # can't leave stale duplicate registrations pointing at old paths.
     if [[ "${NO_HOOKS}" != true ]]; then
         echo "[2/3] register hooks → ${HOOKS_JSON}"
+        if [[ -f "${HOOKS_JSON}" ]]; then
+            PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m codex_preftrack.install_codex_hooks \
+                --hooks-json "${HOOKS_JSON}" \
+                --remove >/dev/null 2>&1 || true
+        fi
         PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m codex_preftrack.install_codex_hooks \
             --hooks-json "${HOOKS_JSON}" \
             --hooks-dir "${GLOBAL_DIR}/hooks" \
             --add
+        HOOKS_REGISTERED_IN_PHASE1=true
     else
         echo "[2/3] hooks registration skipped (--no-hooks)"
+        HOOKS_REGISTERED_IN_PHASE1=false
     fi
 else
     echo "[1-2/3] global runtime + hooks skipped (--skip-global)"
@@ -233,9 +265,11 @@ if [[ "${SKIP_PROJECT}" != true ]]; then
     echo "[3/3] per-project state init → $(pwd)/.codex/preference-tracker/"
     # Forward --no-hooks down so phase 3 does
     # not silently re-register hooks the user already opted out of via the
-    # bash --no-hooks flag.
+    # bash --no-hooks flag — and also when phase 1f already registered them
+    # (phase 3's auto-registration uses the default path and would create a
+    # second, possibly stale, registration).
     PHASE3_ARGS=(${PASSTHRU[@]+"${PASSTHRU[@]}"})
-    if [[ "${NO_HOOKS}" == true ]]; then
+    if [[ "${NO_HOOKS}" == true || "${HOOKS_REGISTERED_IN_PHASE1:-false}" == true ]]; then
         PHASE3_ARGS+=("--no-hooks")
     fi
     if [[ -d "${GLOBAL_DIR}/codex_preftrack" ]]; then

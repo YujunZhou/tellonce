@@ -14,6 +14,16 @@
 # Defensive: any failure -> exit 0 silently (never block codex turns).
 set +e
 
+# Portable timeout: GNU `timeout` is absent on stock macOS. Fall back to
+# gtimeout (brew coreutils) or, failing that, run without a timeout.
+_pt_timeout() {
+    _pt_secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "${_pt_secs}" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "${_pt_secs}" "$@"
+    else "$@"; fi
+}
+
+
 # Recursion guard: if we're inside a nested codex exec spawned by
 # retrieve_inject itself, exit immediately so we don't loop.
 if [ "${B5_RETRIEVE_RECURSION_GUARD}" = "1" ]; then
@@ -56,5 +66,5 @@ fi
 
 # Run retrieve_inject. PYTHONIOENCODING=utf-8 prevents stdout from crashing when LANG is not utf-8.
 printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SHARED_LIB}" \
-    timeout 30 python3 "${SHARED_LIB}/retrieve_inject.py" 2>/dev/null
+    _pt_timeout 30 python3 "${SHARED_LIB}/retrieve_inject.py" 2>/dev/null
 exit 0

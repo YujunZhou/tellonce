@@ -23,16 +23,21 @@ cd preference-tracker/codex
 python -m unittest tests.test_core -v      # or: python -m pytest tests/test_core.py -q
 ```
 
-**Expected:** all tests pass. (`tests/test_core.py` had a private path scrubbed
-this session — A3-LEAK — so confirm nothing references real machine paths.)
+**Expected:** all tests pass.
 
 ## 2. Install + doctor on a fresh project
 
 ```bash
-mkdir -p /tmp/pt-codex-smoke && cd /tmp/pt-codex-smoke && git init -q
-bash ~/.codex/skills/preference-tracker/install.sh    # after cloning to that path, per codex/docs/README.md
-bash ~/.codex/skills/preference-tracker/doctor.sh
+mkdir -p ~/pt-codex-smoke && cd ~/pt-codex-smoke && git init -q
+bash ~/.codex/skills/preference-tracker/codex/install.sh    # after cloning to that path, per codex/docs/README.md
+bash ~/.codex/skills/preference-tracker/codex/doctor.sh
+# (the repo-root install.sh is the Claude Code variant — don't run it here)
 ```
+
+> Use a scratch project under your home directory, not `/tmp`:
+> `codex_preftrack/paths.py` rejects `/tmp` / `/var/tmp` project roots with
+> `ProjectRootError`. If you really need a temp path, set
+> `CODEX_PREFTRACK_ALLOW_TEMP=1`.
 
 **Expected:** install is idempotent (safe to re-run), doctor prints a status line
 with mode = `audit_only` and no FAIL. The project gets `.codex/preference-tracker/`
@@ -104,6 +109,12 @@ hooks run; relevant saved rules (if any) are injected into context. This is the
 one surface that genuinely needs live Codex — please confirm the hooks are wired
 in `~/.codex/hooks.json` and fire.
 
+> Note: freshly registered hooks may require Codex's persisted hook trust
+> approval before they run (the real Codex CLI has a hook-trust mechanism; see
+> `codex --help` for `--dangerously-bypass-hook-trust`). Approve/trust the hooks
+> first, otherwise this check can fail for trust reasons rather than wiring
+> reasons.
+
 ## 9. Private-path audit
 
 ```bash
@@ -118,8 +129,6 @@ bash ~/.codex/skills/preference-tracker/doctor.sh     # includes a private-path 
 
 - **M2** — `codex_preftrack/codex_posttooluse_block.py`: language rules no longer
   false-positive on tool input (check §6).
-- **A3-LEAK** — `codex/tests/test_core.py`: a private path/paper name was scrubbed
-  (check §1 still green).
 
 ## What to report back
 

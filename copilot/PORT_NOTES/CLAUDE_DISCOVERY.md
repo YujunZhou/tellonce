@@ -20,7 +20,7 @@
 
 - `path_config.py` — central path resolver. Hard-codes `~/.claude/...` and Claude project memory dir (29-225).
 - `_install_merge_settings.py` — merges PT hook entries into `settings.local.json` (Claude-schema specific).
-- `deterministic_block.py` — Stop-hook deterministic blocker, 3 rules. Hard-codes `claude-haiku-4-5` defaults.
+- `deterministic_block.py` — Stop-hook deterministic blocker; ships with **zero built-in rules** (`evaluate_rules()` is the opt-in extension point; rules accumulate from user corrections).
 - `verify_compliance.py` — compliance logger + Gate Function checker. Reads Claude `transcript_path`, writes Stop decision JSON.
 - `verify_retry_shadow.py` — shadow LLM judge. Hard-codes `claude-haiku-4-5`, `claude -p`.
 - `retrieve_inject.py` — UserPromptSubmit retrieval. Hard-codes `claude -p`, `codex exec` backends.

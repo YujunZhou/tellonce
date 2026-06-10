@@ -165,6 +165,19 @@ def check_hooks():
         _record('PASS', 'hook scripts', f'{len(expected)} present')
     else:
         _record('WARN', 'hook scripts', 'missing: ' + ', '.join(missing))
+    # POSIX: hooks.json registers these as shell command strings (sh -c "<path>"),
+    # which silently fails with exit 126 if the exec bit is missing — the exact
+    # "installed but nothing happens" failure mode. Windows uses run.ps1 via `&`.
+    if os.name != 'nt':
+        not_exec = [h for h in expected
+                    if os.path.exists(os.path.join(hooks_dir, h))
+                    and not os.access(os.path.join(hooks_dir, h), os.X_OK)]
+        if not_exec:
+            _record('FAIL', 'hook exec bits',
+                    'not executable (hooks will never fire): ' + ', '.join(not_exec)
+                    + f' — fix: chmod +x "{hooks_dir}"/*.sh')
+        else:
+            _record('PASS', 'hook exec bits', 'all hook scripts executable')
 
 
 def check_plugin_registration():

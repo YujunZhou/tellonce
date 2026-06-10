@@ -80,14 +80,20 @@ Codex's `verify_output` flags inline English tokens in mostly-Chinese responses 
 
 ```bash
 # From the project root. Installs:
-#   1. ~/.codex/skills/preference-tracker/ — codex_preftrack/ + shared_lib/ (CC lib copy)
-#                                            + hooks/ + seed_memory/ + SKILL.md
+#   1. global runtime — codex_preftrack/ + shared_lib/ (CC lib copy)
+#      + hooks/ + seed_memory/ + SKILL.md. Default target is
+#      ~/.codex/skills/preference-tracker/; if your git clone occupies that
+#      path, the runtime goes to ~/.codex/skills/preference-tracker-runtime/
+#      (keeps the clone clean).
 #   2. ~/.codex/hooks.json — registers UserPromptSubmit (3) + PostToolUse + SessionStart
 #   3. <project>/.codex/preference-tracker/ — per-project state (audit_only mode by default)
-bash install.sh
+bash <repo>/codex/install.sh    # the repo-root install.sh is the Claude Code variant
 
-# Verify (state + hooks status + private-path leak scan):
-PYTHONPATH=~/.codex/skills/preference-tracker python3 -m codex_preftrack doctor
+# Verify (state + hooks status + private-path leak scan) — easiest:
+bash <repo>/codex/doctor.sh
+# or module form (point PYTHONPATH at wherever the runtime landed):
+PYTHONPATH=~/.codex/skills/preference-tracker-runtime python3 -m codex_preftrack doctor  # clone layout
+PYTHONPATH=~/.codex/skills/preference-tracker python3 -m codex_preftrack doctor          # plain layout
 ```
 
 ### Hook flow
@@ -101,4 +107,12 @@ PYTHONPATH=~/.codex/skills/preference-tracker python3 -m codex_preftrack doctor
 | SessionStart | `sessionstart-init.sh` | lazy-init project state on first codex SessionStart in a fresh project |
 
 ### Mode state machine
+
+The three modes are rank-ordered (`_MODE_RANK` in `codex_preftrack/mode.py`):
+`audit_only` (0) → `wrapper` (1) → `blocking` (2). Per project, the persisted
+mode only latches upward — `write_mode` raises `ModeDowngradeError` on any
+silent downgrade (`allow_downgrade=True` exists for test fixtures only).
+`blocking` is opt-in only; nothing auto-promotes into it. `wrapper_seen`
+latches `True` the first time `codex_preftrack exec` is used and never resets,
+so doctor/dashboard can tell whether wrapper enforcement has ever run here.
 

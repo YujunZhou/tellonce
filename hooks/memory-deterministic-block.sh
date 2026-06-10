@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+
+# Portable timeout: GNU `timeout` is absent on stock macOS. Fall back to
+# gtimeout (brew coreutils) or, failing that, run without a timeout.
+_pt_timeout() {
+    _pt_secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "${_pt_secs}" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "${_pt_secs}" "$@"
+    else "$@"; fi
+}
+
 # memory-deterministic-block.sh — Stop hook (deterministic regex hard-block)
 
 
@@ -28,7 +38,7 @@ if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SI
         _TRANSCRIPT_SC=$(echo "${_INPUT_SC}" | jq -r '.transcript_path // empty' 2>/dev/null)
         _PREFER_SC="u"
         if [ -n "${_TRANSCRIPT_SC}" ] && [ -f "${_TRANSCRIPT_SC}" ]; then
-          _PREFER_SC=$(timeout 5 python3 "${_PT_LIB}/detect_user_prefer.py" "${_TRANSCRIPT_SC}" 2>/dev/null || echo u)
+          _PREFER_SC=$(_pt_timeout 5 python3 "${_PT_LIB}/detect_user_prefer.py" "${_TRANSCRIPT_SC}" 2>/dev/null || echo u)
         fi
         if [ "${_PREFER_SC}" = "u" ]; then
           exit 0

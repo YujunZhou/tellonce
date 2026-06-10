@@ -5,7 +5,7 @@ the repository root (`hooks/`, `lib/`, `install.sh`, `SKILL.md`, …). For the
 GitHub Copilot CLI release see [`copilot/README.md`](../copilot/README.md); for
 Codex see [`codex/docs/README.md`](../codex/docs/README.md).
 
-The Claude Code variant runs a 5-hook `UserPromptSubmit` chain plus a 5-hook
+The Claude Code variant runs a 3-hook `UserPromptSubmit` chain plus a 5-hook
 `Stop` chain: deterministic hard-blocks, an LLM shadow judge, and soft context
 injection.
 
@@ -49,7 +49,7 @@ self-check before declaring success, and rolls back via `trap ERR` on failure.
 | Item | Default | Override |
 |---|---|---|
 | skill | `~/.claude/skills/preference-tracker/` | (fixed) |
-| hooks | `<cwd>/.claude/hooks/` (copied at install) | (fixed) |
+| hooks | `<skill_dir>/hooks/` (registered into settings directly; nothing is copied into the project) | (fixed) |
 | state | `<cwd>/.claude/preference-tracker-state/runtime/` | env `PT_STATE_DIR` or `~/.preference-tracker.config.json` |
 | obs_log | `<cwd>/.claude/preference-tracker-state/obs_log/` | env `PT_OBS_LOG_DIR` or config |
 | memory | `~/.claude/projects/<cwd_escaped>/memory/` | env `PT_MEMORY_DIR` or config |
@@ -135,20 +135,18 @@ python3 ~/.claude/skills/preference-tracker/lib/path_config.py
 ## Architecture
 
 ```
-UserPromptSubmit chain (5):
-  preemptive-scan-reminder.sh
+UserPromptSubmit chain (3):
   memory-retrieve-inject.sh       [retrieve relevant saved rules, inject by atomic_id]
   memory-pending-inject.sh        [cross-session pending-memory reminder]
   memory-shadow-alert-inject.sh   [soft injection: "you violated X last turn"]
-  skill-autoload-gate.sh
 
 → Claude generates a response
 
 Stop chain (5):
   check-observation-log.sh        [Iron Law: the obs log must be appended]
-  memory-deterministic-block.sh   [3 regex hard-blocks]
+  memory-deterministic-block.sh   [regex hard-blocks; ships with no built-in rules — opt-in extension point]
   memory-verify-compliance.sh     [compliance + refuse-to-stop gate]
-  memory-shadow-judge.sh          [LLM judge, log-only]
+  memory-shadow-judge.sh          [LLM judge, log-only; off by default]
   memory-pending-promote.sh       [pending obs → queue]
 ```
 

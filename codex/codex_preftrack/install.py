@@ -25,6 +25,15 @@ def _try_register_global_hooks() -> tuple[bool, str]:
     error AND the hooks dir exists. message is for the caller to surface.
     """
     skill_dir = Path.home() / ".codex" / "skills" / "preference-tracker"
+    # Mirror codex/install.sh's clone detection: when the user's git clone
+    # occupies the default path, the generated runtime (with the CODEX hook
+    # scripts) lives in the sibling -runtime dir. The clone's root hooks/
+    # holds the Claude Code variant's hooks — registering that dir here would
+    # create phantom entries pointing at scripts that don't exist there.
+    # `.git` covers clones; the codex/install.sh marker covers repos COPIED
+    # there without git metadata (the generated runtime layout has no codex/).
+    if (skill_dir / ".git").exists() or (skill_dir / "codex" / "install.sh").exists():
+        skill_dir = Path.home() / ".codex" / "skills" / "preference-tracker-runtime"
     hooks_dir = skill_dir / "hooks"
     hooks_json = Path.home() / ".codex" / "hooks.json"
     if not hooks_dir.is_dir():

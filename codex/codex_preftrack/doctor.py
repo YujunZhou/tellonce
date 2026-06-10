@@ -62,18 +62,51 @@ class DoctorReport:
     status_line: str
 
 
+def _own_home_prefixes() -> tuple:
+    """Path prefixes that belong to the CURRENT user's own home directory.
+
+    The generic leak heuristic exists to catch a FORK AUTHOR's hardcoded
+    paths surviving into someone else's install. The current user's own home
+    path is not a leak — it lands in events.jsonl legitimately via wrapper
+    argv / scan excerpts (e.g. every macOS user's project lives under
+    /Users/<them>/...). Without this exemption doctor FAILs for every macOS
+    user on their first wrapped command.
+    """
+    prefixes = []
+    home = os.path.expanduser("~")
+    if home and home != "~":
+        prefixes.append(home.rstrip("/\\"))
+        # macOS/Linux case variants of the same home (APFS is case-insensitive).
+        if home.lower() != home:
+            prefixes.append(home.lower().rstrip("/\\"))
+    return tuple(prefixes)
+
+
 def _file_has_leak(text: str, env_patterns: tuple[str, ...]) -> bool:
     """A file leaks if it matches any:
       - configured env-driven literal pattern (substring match)
-      - generic leak heuristic (regex)
+      - generic leak heuristic (regex) — except matches inside the current
+        user's own home path (their own project paths are not a leak)
       - a SECRET_PATTERNS hit (catches API keys / DB URIs that slipped past
         the sanitize step at write time)
     """
     for pat in env_patterns:
         if pat and pat in text:
             return True
+    own_homes = _own_home_prefixes()
     for pat in _GENERIC_LEAK_HEURISTIC:
-        if pat.search(text):
+        for m in pat.finditer(text):
+            # Each heuristic regex matches starting at the path root
+            # (`/Users/...`, `C:\Users\...`, `/home/...`), so the match start
+            # aligns with where $HOME would appear. Compare prefix there.
+            def _is_own_home(h: str) -> bool:
+                if text[m.start():m.start() + len(h)].lower() != h.lower():
+                    return False
+                # Path boundary: /home/sam must not exempt /home/samantha.
+                nxt = text[m.start() + len(h):m.start() + len(h) + 1]
+                return nxt in ('', '/', '\\', '"', "'", ' ', '\t', '\n', ':', ',')
+            if own_homes and any(_is_own_home(h) for h in own_homes):
+                continue  # current user's own home — not a fork leak
             return True
     for pat, _replacement in SECRET_PATTERNS:
         if pat.search(text):

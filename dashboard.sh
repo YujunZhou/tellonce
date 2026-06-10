@@ -21,11 +21,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --days N    number of days (default 7)"
             echo "  --json      JSON output (machine-parseable)"
             exit 0 ;;
-        *) shift ;;
+        *) echo "Unknown arg: $1 (try --help)"; exit 1 ;;
     esac
 done
 
-SKILL_DIR="${HOME}/.claude/skills/preference-tracker"
+# Self-locate (same as install.sh/doctor.sh/uninstall.sh).
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "${JSON_MODE}" == true ]]; then
     # JSON output for tooling integration

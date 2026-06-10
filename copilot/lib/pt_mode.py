@@ -104,6 +104,13 @@ def main(argv):
     elif cmd == 'full':
         cfg = _apply(cfg, enforce=True, shadow=True)
         print('full is ON (hard blocking + LLM judge). Note: the judge sends the exchange to copilot -p for scoring.')
+        # The shadow judge only scores rules listed in PT_SHADOW_RULE_IDS /
+        # B5_SHADOW_RULE_IDS (comma-separated atomic_ids). Without it, full
+        # mode silently judges nothing — warn so the user knows the knob.
+        if not (os.environ.get('PT_SHADOW_RULE_IDS') or os.environ.get('B5_SHADOW_RULE_IDS')):
+            print('⚠ PT_SHADOW_RULE_IDS is not set — the LLM judge has no rules to check and will log '
+                  '"no_rules" each turn. Set it to a comma-separated list of your rule atomic_ids, e.g.:')
+            print('    export PT_SHADOW_RULE_IDS="lang-pref-001,fmt-pref-002"')
     elif cmd in ('block', 'shadow') and len(args) >= 2 and args[1] in ('on', 'off', 'true', 'false', '1', '0', 'yes', 'no'):
         val = _on(args[1])
         if cmd == 'block':

@@ -64,8 +64,11 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 | 模式 | 硬拦截 | LLM 判官 | 说明 |
 |------|--------|----------|------|
 | **observe**（默认） | 关 | 关 | 只记录偏好并提醒，绝不打断 |
-| **enforce** | 开 | 关 | 确定性硬拦截层——**不带任何内置规则**（opt-in 扩展点） |
-| **full** | 开 | 开 | `enforce` + 小模型 LLM 判官，按你记录的偏好逐条检查回复（多花时间/额度） |
+| **enforce** | 开 | 关 | 确定性硬拦截层 **加上"扫描完整性"停止闸门**。确定性层**不带任何内置规则**（opt-in 扩展点），所以不会拦你的内容；停止闸门首次运行会自动播种 |
+| **full** | 开 | 开 | `enforce` + 小模型 LLM 判官，按 `PT_SHADOW_RULE_IDS` 里列出的已记录偏好（逗号分隔的 atomic_id）逐条检查回复；未设置时 `pt_mode.py full` 会打印提醒（多花时间/额度） |
+
+> **Windows 注意**：「扫描完整性」停止闸门的 hook 在 Windows 上目前只是占位
+> （PowerShell 条目只回显一行），所以 `enforce` 模式在 Windows 上比 macOS/Linux 弱。
 
 **隐私**：`observe` / `enforce` 全程只在本机；只有 `full` 才把「最后一条消息 + 回复」
 （已脱敏）发给 `copilot -p`。
@@ -74,11 +77,30 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 
 ## 自检 / 卸载
 
+**一键卸载**（先移除 hook 注册让 hook 停止触发，再删插件文件；你保存的 memory 会保留）：
+
+Windows (PowerShell):
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/uninstall.ps1 | iex"
+```
+macOS / Linux:
+```bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/uninstall.sh | bash
+```
+**卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
+`-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是
+**当前项目**的 memory/state——按你运行命令时所在的目录解析（逐项目，不是全局）；
+在多个项目里用过的话要逐个项目执行。
+
+> 只删插件文件是不够的——只要插件还注册在 `~/.copilot/config.json` 里，hook
+> 就会继续触发。卸载脚本会先移除该注册。
+
+手动 / 细粒度替代：
 ```bash
 python "<plugin>/lib/doctor.py"                 # 自检（python / 注册 / 模式 / 钩子）
 python "<plugin>/lib/dashboard.py"              # 一眼看状态（模式 / 注册 / 规则数 / 记录数）
 python "<plugin>/lib/uninstall.py"              # dry-run：看会删什么
-python "<plugin>/lib/uninstall.py --all"        # 删 state + memory + config 键 + 反注册
+python "<plugin>/lib/uninstall.py --all"        # 删当前项目的 state + memory、config 键 + 反注册（在该项目目录下运行）
 copilot plugin uninstall preference-tracker     # 删插件代码本身
 ```
 

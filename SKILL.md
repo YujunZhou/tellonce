@@ -12,7 +12,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 - **硬阻断强制**（deterministic block / pending gate / observation-log gate）默认**关**，需显式设 `PT_ENFORCE=1` 才开启。
 - **影子 LLM 判官**（把对话发给外部模型做语义判分）默认**关**，需显式设 `PT_SHADOW=1` 才开启。隐私提示：开启后每轮会把「最后一条 user 消息 + 助手回复」（已脱敏 API key / 密码等）发给该模型。
-- `seed_memory/` 里的语言、路径规则只是**示例记忆**，默认不被强制；它们反映作者个人偏好，不代表使用者必须遵守。
+- `seed_memory/` **故意发空**（只有一个说明用的 README）：不预装任何人的偏好规则，你的规则由 Gate Function 在使用中逐条积累。
 
 **切换模式**（环境变量；两者都不设 = 安全默认 observe-only）：
 
@@ -31,8 +31,8 @@ PT_SHADOW=1    # 开 AI 判官（影子模式）
 
 ### Deterministic fingerprint retrieval (UserPromptSubmit hook)
 
-每次用户提交 message, `<project_root>/.claude/hooks/memory-retrieve-inject.sh` 会:
-1. 扫 user prompt 对 `<skill_dir>/lib/fingerprints.yaml` (18 条 trigger 规则)
+每次用户提交 message, `<skill_dir>/hooks/memory-retrieve-inject.sh` 会:
+1. 扫 user prompt 对 `<skill_dir>/lib/fingerprints.yaml` (**发空** — `fingerprints: {}`; 由你自己加条目, 或放私有 overlay `fingerprints.user.yaml`, 两者加载时合并)
 2. 匹中的 atomic_id 作 `additionalContext` 注入到我的 context 开头
 3. 格式长这样 — **不是外部 noise, 是 skill infra 的 rule 提示, 必须 respect**:
 
@@ -56,7 +56,7 @@ retrieval hook 注入的每条 rule 后面带 `applies_when: ...` 和 `condition
 
 ### Log-only compliance tracker (Stop hook)
 
-每轮我 stop 时, `<project_root>/.claude/hooks/memory-verify-compliance.sh` 读 transcript 取最后 assistant text, 往 `<state_dir>/obs_log/compliance_log.jsonl` append 一行:
+每轮我 stop 时, `<skill_dir>/hooks/memory-verify-compliance.sh` 读 transcript 取最后 assistant text, 往 `<state_dir>/obs_log/compliance_log.jsonl` append 一行:
 - `response_excerpt` (前 400 字)
 - `fp_rules_in_response` (response 里触发了哪些 rule 关键词)
 - `lang_ratio.chinese_ratio` (中英文比例)
@@ -70,10 +70,10 @@ retrieval hook 注入的每条 rule 后面带 `applies_when: ...` 和 `condition
 | Fingerprint 规则库 | `<skill_dir>/lib/fingerprints.yaml` |
 | Retrieve handler | `<skill_dir>/lib/retrieve_inject.py` |
 | Compliance tracker | `<skill_dir>/lib/verify_compliance.py` |
-| UserPromptSubmit hook | `<project_root>/.claude/hooks/memory-retrieve-inject.sh` |
-| Stop hook | `<project_root>/.claude/hooks/memory-verify-compliance.sh` |
+| UserPromptSubmit hook | `<skill_dir>/hooks/memory-retrieve-inject.sh` |
+| Stop hook | `<skill_dir>/hooks/memory-verify-compliance.sh` |
 | Compliance log | `<state_dir>/obs_log/compliance_log.jsonl` |
-| Hooks 注册 | `<project_root>/.claude/settings.local.json` |
+| Hooks 注册 | `<project_root>/.claude/settings.local.json` (直接注册 `<skill_dir>/hooks/` 路径, 不往项目里 copy 文件) |
 
 > **要看你机器上真实 path**: 跑 `python3 ~/.claude/skills/preference-tracker/lib/path_config.py` 会打印当前 detect 出来的所有 path. 不要根据这份 SKILL.md 的占位字面量去写 / 创建文件 — 用 path_config 给的 runtime 值.
 
@@ -131,7 +131,7 @@ Skip any step = compliance failure.
 
 ### Gate mechanics
 
-**Only HARD check is active**: the observation log file must be appended within 600s of Stop. That's the entire gate.
+**Only HARD check is active**: the observation log file must be appended within the staleness threshold at Stop (default 1800s, tunable via env `OBSERVATION_LOG_AGE_THRESHOLD_SEC`). That's the entire gate.
 
 **SOFT text-marker scans are DISABLED** (caused spurious blocks because my response text wording varies each turn). The structured log entry itself carries the scan result — that's sufficient audit trail.
 

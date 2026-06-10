@@ -11,6 +11,16 @@
 # Defensive: any failure -> exit 0 silently (never break agent's tool loop).
 set +e
 
+# Portable timeout: GNU `timeout` is absent on stock macOS. Fall back to
+# gtimeout (brew coreutils) or, failing that, run without a timeout.
+_pt_timeout() {
+    _pt_secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "${_pt_secs}" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "${_pt_secs}" "$@"
+    else "$@"; fi
+}
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="${SCRIPT_DIR}/.."
 
@@ -41,6 +51,6 @@ fi
 # DO NOT redirect stderr to stdout — that would corrupt the JSON channel
 # and codex would print "hook returned invalid post-tool-use JSON output".
 printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SKILL_DIR}" \
-    timeout 15 python3 -m codex_preftrack.codex_posttooluse_block
+    _pt_timeout 15 python3 -m codex_preftrack.codex_posttooluse_block
 RC=$?
 exit $RC

@@ -3,12 +3,18 @@
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/main/copilot/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.sh | bash
 #
 # Downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state, seed, observe mode, register,
 # python path), and tells you to restart Copilot. Safe to re-run.
+#
+# The whole script body lives inside main() and the only top-level statement is
+# the final `main "$@"` — so a truncated download cannot execute a partial
+# prefix of the script.
 set -euo pipefail
+
+main() {
 
 REPO="https://github.com/YujunZhou/preference-tracker"
 # Pinned to a release tag (immutable) for integrity.
@@ -57,11 +63,32 @@ if [ "${got_src}" -ne 1 ]; then
 fi
 [ -d "${SRC_COPILOT}" ] || fail "Download succeeded but copilot/ folder missing — repo layout changed?"
 
-# 4. Copy into installed-plugins.
+# 4. Stage the new code tree, then swap it in. Staging first means a failed
+# copy leaves the previous working install untouched; the swap also drops
+# files deleted in newer releases. User memory/state live elsewhere, EXCEPT
+# the personal rule overlays (lib/*.user.yaml) which the docs tell users to
+# keep inside the plugin tree — carried over into the staged tree before swap.
 DEST="${COPILOT_HOME}/installed-plugins/preference-tracker/preference-tracker"
-mkdir -p "${DEST}"
+STAGE="${DEST}.new-$$"
+# Clean any staging dirs a previously failed run left behind (any pid).
+rm -rf "${DEST}".new-* 2>/dev/null || true
+mkdir -p "${STAGE}"
 # Copy contents, excluding caches.
-( cd "${SRC_COPILOT}" && tar --exclude='__pycache__' --exclude='.pytest_cache' --exclude='PORT_NOTES' --exclude='*.pyc' -cf - . ) | ( cd "${DEST}" && tar -xf - )
+( cd "${SRC_COPILOT}" && tar --exclude='__pycache__' --exclude='.pytest_cache' --exclude='PORT_NOTES' --exclude='PORT_DESIGN.md' --exclude='*.pyc' -cf - . ) | ( cd "${STAGE}" && tar -xf - )
+# Belt-and-braces: hooks are registered as shell command strings, which need
+# the exec bit; make sure it survives whatever transport delivered the files.
+chmod +x "${STAGE}/hooks/"*.sh "${STAGE}"/*.sh 2>/dev/null || true
+# Carry over the user's personal rule overlays from the previous install.
+if [ -d "${DEST}/lib" ]; then
+    if compgen -G "${DEST}/lib/"'*.user.yaml' > /dev/null 2>&1; then
+        cp "${DEST}/lib/"*.user.yaml "${STAGE}/lib/" 2>/dev/null || true
+        echo "[OK] Preserved your personal rule overlay(s) from the previous install"
+    fi
+fi
+# Swap: the old tree is gone only after the new one is fully staged.
+rm -rf "${DEST}"
+mkdir -p "$(dirname "${DEST}")"
+mv "${STAGE}" "${DEST}"
 echo "[OK] Plugin files installed to ${DEST}"
 
 # 5. Optional dependency (best-effort; deterministic blocking works without it,
@@ -89,3 +116,7 @@ echo "    ${PY} \"${DEST}/lib/doctor.py\""
 echo "  Uninstall:"
 echo "    ${PY} \"${DEST}/lib/uninstall.py\" --all"
 echo "================================================================"
+
+}
+
+main "$@"

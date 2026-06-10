@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --quick) QUICK=true; shift ;;
         --rollback) ROLLBACK=true; shift ;;
-        *) shift ;;
+        *) echo "Unknown arg: $1 (flags: --quick --rollback)"; exit 1 ;;
     esac
 done
 

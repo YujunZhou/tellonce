@@ -24,9 +24,9 @@ No CC capability may be removed from the Codex package without an explicit user 
 | Claude Code capability | Current CC mechanism | Codex parity target | Status |
 |---|---|---|---|
 | Skill entry and per-message scan | `SKILL.md` iron law + observation JSONL | Codex skill + `codex_preftrack scan` event ledger | `codex_core` |
-| Install | `install.sh` with backup + merge settings | transaction install with manifest, backup, smoke, commit | `codex_core` |
-| Doctor | unit + path + hook registration + smoke | behavior doctor: state, skill, wrapper, scan, rollback, uninstall dry-run | `codex_core` |
-| Rollback | latest settings backup + hook removal | transaction-scoped rollback by install id | `codex_core` |
+| Install | `install.sh` with backup + merge settings | idempotent copy install (global runtime + hook registration + project state) with a versioned `hooks.json` backup (`.v3_pre_pt_*`); no manifest / smoke / commit phases | `codex_core` |
+| Doctor | unit + path + hook registration + smoke | doctor checks: state, private_paths, wrapper, hooks, shadow (`doctor.run_doctor`) | `codex_core` |
+| Rollback | latest settings backup + hook removal | manual: restore `~/.codex/hooks.json` from the versioned `.v3_pre_pt_*` backup written at install/uninstall; no rollback command yet | `deferred_with_reason` |
 | Uninstall | keep data by default, optional purge | ownership manifest; keep data default; purge-state explicit | `codex_core` |
 | Path config | `B5_*` env > config > cwd defaults | Codex project registration + explicit fallback | `codex_core` |
 | Observation logging | `observations.jsonl` + compliance logs | authoritative `events.jsonl`; observations export only | `codex_core` |
@@ -36,14 +36,14 @@ No CC capability may be removed from the Codex package without an explicit user 
 | B4 refusal gate | Stop hook blocks if pending unresolved | warning/dashboard first; hard refusal only after false-positive review | `deferred_with_reason` |
 | Deterministic rules | Stop hook hard block | PostToolUse hook (`posttooluse-deterministic-block.sh`) scans agent-authored tool input; mode-aware (audit_only / wrapper / blocking). Wrapper-driven enforcement covers final stdout. | `codex_core` (Round-7) |
 | Per-user whitelist | package base + user whitelist file | Codex base + user whitelist under config/state | `codex_core` |
-| Streak bypass | repeated rule auto-bypass | required before enabling any hard block | `codex_core` for blocking readiness |
+| Streak bypass | repeated rule auto-bypass | implemented in the PostToolUse adapter (`codex_posttooluse_block.py`): per-session counter in the state dir, threshold `PT_STREAK_BYPASS`/`B5_STREAK_BYPASS` (default 3), kill-switch `PT_DETERMINISTIC_DISABLED`/`B5_DETERMINISTIC_DISABLED` honored | `codex_core` |
 | Rule params | frontmatter `params` parser | preserve schema and defaults | `codex_core` |
 | Threshold advisor | suggests threshold updates | dashboard advisory after telemetry exists | `deferred_with_reason` |
 | Shadow judge | Claude CLI / SDK | provider-pluggable; disabled by default; no Claude dependency | `deferred_with_reason` |
 | Shadow alert injection | next-turn additional context | UserPromptSubmit hook (codex native) — `userpromptsubmit-shadow-alert-inject.sh` | `codex_core` (Round-7) |
 | Auto-light-entry fallback | hook fallback for missing obs | doctor-visible degraded status + wrapper audit fallback | `codex_core` |
-| Dashboard | 7-day compliance summary | mode, scans, warnings, wrapper coverage, false-positive counters | `codex_core` |
-| Chaos tests | 12 chaos tests | fake HOME, interrupt, corrupt log, multi-project, uninstall, migration | `codex_core` |
+| Dashboard | 7-day compliance summary | prints mode, hooks, blocking, scan_count, wrapped_turns (`dashboard.py`) | `codex_core` |
+| Chaos tests | 12 chaos tests | current suite is unit/integration only (`tests/test_core.py`, 43 tests); fault-injection chaos suite (fake HOME, interrupt, corrupt log, multi-project) not yet ported | `deferred_with_reason` |
 | Cost cap | shadow judge budget | provider module later; disabled default | `deferred_with_reason` |
 | Hook short-circuit | skip expensive hooks on no signal | not needed in core; hooks experimental must include short-circuit | `hooks_experimental` |
 
@@ -75,6 +75,9 @@ modulo two adapters:
   registers into `~/.codex/hooks.json` via `install_codex_hooks --add` (Round-7).
 - Memory still defaults to `~/.claude/projects/<cwd_escaped>/memory` — the codex variant honors
   `B5_MEMORY_DIR` env override the same way CC's path_config does.
+- `shared_lib/` reuses CC's `pt_platform` defaults, so the UserPromptSubmit hooks
+  create `.claude/preference-tracker-state/` directories inside Codex projects.
+  Known cosmetic wart — harmless, and overridable via the `B5_*` path env vars.
 - The legacy Codex skill (pre-PR-1) had developer-machine hardcoded paths in its install scripts; the current Codex variant runs through codex_preftrack.paths so it's portable, and codex_preftrack.doctor explicitly scans state files for those leaked tokens.
 - Doctor scans state for private-path leaks + reports hook registration status (`hooks=PASS / NOT_INSTALLED / PARTIAL / FAIL`) post-Round-7.
 - Rollback is based on latest-looking settings backup, not an install transaction id.

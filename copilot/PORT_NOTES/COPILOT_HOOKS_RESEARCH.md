@@ -1,8 +1,4 @@
-Agent completed. agent_id: discover-copilot-hooks-v2, agent_type: research, status: completed, description: Research Copilot CLI hooks system, elapsed: 1056s, total_turns: 0, duration: 1051s
-
-I now have a comprehensive picture from all sources. Here is the complete reference document:
-
----
+> Internal port research notes (not installed; kept for maintainers).
 
 # Porting a Claude Code Skill to a GitHub Copilot CLI Plugin: Hooks Reference
 

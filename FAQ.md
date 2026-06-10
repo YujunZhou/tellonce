@@ -1,6 +1,6 @@
 # FAQ — Preference-Tracker
 
-15 common questions. For the full architecture see
+12 common questions. For the full architecture see
 [`docs/claude-code.md`](docs/claude-code.md) + `SKILL.md`.
 
 ---
@@ -10,9 +10,10 @@
 ### Q1: What if the install fails partway through?
 
 `install.sh` uses `set -euo pipefail` + `trap ERR`, so on failure it
-auto-rolls-back the settings backup (but keeps the hooks `.sh` / state / memory
-for debugging). Re-running `install.sh` is idempotent — it won't double-register
-hooks or recreate state.
+auto-rolls-back the settings backup (but keeps state / memory for debugging; the
+hook `.sh` files live in the skill directory and are never copied anywhere).
+Re-running `install.sh` is idempotent — it won't double-register hooks or
+recreate state.
 
 If the settings rollback didn't succeed, do it manually:
 
@@ -38,7 +39,7 @@ bash ~/.claude/skills/preference-tracker/doctor.sh
 # Verify the hooks are registered in settings.local.json:
 python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py \
     --settings ~/your-project/.claude/settings.local.json \
-    --hooks-dir ~/your-project/.claude/hooks \
+    --hooks-dir ~/.claude/skills/preference-tracker/hooks \
     --verify
 
 # Manual smoke: deliberately trigger a violation
@@ -52,10 +53,12 @@ echo '{"session_id":"test","transcript_path":"/tmp/t.jsonl"}' | \
 ### Q3: Is uninstall clean? Will I lose my memory?
 
 `uninstall.sh` by default **does not touch** memory + state + obs_log. It only
-removes the hook registration and the hooks `.sh`. Reinstalling restores all
+removes the hook registration; the hook `.sh` files stay where they are (they
+live in the skill directory, not in your project). Reinstalling restores all
 state.
 
-Use the `--purge-state` flag to delete everything.
+Use the `--purge-state` flag to delete everything (it asks for confirmation
+when run interactively).
 
 ---
 
@@ -92,8 +95,10 @@ changes for you to approve. See the docstring at the top of
 
 ### Q9: How much API money does the shadow judge cost me?
 
-It defaults to the `claude -p` CLI (subscription, no credit). Set `PT_USE_SDK=1`
-to switch to the SDK (charged per token).
+Nothing unless you turn it on: the shadow judge is **OFF by default** and only
+runs in `full` mode (`PT_SHADOW=1`). When enabled, it defaults to the
+`claude -p` CLI (subscription, no credit). Set `PT_USE_SDK=1` to switch to the
+SDK (charged per token).
 
 The cost cap defaults to `$0.50/day`; once hit it disables for the day. Change it:
 
@@ -105,8 +110,9 @@ export PT_DAILY_COST_CAP=1.00
 
 ### Q10: What if I don't have the Claude CLI installed?
 
-The shadow judge can't run, but the deterministic layer still works. Set in
-`.bashrc`:
+The shadow judge can't run, but it's off by default anyway (it only runs in
+`full` mode / `PT_SHADOW=1`), and the deterministic layer still works. If you
+enabled `full` mode and want a hard kill-switch, set in `.bashrc`:
 
 ```bash
 export PT_SHADOW_DISABLED=1
@@ -130,17 +136,21 @@ hits on the same rule auto-bypasses it to avoid livelock.
 
 ### Q12: My project layout differs from yours and a path is detected wrong
 
-`install.sh` detects by default: `<cwd>` is the project root, hooks install to
-`<cwd>/.claude/hooks/`, state lives in
-`<cwd>/.claude/preference-tracker-state/runtime/`, memory in
+`install.sh` detects by default: `<cwd>` is the project root, hooks stay in the
+skill directory and are registered into `<cwd>/.claude/settings.local.json`,
+state lives in `<cwd>/.claude/preference-tracker-state/runtime/`, memory in
 `~/.claude/projects/<cwd_escaped>/memory/`.
 
 If that's wrong, override:
 
 ```bash
+# install.sh: override state / obs_log locations
 PT_STATE_DIR=/custom/state bash install.sh
 PT_OBS_LOG_DIR=/custom/obs bash install.sh
-PT_PROJECT_ROOT=/custom/project bash install.sh
+# install.sh always takes the project root from cwd — cd there first.
+
+# uninstall.sh: additionally accepts the project root as an env var
+PT_PROJECT_ROOT=/custom/project bash uninstall.sh
 ```
 
 > Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
@@ -174,22 +184,28 @@ wrapper-driven adapter — see the `codex/` subdirectory: install with
 ### Q15: Hooks aren't being called, but settings look correct
 
 ```bash
-# 1. Check the hook files are executable
-ls -la <project>/.claude/hooks/memory-*.sh
+# 1. Check the hook files are executable (they live in the skill dir, not the project)
+ls -la ~/.claude/skills/preference-tracker/hooks/memory-*.sh
 # should be -rwxr-xr-x; if not, chmod +x
 
-# 2. Read install.log:
+# 2. Check the registrations in settings point at the skill dir:
+python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py \
+    --settings <project>/.claude/settings.local.json \
+    --hooks-dir ~/.claude/skills/preference-tracker/hooks \
+    --verify
+
+# 3. Read install.log:
 cat ~/.claude/skills/preference-tracker/install.log | tail -50
 
-# 3. Run the full doctor check:
+# 4. Run the full doctor check:
 bash ~/.claude/skills/preference-tracker/doctor.sh
 
-# 4. Run a hook manually and watch the output:
+# 5. Run a hook manually and watch the output:
 echo '{"session_id":"test","transcript_path":"/tmp/dummy.jsonl"}' | \
-    bash <project>/.claude/hooks/memory-deterministic-block.sh
+    bash ~/.claude/skills/preference-tracker/hooks/memory-deterministic-block.sh
 # (should exit 0, since the transcript doesn't exist)
 
-# 5. See what path_config detects (env / config / default):
+# 6. See what path_config detects (env / config / default):
 python3 ~/.claude/skills/preference-tracker/lib/path_config.py
 ```
 

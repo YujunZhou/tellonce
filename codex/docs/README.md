@@ -9,9 +9,12 @@ The external UX should stay simple:
 ```bash
 git clone <repo> ~/.codex/skills/preference-tracker
 cd /path/to/project
-bash ~/.codex/skills/preference-tracker/install.sh
-bash ~/.codex/skills/preference-tracker/doctor.sh
+bash ~/.codex/skills/preference-tracker/codex/install.sh
+bash ~/.codex/skills/preference-tracker/codex/doctor.sh
 ```
+
+> The Codex installer lives under `codex/` — the repo-root `install.sh` is the
+> Claude Code variant and would register Claude Code hooks instead.
 
 Internally the package records a project-local audit ledger and uses wrapper-based verification where possible. Users do not need to choose internal modes during normal install.
 
@@ -19,7 +22,11 @@ Internally the package records a project-local audit ledger and uses wrapper-bas
 
 - `audit_only`: default. Records scans and warnings; does not claim hard enforcement.
 - `wrapper`: checks output produced through `codex_preftrack exec`.
-- `hooks_experimental`: future opt-in path when Codex hook behavior is verified.
+- `blocking`: opt-in hard-block layer on PostToolUse (ships with no built-in
+  rules, so on its own it blocks nothing until you add rules).
+
+(The top-level README's `observe → enforce → full` naming maps to
+`audit_only → blocking` here; Codex has no shadow-judge mode yet.)
 
 ## Current V1 Capabilities
 

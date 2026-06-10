@@ -19,12 +19,14 @@
 
 set -euo pipefail
 
-SKILL_DIR="${HOME}/.claude/skills/preference-tracker"
-PROJECT_ROOT="${B5_PROJECT_ROOT:-$(pwd)}"
+# Self-locate (same as install.sh/doctor.sh): uninstall must target the clone
+# this script lives in, not a hardcoded ~/.claude/skills path.
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PT_PROJECT_ROOT:-${B5_PROJECT_ROOT:-$(pwd)}}"
 HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"
-STATE_DIR="${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}"
-OBS_LOG_DIR="${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/obs_log}"
+STATE_DIR="${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}}"
+OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/obs_log}}"
 CONFIG_FILE="${HOME}/.preference-tracker.config.json"
 
 KEEP_SKILL_DIR=false
@@ -39,17 +41,21 @@ while [[ $# -gt 0 ]]; do
         --keep-config) KEEP_CONFIG=true; shift ;;
         --keep-global) KEEP_GLOBAL=true; shift ;;
         --purge-legacy-project-hooks) PURGE_LEGACY_HOOKS=true; shift ;;
-        *) shift ;;
+        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+        *) echo "Unknown arg: $1 (see --help)"; exit 1 ;;
     esac
 done
 
 # Refuse uninstall when PROJECT_ROOT is HOME — that means the user probably ran
 # `cd ~ && uninstall` and would otherwise blow away their global ~/.claude/hooks
 # (matches install.sh's same guard).
-if [[ "${PROJECT_ROOT}" == "${HOME}" ]]; then
+# An EXPLICIT PT_PROJECT_ROOT/B5_PROJECT_ROOT means the user knows what they
+# are targeting — only refuse when HOME was picked up implicitly from cwd.
+if [[ "${PROJECT_ROOT}" == "${HOME}" && -z "${PT_PROJECT_ROOT:-}${B5_PROJECT_ROOT:-}" ]]; then
     echo "❌ PROJECT_ROOT == HOME (${HOME})"
     echo "   You appear to be running uninstall in HOME — cd into the project root you installed from."
-    echo "   If you really want to uninstall a global user-level install, set B5_PROJECT_ROOT=<path> explicitly."
+    echo "   To remove a user-global (Option A) install instead, run:"
+    echo "   python3 ${SKILL_DIR}/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ${SKILL_DIR}/hooks --remove"
     exit 1
 fi
 
@@ -87,6 +93,12 @@ echo ""
 # (New installs register ${SKILL_DIR}/hooks/; old installs register ${HOOKS_DIR}=${PROJECT_ROOT}/.claude/hooks/)
 if [[ -f "${SETTINGS}" ]]; then
     echo "[1/5] Removing hooks from settings.local.json:"
+    # Take OUR OWN pre-uninstall snapshot as the rollback anchor. The two
+    # --remove passes below each write their own versioned backup, and the
+    # later ones capture already-stripped settings — pointing the user at
+    # "the latest backup" would roll back to a post-removal state.
+    PRE_UNINSTALL_BACKUP="${SETTINGS}.v3_pre_pt_uninstall_$(date +%Y%m%d-%H%M%S)-$$.json"
+    cp "${SETTINGS}" "${PRE_UNINSTALL_BACKUP}" 2>/dev/null || PRE_UNINSTALL_BACKUP=""
     # New design (skill-dir paths) removal
     python3 "${SKILL_DIR}/lib/_install_merge_settings.py" \
         --settings "${SETTINGS}" \
@@ -97,11 +109,9 @@ if [[ -f "${SETTINGS}" ]]; then
         --settings "${SETTINGS}" \
         --hooks-dir "${HOOKS_DIR}" \
         --remove || true
-    # Show the backup file location so the user knows the rollback anchor
-    LATEST_BACKUP=$(ls -t "${SETTINGS}".v3_pre_pt_*.json 2>/dev/null | head -1)
-    if [[ -n "${LATEST_BACKUP}" ]]; then
-        echo "  backup: ${LATEST_BACKUP}"
-        echo "  rollback (undo this --remove change): cp \"${LATEST_BACKUP}\" \"${SETTINGS}\""
+    if [[ -n "${PRE_UNINSTALL_BACKUP}" ]]; then
+        echo "  backup: ${PRE_UNINSTALL_BACKUP}"
+        echo "  rollback (undo this --remove change): cp \"${PRE_UNINSTALL_BACKUP}\" \"${SETTINGS}\""
     fi
 else
     echo "[1/5] settings.local.json does not exist, skip"
@@ -176,6 +186,18 @@ if [[ "${PURGE_STATE}" == true ]]; then
     echo "  - rm state + obs_log (--purge-state):"
     _refuse_dangerous_path STATE_DIR "${STATE_DIR}"
     _refuse_dangerous_path OBS_LOG_DIR "${OBS_LOG_DIR}"
+    # Interactive confirm before destroying observation history (matches the
+    # header's "double-confirm on --purge-state" promise). Non-interactive
+    # callers (no tty) keep the old behavior: the flag itself is the consent.
+    if [[ -t 0 ]]; then
+        read -p "  Really delete ${STATE_DIR} and ${OBS_LOG_DIR}? (y/N) " ans || ans="N"
+        if [[ "${ans}" != "y" && "${ans}" != "Y" ]]; then
+            echo "  - keeping state + obs_log (declined)"
+            PURGE_STATE=false
+        fi
+    fi
+fi
+if [[ "${PURGE_STATE}" == true ]]; then
     rm -rf "${STATE_DIR}" "${OBS_LOG_DIR}"
     echo "    rm -rf ${STATE_DIR}"
     echo "    rm -rf ${OBS_LOG_DIR}"

@@ -5,17 +5,20 @@
 ```bash
 git clone <repo> ~/.codex/skills/preference-tracker
 cd /path/to/project
-bash ~/.codex/skills/preference-tracker/install.sh
-bash ~/.codex/skills/preference-tracker/doctor.sh
+bash ~/.codex/skills/preference-tracker/codex/install.sh
+bash ~/.codex/skills/preference-tracker/codex/doctor.sh
 ```
+
+(The Codex installer lives under `codex/`; the repo-root `install.sh` is the
+Claude Code variant and would register Claude Code hooks instead.)
 
 Doctor should end with a line like:
 
 ```text
-Preference Tracker status: local=PASS, skill=PASS, state=PASS, plain_codex_hooks=DEGRADED, wrapper=NOT_USED, shadow=DISABLED, install=OBSERVE_ONLY
+Preference Tracker status: state=PASS, private_paths=PASS, wrapper=NOT_USED, hooks=PASS, shadow=DISABLED, install=OBSERVE_ONLY
 ```
 
-`DEGRADED` for hooks is acceptable in v1 because hooks are experimental. `state=FAIL` or `install=FAILED` is not acceptable.
+`wrapper=NOT_USED` is normal before the first `codex_preftrack exec` run. `state=FAIL` or `install=FAILED` is not acceptable.
 
 ## Basic Smoke
 

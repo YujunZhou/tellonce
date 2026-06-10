@@ -79,6 +79,18 @@ def _versioned_backup(path: str) -> str | None:
     backup = f"{path}.v3_pre_pt_{ts}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     Path(backup).write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
+    # GC: every install/uninstall writes one backup; without pruning they
+    # accumulate forever. Keep the 5 most recent (matches CC install.sh).
+    try:
+        siblings = sorted(
+            p.parent.glob(p.name + ".v3_pre_pt_*.json"),
+            key=lambda b: b.stat().st_mtime,
+            reverse=True,
+        )
+        for old in siblings[5:]:
+            old.unlink()
+    except Exception:
+        pass
     return backup
 
 

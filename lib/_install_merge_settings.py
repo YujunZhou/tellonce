@@ -59,9 +59,12 @@ PT_HOOKS = {
     },
     # ── UserPromptSubmit chain ──────────────────────────────────────────
     'memory-retrieve-inject.sh': {
+        # Must exceed the cli backend's own subprocess timeout
+        # (B5_RETRIEVE_TIMEOUT, default 12s incl. claude -p cold start) or the
+        # harness kills the hook before even the keyword fallback can answer.
         'event': 'UserPromptSubmit',
-        'timeout': 5,
-        'desc': 'Deterministic fingerprint retrieve',
+        'timeout': 15,
+        'desc': 'Semantic/fingerprint memory retrieve',
     },
     'memory-pending-inject.sh': {
         'event': 'UserPromptSubmit',
@@ -81,7 +84,12 @@ def _versioned_backup(settings_path: str) -> str:
     if not os.path.exists(settings_path):
         return ''
     ts = datetime.now().strftime('%Y%m%d-%H%M%S')
-    backup = f'{settings_path}.v3_pre_pt_{ts}.json'
+    # Uniquify beyond second resolution: uninstall runs two --remove passes
+    # back-to-back; with ts-only names the second backup (already-stripped
+    # settings) would overwrite the first (the real rollback anchor).
+    backup = f'{settings_path}.v3_pre_pt_{ts}-{os.getpid()}.json'
+    if os.path.exists(backup):
+        backup = f'{settings_path}.v3_pre_pt_{ts}-{os.getpid()}b.json'
     shutil.copy2(settings_path, backup)
     return backup
 
@@ -106,13 +114,18 @@ def _save_settings(settings_path: str, data: dict):
         f.write('\n')
 
 
-def _hook_already_registered(settings: dict, event: str, command_path: str) -> bool:
-    """Check whether a hook is already registered in settings.<event>[].hooks[]."""
+def _find_registered_hook(settings: dict, event: str, command_path: str):
+    """Return the registered hook dict for command_path under event, or None."""
     for entry in settings.get('hooks', {}).get(event, []):
         for h in entry.get('hooks', []):
             if h.get('command') == command_path:
-                return True
-    return False
+                return h
+    return None
+
+
+def _hook_already_registered(settings: dict, event: str, command_path: str) -> bool:
+    """Check whether a hook is already registered in settings.<event>[].hooks[]."""
+    return _find_registered_hook(settings, event, command_path) is not None
 
 
 def cmd_add(settings_path: str, hooks_dir: str):
@@ -148,12 +161,22 @@ def cmd_add(settings_path: str, hooks_dir: str):
     # and easier to remove cleanly later.
     added = 0
     skipped = 0
+    updated = 0
     for hook_name, info in PT_HOOKS.items():
         cmd = os.path.join(hooks_dir, hook_name)
         event = info['event']
         timeout = info['timeout']
-        if _hook_already_registered(settings, event, cmd):
-            skipped += 1
+        existing = _find_registered_hook(settings, event, cmd)
+        if existing is not None:
+            # Idempotent re-run / upgrade: refresh the timeout in place so fixes
+            # to PT_HOOKS (e.g. retrieve 5s → 15s) actually reach existing
+            # installs — otherwise "re-run install.sh to upgrade" silently keeps
+            # stale values forever.
+            if existing.get('timeout') != timeout:
+                existing['timeout'] = timeout
+                updated += 1
+            else:
+                skipped += 1
             continue
         chain = settings['hooks'].setdefault(event, [])
         # Find OUR entry (one we previously created) by sentinel marker.
@@ -173,7 +196,7 @@ def cmd_add(settings_path: str, hooks_dir: str):
         })
         added += 1
     _save_settings(settings_path, settings)
-    print(f'  added {added} hooks, skipped {skipped} (already registered)')
+    print(f'  added {added} hooks, updated {updated}, skipped {skipped} (already registered)')
 
 
 def cmd_remove(settings_path: str, hooks_dir: str):

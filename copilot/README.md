@@ -70,8 +70,12 @@ the full path is printed at the end of install.
 | Mode | Hard block | LLM judge | Description |
 |------|------------|-----------|-------------|
 | **observe** (default) | off | off | Records preferences and reminds you; never interrupts. |
-| **enforce** | on | off | Deterministic hard-block layer — ships with **no built-in rules** (opt-in extension point). |
-| **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against your recorded preferences (costs time / credit). |
+| **enforce** | on | off | Deterministic hard-block layer **plus the scan-completeness stop gate**. The deterministic layer ships with **no built-in rules** (an opt-in extension point), so it blocks no content on its own; the stop gate self-seeds on first run. |
+| **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against the recorded preferences you list in `PT_SHADOW_RULE_IDS` (comma-separated atomic_ids; `pt_mode.py full` prints a reminder when it's unset) — costs time / credit. |
+
+> **Windows note:** the scan-completeness Stop-gate hook is currently a stub on
+> Windows (PowerShell entry just echoes), so `enforce` mode is weaker there than
+> on macOS/Linux.
 
 **Privacy:** `observe` / `enforce` stay entirely on your machine. Only `full`
 sends the last message and reply (redacted) to `copilot -p`.
@@ -92,7 +96,10 @@ macOS / Linux:
 curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/uninstall.sh | bash
 ```
 **Restart Copilot afterward.** To also wipe your saved memory/state, download the
-script and run it with `-Purge` (PowerShell) / `--purge` (bash).
+script and run it with `-Purge` (PowerShell) / `--purge` (bash). Note that
+`--purge` / `--all` removes the **current project's** memory/state — it is
+resolved from the directory you run it in (per-project, not global); repeat per
+project if you used the tracker in several.
 
 > Deleting the plugin files alone is NOT enough — the hooks keep firing while the
 > plugin is still registered in `~/.copilot/config.json`. The uninstaller removes
@@ -103,7 +110,7 @@ Manual / granular alternative:
 python "<plugin>/lib/doctor.py"                 # self-check (python / registration / mode / hooks)
 python "<plugin>/lib/dashboard.py"              # status at a glance (mode / registration / rule count / record count)
 python "<plugin>/lib/uninstall.py"              # dry-run: show what would be removed
-python "<plugin>/lib/uninstall.py --all"        # remove state + memory + config keys + unregister
+python "<plugin>/lib/uninstall.py --all"        # remove the current project's state + memory, config keys + unregister (run it from that project)
 copilot plugin uninstall preference-tracker     # remove the plugin code itself
 ```
 

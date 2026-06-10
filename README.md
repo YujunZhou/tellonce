@@ -20,9 +20,11 @@ blocks you and never sends your conversation anywhere until you opt in.
   pitfall / friction signals and recorded automatically.
 - 🛡️ **Opt-in enforcement.** Turn it on and replies that violate your saved
   rules are blocked, and the agent fixes them in the same turn.
-- 🔒 **Private by default.** `observe` and `enforce` run 100% on your machine.
-  Nothing leaves it unless you enable the optional LLM judge — which only ever
-  sees a redacted snippet and runs through your own subscription.
+- 🔒 **Private by default.** All records stay on your machine, and the optional
+  LLM judge is off by default — when enabled it only ever sees a redacted
+  snippet and runs through your own subscription. (Once you have saved rules,
+  rule *retrieval* also runs through your own subscription's small model; set
+  `PT_RETRIEVE_BACKEND=keyword` to keep even that fully local.)
 - ⚡ **One-command install** for GitHub Copilot CLI. Also runs on Claude Code and
   Codex.
 - 🎛️ **Three modes, one switch:** `observe` → `enforce` → `full`.
@@ -73,7 +75,7 @@ and runs through a wrapper instead. See
 | Mode | Hard block | LLM judge | What it does |
 |---|---|---|---|
 | **observe** (default) | off | off | Records preferences and reminds you. Never interrupts. |
-| **enforce** | on | off | Deterministic hard-block layer. Ships with **no built-in rules** (an opt-in extension point), so on its own it blocks nothing. |
+| **enforce** | on | off | Deterministic hard-block layer **plus the scan-completeness stop gate**. The deterministic layer ships with **no built-in rules** (an opt-in extension point), so it blocks no content on its own; the stop gate self-seeds on first run. |
 | **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against your recorded preferences (costs time / credit). |
 
 Switch at any time (Copilot variant):
@@ -85,9 +87,12 @@ python "<plugin>/lib/pt_mode.py" full      # hard blocking + LLM judge
 python "<plugin>/lib/pt_mode.py" status    # show the current mode
 ```
 
-**Privacy:** `observe` and `enforce` stay entirely local. Only `full` sends the
+**Privacy:** all records stay local in every mode. Only `full` sends the
 last message and reply (redacted) to `copilot -p` for scoring, on your own
-subscription.
+subscription. Rule retrieval (once you have saved rules) also runs through your
+own subscription's small model; `PT_RETRIEVE_BACKEND=keyword` keeps it fully
+local. The `full` judge additionally needs `PT_SHADOW_RULE_IDS` set to the rule
+ids you want checked — `pt_mode.py full` prints a reminder.
 
 ## How it works
 
@@ -95,10 +100,10 @@ subscription.
    injected into the agent's context.
 2. **Each turn ends (`Stop`)** — the turn is scanned for new preference / pitfall
    / friction signals, which are recorded to an observation log.
-3. **In `full`** — a small-model LLM judge checks each reply against your recorded
-   preferences and flags violations for the agent to fix. (The `enforce`
-   deterministic layer ships with **no built-in rules** — it is an opt-in
-   extension point, so by itself it blocks nothing.)
+3. **In `full`** — a small-model LLM judge checks each reply against the rules
+   you list in `PT_SHADOW_RULE_IDS` and flags violations for the agent to fix.
+   (The `enforce` deterministic layer ships with **no built-in rules** — it is
+   an opt-in extension point, so it blocks no content by itself.)
 
 ## Self-check & uninstall (Copilot variant)
 

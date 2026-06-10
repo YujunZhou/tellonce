@@ -2,7 +2,7 @@
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/main/copilot/bootstrap.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.ps1 | iex"
 #
 # It downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state dirs, seed rules, observe mode,
@@ -69,10 +69,28 @@ try {
 }
 if (-not (Test-Path $srcCopilot)) { Fail "Download succeeded but copilot/ folder missing — repo layout changed?" }
 
-# 4. Copy into Copilot's installed-plugins (overwrite code; user memory/state live elsewhere).
+# 4. Stage the new code tree, then swap it in: a failed copy leaves the
+# previous working install untouched; the swap drops files deleted in newer
+# releases. User memory/state live elsewhere, EXCEPT personal rule overlays
+# lib\*.user.yaml — carried over into the staged tree before the swap.
 $dest = Join-Path $copilotHome 'installed-plugins\preference-tracker\preference-tracker'
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-robocopy $srcCopilot $dest /E /XD __pycache__ .pytest_cache PORT_NOTES /XF *.pyc /NFL /NDL /NJH /NJS /NP | Out-Null
+$stage = "$dest.new-$PID"
+if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
+# robocopy exit codes 0-7 mean success/partial-success; >=8 means failure.
+robocopy $srcCopilot $stage /E /XD __pycache__ .pytest_cache PORT_NOTES /XF *.pyc PORT_DESIGN.md /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { Fail "Plugin file copy failed (robocopy exit $LASTEXITCODE) — previous install left untouched. Re-run the installer." }
+$oldLib = Join-Path $dest 'lib'
+if (Test-Path $oldLib) {
+    $kept = Get-ChildItem -Path $oldLib -Filter '*.user.yaml' -ErrorAction SilentlyContinue
+    if ($kept) {
+        $kept | Copy-Item -Destination (Join-Path $stage 'lib') -Force
+        Write-Host "[OK] Preserved your personal rule overlay(s): $($kept.Name -join ', ')" -ForegroundColor Green
+    }
+}
+if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+Move-Item -Path $stage -Destination $dest
 Write-Host "[OK] Plugin files installed to $dest" -ForegroundColor Green
 
 # 5. Optional dependency (best-effort; deterministic blocking works without it,

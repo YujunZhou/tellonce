@@ -3,6 +3,16 @@
 # the next turn naturally fixes them. Mirrors CC's memory-shadow-alert-inject.sh.
 set +e
 
+# Portable timeout: GNU `timeout` is absent on stock macOS. Fall back to
+# gtimeout (brew coreutils) or, failing that, run without a timeout.
+_pt_timeout() {
+    _pt_secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "${_pt_secs}" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "${_pt_secs}" "$@"
+    else "$@"; fi
+}
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHARED_LIB="${SCRIPT_DIR}/../shared_lib"
 
@@ -26,5 +36,5 @@ if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
 fi
 
 printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SHARED_LIB}" \
-    timeout 15 python3 "${SHARED_LIB}/shadow_alert_inject.py" 2>/dev/null
+    _pt_timeout 15 python3 "${SHARED_LIB}/shadow_alert_inject.py" 2>/dev/null
 exit 0

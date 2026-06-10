@@ -145,7 +145,7 @@ state + memory already accumulated in each project.
 ## Post-install check
 
 ```bash
-bash ~/.claude/skills/preference-tracker/doctor.sh        # 12 test groups + a real-violation block smoke test
+bash ~/.claude/skills/preference-tracker/doctor.sh        # 13 tests in 4 groups, incl. a real-violation block smoke test
 bash ~/.claude/skills/preference-tracker/dashboard.sh     # 7-day compliance summary + threshold advice
 ```
 
@@ -230,38 +230,47 @@ export PT_RETRIEVE_TIMEOUT=12       # seconds, default 12
 
 ## Privacy / data flow (read before installing)
 
-**On every Stop / UserPromptSubmit, preference-tracker triggers the following
-data flows:**
+**Default posture: everything that can send data anywhere is OFF or local.**
+The default `observe` mode records to local files and reminds you — the shadow
+LLM judge is **OFF by default** (`path_config` public default `shadow=false`;
+it only runs in `full` mode / `PT_SHADOW=1`).
 
-1. **Anthropic CLI / API** (ON by default):
+1. **Memory retrieve** (the one default flow that spawns a CLI): on each
+   UserPromptSubmit, *if and only if you have saved rules*, the retrieve hook
+   sends your prompt (first 2000 chars) + your rule descriptions to a small
+   model via your own `claude -p` subscription to pick relevant rules. A fresh
+   install has no rules, so nothing runs. To keep retrieval 100% local:
+   `export PT_RETRIEVE_BACKEND=keyword`.
+
+2. **Shadow LLM judge** (OFF by default; only in `full` mode):
    - `lib/verify_retry_shadow.py` calls a `claude -p` subprocess as a compliance
-     judge on each Stop, sending `last_user[:400] + response[:4000]` to
-     Anthropic's servers.
-   - Defaults to the CLI subscription (free), but the prompt content still passes
-     through Anthropic.
-   - Disable: `export PT_SHADOW_DISABLED=1`.
+     judge on Stop, sending a **redacted** `last_user[:400] + response[:4000]`
+     (see `lib/redaction.py` — API keys / tokens / password patterns are masked
+     before anything leaves the machine).
+   - Uses the CLI subscription (no API key billed), but the redacted prompt
+     content still passes through Anthropic.
+   - Keep it off: don't enable `full` mode; or `export PT_SHADOW_DISABLED=1`
+     as a hard kill-switch.
 
-2. **Local on-disk** (default `chmod 600` — readable only by you):
+3. **Local on-disk** (default `chmod 600` — readable only by you):
    - `<state>/runtime/b5_shadow_alerts/b5_shadow_log.jsonl` — evidence + feedback excerpts
    - `<state>/obs_log/compliance_log.jsonl` — `response_excerpt[:400]`
    - `<state>/runtime/b5_shadow_alerts/B5_SHADOW_ALERT.md` — full text of the latest 3 violations
    - `~/.claude/projects/<cwd_escaped>/memory/*.md` — preferences you added yourself
+   - All persisted excerpts pass through `redaction.sanitize()` first.
 
-3. **No uploads** of any data to third parties (other than the Anthropic CLI/API
-   channel above); no email / Slack / GitHub.
+4. **No uploads** of any data to third parties (other than the Anthropic CLI
+   channels above, both on your own subscription); no email / Slack / GitHub.
 
-4. **API-key billing:**
+5. **API-key billing:**
    - `lib/detect_user_prefer.py` is OFF by default (`PT_PREFER_BACKEND=off`).
      It calls no LLM and always returns 'urgent'. To enable adaptive
      classification: `export PT_PREFER_BACKEND=cli` (subscription) or `=sdk`
      (charges `ANTHROPIC_API_KEY`).
 
-5. **Redacting sensitive data** (advised, not automatic):
-   - This version does not auto-scan prompts for secrets. You are responsible for
-     not sharing secrets with Claude (a general requirement of Anthropic's terms).
-   - A future version may add `PT_REDACT_BEFORE_JUDGE=1` to auto-mask patterns
-     like `sk-ant-` / `password=`; it is off by default because a regex can
-     wrongly strip legitimate content.
+6. **Redaction is automatic but not perfect**: the masking patterns cover
+   common token shapes (`sk-`, `ghp_`, `password=`, DB URIs, …) — don't rely
+   on it as your only line of defense; avoid pasting secrets into prompts.
 
 ---
 
@@ -269,5 +278,5 @@ data flows:**
 
 GitHub Issues: https://github.com/YujunZhou/preference-tracker/issues
 
-See [`FAQ.md`](FAQ.md) (15 entries) for common questions, and
+See [`FAQ.md`](FAQ.md) for common questions, and
 [`docs/claude-code.md`](docs/claude-code.md) for design and implementation.
