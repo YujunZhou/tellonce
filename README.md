@@ -33,19 +33,19 @@ blocks you and never sends your conversation anywhere until you opt in.
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.** The command is pinned to the
-> immutable release tag `v1.1.0`, so a later change to `main` can't alter what
+> immutable release tag `v1.1.1`, so a later change to `main` can't alter what
 > you run.
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.sh | bash
 ```
 
 This downloads the plugin, copies it into Copilot's plugin directory, installs

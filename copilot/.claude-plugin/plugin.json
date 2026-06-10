@@ -1,7 +1,7 @@
 {
   "name": "preference-tracker",
   "description": "Automatic preference/pitfall/friction detection and memory enforcement for Copilot CLI",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": { "name": "Yujun Zhou", "email": "yzhou25@nd.edu" },
   "homepage": "https://github.com/YujunZhou/preference-tracker",
   "repository": "https://github.com/YujunZhou/preference-tracker",

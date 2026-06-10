@@ -26,18 +26,18 @@
 ## 🚀 快速开始（GitHub Copilot CLI）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。**装完重启 Copilot。**
-> 命令钉在不可变的 release tag `v1.1.0`，不会因 `main` 变动而改，更安全。
+> 命令钉在不可变的 release tag `v1.1.1`，不会因 `main` 变动而改，更安全。
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot

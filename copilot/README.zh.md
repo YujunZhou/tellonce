@@ -13,18 +13,18 @@
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。装完**重启 Copilot**。
-> 命令钉在不可变的 release tag `v1.1.0`（不会因 `main` 变动而改），更安全。
+> 命令钉在不可变的 release tag `v1.1.1`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -34,18 +34,18 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0
 
 ### 核对脚本完整性
 
-如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.1.0`
+如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.1.1`
 公布的值）：
 
 ```bash
-# Windows: irm ".../v1.1.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.1.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.1.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.1.1/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| 文件 | SHA256 (v1.1.0) |
+| 文件 | SHA256 (v1.1.1) |
 |------|------------------|
-| `bootstrap.ps1` | `dbca25a9d7ab67cc8f85f8506d0e408104eadda71cc225e10e05507c6a12c9bb` |
-| `bootstrap.sh`  | `0d9e6c4cbcf9eccc21ba09be6631666b6b3e943b480ebb153ad1fb5d7075e83d` |
+| `bootstrap.ps1` | `ebf980b155ae514c6785dbff09eed7d7ec3b2b580643f263dfad2333de927bb2` |
+| `bootstrap.sh`  | `df637777525fe3fa92414944d956bfb455630f4a2c3f7629f03420f381ad94df` |
 
 ---
 
@@ -81,11 +81,11 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.0/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/uninstall.sh | bash
 ```
 **卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
 `-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是
