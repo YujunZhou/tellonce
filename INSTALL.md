@@ -1,4 +1,4 @@
-# Installing the `preference-tracker` skill (Claude Code)
+# Installing the `tellonce` skill (Claude Code)
 
 Tracks and blocks, in real time, preferences your Claude Code agent keeps
 violating (for example a Chinese reply mixing in plain English loanwords, or
@@ -17,13 +17,13 @@ Environment: Linux / macOS (POSIX), Python 3.7+, Claude Code CLI.
 **SSH (recommended, if your GitHub key is set up):**
 
 ```bash
-git clone git@github.com:YujunZhou/preference-tracker.git ~/.claude/skills/preference-tracker
+git clone git@github.com:YujunZhou/tellonce.git ~/.claude/skills/tellonce
 ```
 
 **HTTPS (no SSH):**
 
 ```bash
-git clone https://github.com/YujunZhou/preference-tracker.git ~/.claude/skills/preference-tracker
+git clone https://github.com/YujunZhou/tellonce.git ~/.claude/skills/tellonce
 ```
 
 ---
@@ -33,7 +33,7 @@ git clone https://github.com/YujunZhou/preference-tracker.git ~/.claude/skills/p
 ### Option A: user-global (recommended — install once, applies to every project)
 
 ```bash
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --add
+python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/tellonce/hooks --add
 ```
 
 Writes to `~/.claude/settings.json` (Claude Code user-global), so every directory
@@ -41,7 +41,7 @@ you later `cd` into and run Claude Code from is covered automatically. state /
 memory / obs_log are still partitioned per project by the current cwd, so data
 never crosses between projects.
 
-**Good for:** people who want PT on for several projects at once (e.g. editing a
+**Good for:** people who want Tellonce on for several projects at once (e.g. editing a
 few papers / repos in parallel) without installing per project.
 
 **Temporarily disable for one project** (the shell where you don't want PT):
@@ -56,14 +56,14 @@ export PT_DETERMINISTIC_DISABLED=1 PT_SHADOW_DISABLED=1 PT_INJECT_DISABLED=1
 
 ```bash
 cd /path/to/your/working/project    # the project root you normally run Claude Code in
-bash ~/.claude/skills/preference-tracker/install.sh
+bash ~/.claude/skills/tellonce/install.sh
 ```
 
 Writes to `<project>/.claude/settings.local.json` (project-local, gitignored);
 applies only to that project. It also initializes the state directory and writes
-`~/.preference-tracker.config.json` anchoring PROJECT_ROOT.
+`~/.tellonce.config.json` anchoring PROJECT_ROOT.
 
-**Good for:** people who only want PT on 1-2 projects and the rest kept clean.
+**Good for:** people who only want Tellonce on 1-2 projects and the rest kept clean.
 
 **For more projects, repeat:** run `bash install.sh` once in each project
 directory. They don't interfere with each other.
@@ -73,80 +73,76 @@ directory. They don't interfere with each other.
 ## Codex install (parallel to Claude Code; install the runtime once)
 
 ```bash
-# Shares the same code as Claude Code: ~/.claude/skills/preference-tracker/codex/install.sh
+# Shares the same code as Claude Code: ~/.claude/skills/tellonce/codex/install.sh
 # Or run it straight from the repo
 cd /path/to/your/codex/project
-bash ~/.claude/skills/preference-tracker/codex/install.sh
+bash ~/.claude/skills/tellonce/codex/install.sh
 ```
 
 `codex/install.sh` has three parts:
 
-1. **Global runtime** → installs into `~/.codex/skills/preference-tracker/`:
-   `codex_preftrack/` (wrapper-driven enforcement) + `shared_lib/` (mirror of the
+1. **Global runtime** → installs into `~/.codex/skills/tellonce/`:
+   `tellonce_codex/` (wrapper-driven enforcement) + `shared_lib/` (mirror of the
    Claude Code lib) + `hooks/` (5 hook scripts) + `seed_memory/` + `SKILL.md`.
    Idempotent, safe to re-run.
 2. **Hook registration** → adds `UserPromptSubmit` (3 hooks) + `PostToolUse`
    (deterministic_block) + `SessionStart` (lazy init) to `~/.codex/hooks.json`,
    leaving the user's existing hooks untouched.
-3. **Per-project state** → initializes `<project>/.codex/preference-tracker/`
+3. **Per-project state** → initializes `<project>/.codex/tellonce/`
    (registration.json + mode.json + install_record.json), default `audit_only`.
 
 To move to blocking mode: set the `mode` field in
-`<project>/.codex/preference-tracker/mode.json` to `"blocking"`. It is monotone —
+`<project>/.codex/tellonce/mode.json` to `"blocking"`. It is monotone —
 later install / wrapper commands won't silently downgrade it.
 
 Codex doctor:
 
 ```bash
-PYTHONPATH=~/.codex/skills/preference-tracker python3 -m codex_preftrack doctor
+PYTHONPATH=~/.codex/skills/tellonce python3 -m tellonce_codex doctor
 ```
 
 Expected: `state=PASS, private_paths=PASS, wrapper=NOT_USED, hooks=PASS,
 install=OBSERVE_ONLY`. `wrapper=NOT_USED` is the default (it stays that way until
-you run `codex_preftrack exec --`; not an error).
+you run `tellonce_codex exec --`; not an error).
 
 Codex uninstall:
 
 ```bash
-bash ~/.claude/skills/preference-tracker/codex/uninstall.sh                 # keep state + hooks + skill dir
-bash ~/.claude/skills/preference-tracker/codex/uninstall.sh --purge-hooks   # remove the ~/.codex/hooks.json registration
-bash ~/.claude/skills/preference-tracker/codex/uninstall.sh --purge-skill   # delete ~/.codex/skills/preference-tracker
-bash ~/.claude/skills/preference-tracker/codex/uninstall.sh --purge-state   # delete this project's state
+bash ~/.claude/skills/tellonce/codex/uninstall.sh                 # keep state + hooks + skill dir
+bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-hooks   # remove the ~/.codex/hooks.json registration
+bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-skill   # delete ~/.codex/skills/tellonce
+bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-state   # delete this project's state
 ```
 
 ---
 
 ## Upgrading (from an older version / older install method)
 
-If you installed an older version (which registered project-local paths like
-`<project>/.claude/hooks/...`), upgrading is strongly recommended — the old paths
-carry a hostile-repo RCE risk; the new version only registers
-`~/.claude/skills/preference-tracker/hooks/...`, which a project can't override.
+v1.2.0 renamed the project (preference-tracker → Tellonce), including the
+install directories, state directories, and the global config filename. There
+is no in-place migration: if you installed a pre-rename version, remove it
+with ITS OWN uninstaller first, then install Tellonce fresh:
 
 ```bash
-# 1. Pull the latest code
-cd ~/.claude/skills/preference-tracker && git pull
+# 1. Remove the old install (note the OLD directory name)
+cd /path/to/your/project
+bash ~/.claude/skills/preference-tracker/uninstall.sh
+rm -rf ~/.claude/skills/preference-tracker ~/.preference-tracker.config.json
 
-# 2a. Old per-project install → re-run install.sh; it removes the old registration and writes the new one
-cd /path/to/old-pt-project && bash ~/.claude/skills/preference-tracker/install.sh
-
-# 2b. Switch to user-global at the same time → remove the old per-project registration, then install global:
-cd /path/to/old-pt-project
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings .claude/settings.local.json --hooks-dir .claude/hooks --remove
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings .claude/settings.local.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --remove
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --add
+# 2. Install Tellonce (Step 1/2 above)
 ```
 
-Upgrading preserves: registered hooks, written preference thresholds, and the
-state + memory already accumulated in each project.
-
+Your memory files under `~/.claude/projects/<cwd_escaped>/memory/` are not
+touched by either step and keep working — the memory location did not change.
+Project state under `.claude/preference-tracker-state/` is left behind by the
+default uninstall; new state accumulates under `.claude/tellonce-state/`.
 ---
 
 ## Post-install check
 
 ```bash
-bash ~/.claude/skills/preference-tracker/doctor.sh        # 13 tests in 4 groups, incl. a real-violation block smoke test
-bash ~/.claude/skills/preference-tracker/dashboard.sh     # 7-day compliance summary + threshold advice
+bash ~/.claude/skills/tellonce/doctor.sh        # 13 tests in 4 groups, incl. a real-violation block smoke test
+bash ~/.claude/skills/tellonce/dashboard.sh     # 7-day compliance summary + threshold advice
 ```
 
 Expected: doctor all-pass; dashboard shows no data yet (fresh install) or recent
@@ -159,14 +155,14 @@ trigger records.
 **Installed user-global, want to remove it:**
 
 ```bash
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/preference-tracker/hooks --remove
+python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/tellonce/hooks --remove
 ```
 
 **Installed per-project, want to remove it:**
 
 ```bash
 cd /path/to/your/project
-bash ~/.claude/skills/preference-tracker/uninstall.sh
+bash ~/.claude/skills/tellonce/uninstall.sh
 ```
 
 By default this keeps your accumulated compliance log / state directory /
@@ -276,7 +272,7 @@ it only runs in `full` mode / `PT_SHADOW=1`).
 
 ## Reporting issues / feedback
 
-GitHub Issues: https://github.com/YujunZhou/preference-tracker/issues
+GitHub Issues: https://github.com/YujunZhou/tellonce/issues
 
 See [`FAQ.md`](FAQ.md) for common questions, and
 [`docs/claude-code.md`](docs/claude-code.md) for design and implementation.

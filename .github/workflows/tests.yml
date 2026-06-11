@@ -38,7 +38,7 @@ jobs:
         run: python -m pip install --upgrade pip pyyaml pytest
 
       - name: Compile all core modules
-        run: python -m compileall -q lib copilot/lib codex/codex_preftrack
+        run: python -m compileall -q lib copilot/lib codex/tellonce_codex
 
       # Import-smoke: compileall only parses; version-dependent constructs like
       # un-futured `str | None` annotations explode at IMPORT time on the
@@ -58,11 +58,11 @@ jobs:
               fi
             done
           done
-          # codex_preftrack uses package-relative imports — import via package.
-          for f in codex/codex_preftrack/*.py; do
+          # tellonce_codex uses package-relative imports — import via package.
+          for f in codex/tellonce_codex/*.py; do
             base="$(basename "$f" .py)"
             case "$base" in conftest|test_*|__init__|__main__) continue;; esac
-            if ! (cd codex && python -c "import codex_preftrack.${base}") 2>err.txt; then
+            if ! (cd codex && python -c "import tellonce_codex.${base}") 2>err.txt; then
               echo "::error::import failed: $f"; cat err.txt; fail=1
             fi
           done

@@ -221,7 +221,7 @@ def run_doctor(project_root: Path) -> DoctorReport:
     # HX-10 UX fix: stop emitting "DEGRADED" / "NOT_USED" by default — they
     # made every fresh install look broken. Use neutral words.
     status_line = (
-        "Preference Tracker status: "
+        "Tellonce status: "
         f"state={sections['state']}, "
         f"private_paths={sections['private_paths']}, "
         f"wrapper={sections['wrapper']}, "

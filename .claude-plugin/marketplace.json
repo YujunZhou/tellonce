@@ -1,25 +1,25 @@
 {
-  "name": "preference-tracker",
-  "description": "Self-hosted marketplace for preference-tracker — automatic preference/pitfall/friction memory and enforcement for AI coding agents.",
+  "name": "tellonce",
+  "description": "Self-hosted marketplace for tellonce — automatic preference/pitfall/friction memory and enforcement for AI coding agents.",
   "owner": {
     "name": "Yujun Zhou",
     "email": "yzhou25@nd.edu"
   },
   "metadata": {
-    "description": "preference-tracker: records the corrections you make to your coding agent and (opt-in) enforces them. Safe-by-default observe mode.",
-    "version": "1.1.1"
+    "description": "tellonce: records the corrections you make to your coding agent and (opt-in) enforces them. Safe-by-default observe mode.",
+    "version": "1.2.0"
   },
   "plugins": [
     {
-      "name": "preference-tracker",
+      "name": "tellonce",
       "description": "Automatic preference/pitfall/friction detection + memory enforcement (observe / enforce / full modes). Native on GitHub Copilot CLI.",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "source": "./copilot",
       "author": {
         "name": "Yujun Zhou",
         "email": "yzhou25@nd.edu"
       },
-      "homepage": "https://github.com/YujunZhou/preference-tracker",
+      "homepage": "https://github.com/YujunZhou/tellonce",
       "license": "MIT",
       "keywords": ["memory", "preferences", "pitfalls", "hooks", "enforcement", "personalization"]
     }

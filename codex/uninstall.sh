@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Codex preference-tracker uninstall.
+# Codex tellonce uninstall.
 #   - Removes per-project state marker (managed_runtime.txt) — keeps logs/state
-#     by default; `--purge-state` wipes the project's preference-tracker state.
+#     by default; `--purge-state` wipes the project's tellonce state.
 #   - Optionally removes hook registrations from ~/.codex/hooks.json
 #     (--purge-hooks). Default: keep registered, just disable per project.
-#   - Optionally removes global skill dir from ~/.codex/skills/preference-tracker/
+#   - Optionally removes global skill dir from ~/.codex/skills/tellonce/
 #     (--purge-skill). Default: leave global runtime so other projects can use it.
 
 set -euo pipefail
@@ -13,7 +13,7 @@ SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SKILL_DIR}/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
 
-GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker"
+GLOBAL_DIR="${HOME}/.codex/skills/tellonce"
 HOOKS_JSON="${HOME}/.codex/hooks.json"
 
 # Match install.sh's clone detection (both conditions): when the user's
@@ -24,15 +24,15 @@ if [[ -d "${GLOBAL_DIR}" ]]; then
     GLOBAL_DIR_REAL_PRE="$(cd "${GLOBAL_DIR}" && pwd -P)"
     REPO_ROOT_REAL="$(cd "${REPO_ROOT}" && pwd -P)"
     if [[ "${GLOBAL_DIR_REAL_PRE}" == "${REPO_ROOT_REAL}" || -e "${GLOBAL_DIR}/.git" ]]; then
-        GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker-runtime"
+        GLOBAL_DIR="${HOME}/.codex/skills/tellonce-runtime"
     fi
 fi
 
-# Resolve where codex_preftrack module lives — prefer global install (most
+# Resolve where tellonce_codex module lives — prefer global install (most
 # common), fall back to repo-local source layout (development).
-if [[ -d "${GLOBAL_DIR}/codex_preftrack" ]]; then
+if [[ -d "${GLOBAL_DIR}/tellonce_codex" ]]; then
     PYTHON_PATH_ROOT="${GLOBAL_DIR}"
-elif [[ -d "${SKILL_DIR}/codex_preftrack" ]]; then
+elif [[ -d "${SKILL_DIR}/tellonce_codex" ]]; then
     PYTHON_PATH_ROOT="${SKILL_DIR}"
 else
     PYTHON_PATH_ROOT="${REPO_ROOT}/codex"
@@ -59,15 +59,15 @@ if [[ "${PURGE_SKILL}" == true && "${PURGE_HOOKS}" != true ]]; then
     PURGE_HOOKS=true
 fi
 
-# 1. Project-level uninstall via codex_preftrack
-PYTHONPATH="${PYTHON_PATH_ROOT}" "${PYTHON}" -m codex_preftrack uninstall \
+# 1. Project-level uninstall via tellonce_codex
+PYTHONPATH="${PYTHON_PATH_ROOT}" "${PYTHON}" -m tellonce_codex uninstall \
     ${PASSTHRU[@]+"${PASSTHRU[@]}"} || true
 
 # 2. Optionally drop hook registrations from ~/.codex/hooks.json
 if [[ "${PURGE_HOOKS}" == true ]]; then
     if [[ -f "${HOOKS_JSON}" ]]; then
-        echo "Removing PT hook registrations from ${HOOKS_JSON}"
-        PYTHONPATH="${PYTHON_PATH_ROOT}" "${PYTHON}" -m codex_preftrack.install_codex_hooks \
+        echo "Removing Tellonce hook registrations from ${HOOKS_JSON}"
+        PYTHONPATH="${PYTHON_PATH_ROOT}" "${PYTHON}" -m tellonce_codex.install_codex_hooks \
             --hooks-json "${HOOKS_JSON}" \
             --remove || true
     fi
@@ -86,11 +86,11 @@ if [[ "${PURGE_SKILL}" == true ]]; then
         echo "Removing global skill dir ${GLOBAL_DIR}"
         rm -rf "${GLOBAL_DIR}"
     fi
-    # Also remove the shell wrapper installed at ~/.local/bin/codex_preftrack
-    WRAPPER="${HOME}/.local/bin/codex_preftrack"
+    # Also remove the shell wrapper installed at ~/.local/bin/tellonce_codex
+    WRAPPER="${HOME}/.local/bin/tellonce_codex"
     if [[ -f "${WRAPPER}" ]]; then
         # Defensive: only delete if the file looks like ours
-        if grep -q "codex_preftrack — shell wrapper installed by codex/install.sh" "${WRAPPER}" 2>/dev/null; then
+        if grep -q "tellonce_codex — shell wrapper installed by codex/install.sh" "${WRAPPER}" 2>/dev/null; then
             rm -f "${WRAPPER}"
             echo "Removing shell wrapper ${WRAPPER}"
         fi
@@ -98,4 +98,4 @@ if [[ "${PURGE_SKILL}" == true ]]; then
 fi
 
 echo ""
-echo "✓ codex preference-tracker uninstall complete"
+echo "✓ codex tellonce uninstall complete"

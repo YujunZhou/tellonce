@@ -1,4 +1,4 @@
-# Preference-Tracker hook filename source-of-truth.
+# Tellonce hook filename source-of-truth.
 # install.sh / doctor.sh / uninstall.sh / _install_merge_settings.py all source this list.
 # When changing the hook set, add/remove one filename here and all three stay in sync.
 memory-deterministic-block.sh

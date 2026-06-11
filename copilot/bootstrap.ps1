@@ -1,8 +1,8 @@
-# bootstrap.ps1 — ONE-COMMAND installer for preference-tracker (GitHub Copilot CLI, Windows).
+# bootstrap.ps1 — ONE-COMMAND installer for tellonce (GitHub Copilot CLI, Windows).
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
 #
 # It downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state dirs, seed rules, observe mode,
@@ -10,16 +10,16 @@
 # Safe to re-run. Default mode = observe (records + reminds, never blocks).
 
 $ErrorActionPreference = 'Stop'
-$REPO   = 'https://github.com/YujunZhou/preference-tracker'
+$REPO   = 'https://github.com/YujunZhou/tellonce'
 # Pinned to a release tag (immutable) for integrity. git clone --branch accepts
 # a tag; archive uses refs/tags for a tag (refs/heads for a branch).
-$REF    = 'v1.1.1'
+$REF    = 'v1.2.0'
 $REFKIND = 'tags'
 
 function Fail($msg) { Write-Host "[X] $msg" -ForegroundColor Red; exit 1 }
 
 Write-Host "================================================================"
-Write-Host "  preference-tracker — one-command installer (Copilot CLI)"
+Write-Host "  tellonce — one-command installer (Copilot CLI)"
 Write-Host "================================================================"
 
 # 1. Copilot home must exist.
@@ -73,7 +73,7 @@ if (-not (Test-Path $srcCopilot)) { Fail "Download succeeded but copilot/ folder
 # previous working install untouched; the swap drops files deleted in newer
 # releases. User memory/state live elsewhere, EXCEPT personal rule overlays
 # lib\*.user.yaml — carried over into the staged tree before the swap.
-$dest = Join-Path $copilotHome 'installed-plugins\preference-tracker\preference-tracker'
+$dest = Join-Path $copilotHome 'installed-plugins\tellonce\tellonce'
 $stage = "$dest.new-$PID"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
@@ -113,7 +113,7 @@ Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "================================================================"
-Write-Host "[OK] preference-tracker installed." -ForegroundColor Green
+Write-Host "[OK] tellonce installed." -ForegroundColor Green
 Write-Host "  >> RESTART Copilot for the hooks to load. <<"
 Write-Host ""
 Write-Host "  Default mode = observe (records your preferences, never blocks)."

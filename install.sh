@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Preference-Tracker one-shot installer — standard install/doctor/uninstall interface.
+# Tellonce one-shot installer — standard install/doctor/uninstall interface.
 #
 # Usage:
 #   bash <skill_dir>/install.sh [--state-dir <path>] [--quiet] [--dry-run]
@@ -14,7 +14,7 @@
 #   4. Execute (doctor self-check: unit + smoke)
 #   5. Uninstall mechanism ready (uninstall.sh)
 #
-# Versioned backups; state lives under .claude/preference-tracker-state/.
+# Versioned backups; state lives under .claude/tellonce-state/.
 # Settings merge is done in Python (not jq).
 
 set -euo pipefail
@@ -123,7 +123,7 @@ mkdir -p "${SKILL_DIR}" 2>/dev/null || true
 # log() stdout from the log, breaking `cat install.log` troubleshooting.
 exec > >(tee "${LOG_FILE}") 2>&1
 
-log "Preference-Tracker install — version 1.0"
+log "Tellonce install — version 1.0"
 log "  HOME: ${HOME}"
 log "  PROJECT: ${PROJECT_ROOT}"
 log "  SKILL_DIR: ${SKILL_DIR}"
@@ -208,8 +208,8 @@ log "[2/5] Install: update settings + copy hooks + create state"
 CWD_ESCAPED="$(PYTHONIOENCODING=utf-8 python3 -c "import sys; print(sys.argv[1].replace('/', '-'))" "${PROJECT_ROOT}")"
 MEMORY_DIR="${HOME}/.claude/projects/${CWD_ESCAPED}/memory"
 # PT_* are the documented names; B5_* kept as legacy aliases (Python layer accepts both).
-STATE_DIR="${STATE_DIR_OVERRIDE:-${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}}}"
-OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/obs_log}}"
+STATE_DIR="${STATE_DIR_OVERRIDE:-${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/runtime}}}"
+OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/obs_log}}"
 
 log "  PROJECT_ROOT: ${PROJECT_ROOT}"
 log "  STATE_DIR: ${STATE_DIR}"
@@ -288,7 +288,7 @@ path_config.ensure_dirs()
 print("  ✓ state subdirs created")
 '
 
-# 2.7 Write ~/.preference-tracker.config.json to anchor PROJECT_ROOT.
+# 2.7 Write ~/.tellonce.config.json to anchor PROJECT_ROOT.
 # A hook's cwd at runtime may differ from install.sh's; the config anchor lets
 # path_config not depend on the cwd each time.
 #
@@ -299,13 +299,13 @@ print("  ✓ state subdirs created")
 # (memory_dir, etc.) are preserved.
 log ""
 # Issue #1 fix (#2): do NOT pin project_root/state_dir/obs_log_dir in the GLOBAL
-# ~/.preference-tracker.config.json by default. That single-file anchor is
+# ~/.tellonce.config.json by default. That single-file anchor is
 # "last writer wins" — installing project B clobbers project A, and on a shared
 # HOME multiple users collide. path_config resolves these per-project from the
 # hook's cwd at runtime, so no global anchor is needed. Only pin when the user
 # explicitly passed --state-dir; either way, clear any stale anchor left behind.
 if [[ -n "${STATE_DIR_OVERRIDE}" ]]; then
-    log "  anchoring to ~/.preference-tracker.config.json (explicit --state-dir):"
+    log "  anchoring to ~/.tellonce.config.json (explicit --state-dir):"
     _PT_CFG_ACTION=pin
 else
     log "  per-project mode: not writing a global anchor (hooks resolve by project cwd); clearing any stale anchor:"
@@ -319,7 +319,7 @@ run env \
     PYTHONIOENCODING=utf-8 \
     python3 -c '
 import json, os
-config_path = os.path.expanduser("~/.preference-tracker.config.json")
+config_path = os.path.expanduser("~/.tellonce.config.json")
 config = {}
 if os.path.exists(config_path):
     try:
@@ -376,7 +376,7 @@ with open(src, encoding='utf-8') as f:
     content = f.read()
 content = re.sub(
     r'^originSessionId:\s*.*$',
-    'originSessionId: seed-from-preference-tracker-skill-v1.0',
+    'originSessionId: seed-from-tellonce-skill-v1.0',
     content, flags=re.MULTILINE,
 )
 with open(dst, 'w', encoding='utf-8') as f:
@@ -449,7 +449,7 @@ fi
 trap - ERR
 
 log ""
-log "✅ Preference-Tracker installed"
+log "✅ Tellonce installed"
 log ""
 log "Key paths:"
 log "  - skill: ${SKILL_DIR}"

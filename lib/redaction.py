@@ -1,6 +1,6 @@
 """Secret redaction for CC-side persisted logs.
 
-Mirrors codex/codex_preftrack/ledger.py SECRET_PATTERNS so compliance log /
+Mirrors codex/tellonce_codex/ledger.py SECRET_PATTERNS so compliance log /
 shadow log / shadow alert markdown don't persist user-pasted API keys, SSH
 keys, DB URIs etc. in plaintext.
 

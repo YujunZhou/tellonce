@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # memory-retrieve-inject.sh — UserPromptSubmit hook (CC)
-# Part of the preference-tracker memory retrieve + inject flow.
+# Part of the tellonce memory retrieve + inject flow.
 # Reads stdin JSON, dispatches to keyword or cli-backed retrieve_inject.
 # Default backend: cli + claude haiku.
 # Non-destructive: any failure → exit 0 silently.

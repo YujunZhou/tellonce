@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Preference-Tracker doctor — runs unit + smoke + path/permission/CLI checks.
+# Tellonce doctor — runs unit + smoke + path/permission/CLI checks.
 #
 # Usage:
-#   bash ~/.claude/skills/preference-tracker/doctor.sh [--quick] [--rollback]
+#   bash ~/.claude/skills/tellonce/doctor.sh [--quick] [--rollback]
 #
 # Exit:
 #   0 all PASS
@@ -77,7 +77,7 @@ run_test() {
     rm -f /tmp/doctor_test_$$
 }
 
-echo "Preference-Tracker doctor — pre-flight"
+echo "Tellonce doctor — pre-flight"
 echo "  HOME: ${HOME}"
 echo "  PROJECT: ${PROJECT_ROOT}"
 echo ""

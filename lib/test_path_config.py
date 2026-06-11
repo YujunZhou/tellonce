@@ -6,7 +6,7 @@ Expects: 12/12 PASS.
 
 Tests cover the three-layer detection:
   1. Env var (B5_*) highest priority
-  2. ~/.preference-tracker.config.json second priority
+  2. ~/.tellonce.config.json second priority
   3. Auto-detect fallback
 + escape rules, ensure_dirs idempotency, corrupt config does not crash, etc.
 """
@@ -31,8 +31,8 @@ def _reset_env_and_cache(env_vars: dict = None):
 
 
 def _write_config(d: dict):
-    """test only: write ~/.preference-tracker.config.json. caller must restore via _reset_config()."""
-    pc.CONFIG_PATH = os.path.join(tempfile.gettempdir(), 'test_preference-tracker.config.json')
+    """test only: write ~/.tellonce.config.json. caller must restore via _reset_config()."""
+    pc.CONFIG_PATH = os.path.join(tempfile.gettempdir(), 'test_tellonce.config.json')
     with open(pc.CONFIG_PATH, 'w') as f:
         json.dump(d, f)
     pc._read_config_file.cache_clear()
@@ -40,12 +40,12 @@ def _write_config(d: dict):
 
 def _reset_config():
     """restore CONFIG_PATH to default."""
-    if pc.CONFIG_PATH != os.path.expanduser('~/.preference-tracker.config.json'):
+    if pc.CONFIG_PATH != os.path.expanduser('~/.tellonce.config.json'):
         try:
             os.remove(pc.CONFIG_PATH)
         except FileNotFoundError:
             pass
-    pc.CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
+    pc.CONFIG_PATH = os.path.expanduser('~/.tellonce.config.json')
     pc._read_config_file.cache_clear()
 
 
@@ -84,7 +84,7 @@ def test_auto_detect_default_when_no_env_no_config():
     pc._read_config_file.cache_clear()
     try:
         sd = pc.get_state_dir()
-        expected = '/test/proj/.claude/preference-tracker-state/runtime'
+        expected = '/test/proj/.claude/tellonce-state/runtime'
         assert sd == expected, f'expected {expected}, got {sd}'
     finally:
         _reset_env_and_cache()
@@ -196,11 +196,11 @@ def test_ensure_dirs_idempotent():
 
 
 def test_real_user_config_honored():
-    """If ~/.preference-tracker.config.json exists with state_dir set, get_state_dir
+    """If ~/.tellonce.config.json exists with state_dir set, get_state_dir
     must reflect that value (env > config > default precedence)."""
     _reset_env_and_cache()
     pc._read_config_file.cache_clear()
-    real_config = os.path.expanduser('~/.preference-tracker.config.json')
+    real_config = os.path.expanduser('~/.tellonce.config.json')
     if not os.path.exists(real_config):
         # No user config installed → test is a no-op on fresh installs.
         return True

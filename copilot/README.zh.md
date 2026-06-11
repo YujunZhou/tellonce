@@ -1,4 +1,4 @@
-# Preference-Tracker（GitHub Copilot CLI）
+# Tellonce（GitHub Copilot CLI）
 
 [English](README.md) · **中文**
 
@@ -13,18 +13,18 @@
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。装完**重启 Copilot**。
-> 命令钉在不可变的 release tag `v1.1.1`（不会因 `main` 变动而改），更安全。
+> 命令钉在不可变的 release tag `v1.2.0`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -34,18 +34,18 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1
 
 ### 核对脚本完整性
 
-如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.1.1`
+如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.2.0`
 公布的值）：
 
 ```bash
-# Windows: irm ".../v1.1.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.1.1/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.2.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.2.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| 文件 | SHA256 (v1.1.1) |
+| 文件 | SHA256 (v1.2.0) |
 |------|------------------|
-| `bootstrap.ps1` | `ebf980b155ae514c6785dbff09eed7d7ec3b2b580643f263dfad2333de927bb2` |
-| `bootstrap.sh`  | `df637777525fe3fa92414944d956bfb455630f4a2c3f7629f03420f381ad94df` |
+| `bootstrap.ps1` | `7f3e5fc50fd63c9e395950f4a080b8d627eada8873047b4390d5ca2822b88e5d` |
+| `bootstrap.sh`  | `d2ac14a22658d50bb75d60ea2f90700c9cfd53d47c0bc661a7ed544387a23251` |
 
 ---
 
@@ -58,7 +58,7 @@ python "<plugin>/lib/pt_mode.py" observe     # 回到安全默认
 python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 ```
 
-`<plugin>` = `~/.copilot/installed-plugins/preference-tracker/preference-tracker`；
+`<plugin>` = `~/.copilot/installed-plugins/tellonce/tellonce`；
 完整路径在安装结束时会打印。
 
 | 模式 | 硬拦截 | LLM 判官 | 说明 |
@@ -81,11 +81,11 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/uninstall.sh | bash
 ```
 **卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
 `-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是
@@ -101,7 +101,7 @@ python "<plugin>/lib/doctor.py"                 # 自检（python / 注册 / 模
 python "<plugin>/lib/dashboard.py"              # 一眼看状态（模式 / 注册 / 规则数 / 记录数）
 python "<plugin>/lib/uninstall.py"              # dry-run：看会删什么
 python "<plugin>/lib/uninstall.py --all"        # 删当前项目的 state + memory、config 键 + 反注册（在该项目目录下运行）
-copilot plugin uninstall preference-tracker     # 删插件代码本身
+copilot plugin uninstall tellonce     # 删插件代码本身
 ```
 
 ---

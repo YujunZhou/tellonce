@@ -79,7 +79,7 @@ def _apply_streak_bypass(state_root: Path, session_id, violations: list) -> list
             # block `threshold` times, bypass from the next firing on).
             if counts.get(rid, 0) >= threshold:
                 sys.stderr.write(
-                    f"[preference-tracker] streak bypass: rule {rid} already fired "
+                    f"[tellonce] streak bypass: rule {rid} already fired "
                     f"{counts[rid]}x in this session (threshold {threshold}) — "
                     "no longer blocking it this session\n")
             else:
@@ -132,17 +132,17 @@ def _extract_agent_text(payload: dict) -> str:
 
 
 def _resolve_state_root(payload: dict) -> Path | None:
-    """Find the project's codex preference-tracker state root.
+    """Find the project's codex tellonce state root.
 
     Prefer `cwd` from payload, fall back to env CODEX_PROJECT_ROOT, else PWD.
     """
     cwd = payload.get("cwd") or os.environ.get("CODEX_PROJECT_ROOT") or os.getcwd()
-    candidate = Path(cwd) / ".codex" / "preference-tracker"
+    candidate = Path(cwd) / ".codex" / "tellonce"
     if (candidate / "registration.json").is_file() or (candidate / "mode.json").is_file():
         return candidate
-    # Also try home-fallback layout (codex_preftrack.paths.fallback_state_root)
+    # Also try home-fallback layout (tellonce_codex.paths.fallback_state_root)
     try:
-        from codex_preftrack.paths import project_id_for, fallback_state_root
+        from tellonce_codex.paths import project_id_for, fallback_state_root
         fb = fallback_state_root(Path(cwd))
         if (fb / "registration.json").is_file():
             return fb
@@ -210,7 +210,7 @@ def main() -> int:
     mode = _read_mode(state_root)
 
     # Lazy import shared CC lib. Try multiple layouts:
-    #   1. ~/.codex/skills/preference-tracker/shared_lib/ (installed layout)
+    #   1. ~/.codex/skills/tellonce/shared_lib/ (installed layout)
     #   2. <repo>/lib/ (development layout when running from repo)
     candidates = [
         Path(__file__).parent.parent / "shared_lib",            # installed
@@ -260,7 +260,7 @@ def main() -> int:
         # Advisory only — print to stderr (codex shows it to user/agent without
         # blocking the tool call).
         sys.stderr.write(
-            "[preference-tracker advisory] "
+            "[tellonce advisory] "
             + ", ".join(v.get("rule_id", "?") for v in violations)
             + "\n"
         )
@@ -276,7 +276,7 @@ def main() -> int:
     try:
         reason = db.build_block_reason(violations)
     except Exception:
-        reason = "preference-tracker: deterministic violations: " + ", ".join(
+        reason = "tellonce: deterministic violations: " + ", ".join(
             v.get("rule_id", "?") for v in violations
         )
 
@@ -295,7 +295,7 @@ def main() -> int:
     try:
         sys.stdout.write(json.dumps(out, ensure_ascii=False))
     except Exception:
-        sys.stderr.write("[preference-tracker] JSON serialize failed; demoting to advisory\n")
+        sys.stderr.write("[tellonce] JSON serialize failed; demoting to advisory\n")
         sys.stderr.write(reason + "\n")
         return 0
     sys.stderr.write(reason + "\n")

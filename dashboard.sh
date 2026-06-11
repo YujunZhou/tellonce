@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Preference-Tracker dashboard — show a compliance summary for the last N days.
+# Tellonce dashboard — show a compliance summary for the last N days.
 #
 # Usage:
-#   bash ~/.claude/skills/preference-tracker/dashboard.sh [--days N]
+#   bash ~/.claude/skills/tellonce/dashboard.sh [--days N]
 #
 # Default N=7. Outputs deterministic block / shadow violation / cost / latency summary.
 
@@ -35,7 +35,7 @@ if [[ "${JSON_MODE}" == true ]]; then
     exit 0
 fi
 
-echo "Preference-Tracker dashboard (last ${DAYS}d)"
+echo "Tellonce dashboard (last ${DAYS}d)"
 echo "─────────────────────────────────────────"
 python3 "${SKILL_DIR}/lib/analyze_b5_compliance.py" --days "${DAYS}"
 

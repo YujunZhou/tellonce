@@ -1,6 +1,6 @@
-# install.ps1 — Post-install setup for preference-tracker Copilot CLI plugin (Windows).
+# install.ps1 — Post-install setup for tellonce Copilot CLI plugin (Windows).
 #
-# Run after `copilot plugin install YujunZhou/preference-tracker:copilot`
+# Run after `copilot plugin install YujunZhou/tellonce:copilot`
 # to initialize state directories and seed memory if not already present.
 #
 # Usage:
@@ -19,7 +19,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PTLib = Join-Path $ScriptDir "lib"
 
 Write-Host "================================================================"
-Write-Host "  preference-tracker - Copilot CLI plugin post-install"
+Write-Host "  tellonce - Copilot CLI plugin post-install"
 Write-Host "================================================================"
 Write-Host ""
 Write-Host "Plugin root:  $ScriptDir"
@@ -88,7 +88,7 @@ if ((Test-Path $memoryDir) -and (Get-ChildItem $memoryDir -Filter "*.md" -ErrorA
 }
 
 # 4. Write config file (retrieve defaults) + set the mode switch automatically.
-$configPath = Join-Path $env:USERPROFILE ".preference-tracker.config.json"
+$configPath = Join-Path $env:USERPROFILE ".tellonce.config.json"
 if (-not (Test-Path $configPath)) {
     Write-Host ""
     Write-Host "Writing default config to $configPath..."
@@ -108,7 +108,7 @@ if (-not (Test-Path $configPath)) {
     # one shared state/memory dir. Strip it so runtime falls back to cwd.
     $migrate = @'
 import json, io, os
-p = os.path.expanduser("~/.preference-tracker.config.json")
+p = os.path.expanduser("~/.tellonce.config.json")
 try:
     c = json.load(io.open(p, encoding="utf-8-sig"))
 except Exception:
@@ -169,6 +169,6 @@ Write-Host ""
 Write-Host "Tip: re-run this installer with -Mode enforce (or -Mode full) to"
 Write-Host "     turn it on at install time."
 Write-Host ""
-Write-Host "State: $ProjectRoot\.copilot\preference-tracker-state\"
+Write-Host "State: $ProjectRoot\.copilot\tellonce-state\"
 Write-Host "Memory: $memoryDir"
 Write-Host "================================================================"

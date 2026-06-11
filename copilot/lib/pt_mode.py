@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""pt_mode — dead-simple on/off switch for preference-tracker.
+"""pt_mode — dead-simple on/off switch for tellonce.
 
 No env vars, no hand-editing JSON. One command flips the mode by writing
-`enforce` / `shadow` into ~/.preference-tracker.config.json (preserving every
+`enforce` / `shadow` into ~/.tellonce.config.json (preserving every
 other key). path_config reads those keys, so the change takes effect next run.
 
 Usage (run with `python pt_mode.py <mode>`):
@@ -71,7 +71,7 @@ def _print_status(cfg):
         mode = 'enforce  (hard block, no LLM judge)'
     else:
         mode = 'observe  (safe default: record + remind only; no block, no LLM)'
-    print(f'preference-tracker current mode: {mode}')
+    print(f'tellonce current mode: {mode}')
     print(f'  enforce (hard block) = {enforce}')
     print(f'  shadow  (LLM judge)  = {shadow}')
     print(f'  config file: {CONFIG_PATH}')

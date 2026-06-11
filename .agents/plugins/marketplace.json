@@ -1,8 +1,8 @@
 {
-  "name": "preference-tracker",
+  "name": "tellonce",
   "plugins": [
     {
-      "name": "preference-tracker",
+      "name": "tellonce",
       "source": {
         "source": "local",
         "path": "./codex"

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""uninstall — remove preference-tracker state/memory/config for the Copilot plugin.
+"""uninstall — remove tellonce state/memory/config for the Copilot plugin.
 
-The plugin code itself is removed by `copilot plugin uninstall preference-tracker`.
+The plugin code itself is removed by `copilot plugin uninstall tellonce`.
 This helper cleans up the per-project state, the saved memory rules, and the
-mode keys this skill wrote to ~/.preference-tracker.config.json.
+mode keys this skill wrote to ~/.tellonce.config.json.
 
 SAFE BY DEFAULT: with no flags it only PRINTS what it would remove (dry run).
 Pass explicit flags to actually delete:
 
     python <plugin>/lib/uninstall.py                 # dry run (show only)
-    python <plugin>/lib/uninstall.py --purge-state   # delete .copilot/preference-tracker-state/
+    python <plugin>/lib/uninstall.py --purge-state   # delete .copilot/tellonce-state/
     python <plugin>/lib/uninstall.py --purge-memory  # delete the memory/ rules
     python <plugin>/lib/uninstall.py --reset-config   # remove enforce/shadow keys (back to observe)
     python <plugin>/lib/uninstall.py --unregister     # remove from Copilot's installedPlugins
@@ -35,7 +35,7 @@ for _s in (sys.stdout, sys.stderr):
 
 
 def _state_root():
-    # parent of the runtime dir = .../.copilot/preference-tracker-state
+    # parent of the runtime dir = .../.copilot/tellonce-state
     return os.path.dirname(path_config.get_state_dir())
 
 
@@ -99,10 +99,10 @@ def main():
     unregister = do_all or '--unregister' in args
     dry = not (purge_state or purge_memory or reset_config or unregister)
 
-    print('preference-tracker uninstall' + (' (DRY RUN — pass flags to act)' if dry else ''))
+    print('tellonce uninstall' + (' (DRY RUN — pass flags to act)' if dry else ''))
     print('-' * 60)
     print('To remove the plugin code itself, run:')
-    print('  copilot plugin uninstall preference-tracker')
+    print('  copilot plugin uninstall tellonce')
     print('-' * 60)
 
     if dry or purge_state:
@@ -117,7 +117,7 @@ def main():
     if dry or unregister:
         print('Copilot plugin registration:')
         if dry or not unregister:
-            print('  would unregister preference-tracker from ~/.copilot/config.json')
+            print('  would unregister tellonce from ~/.copilot/config.json')
         else:
             try:
                 import subprocess

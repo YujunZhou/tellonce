@@ -24,7 +24,7 @@ _pt_timeout() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="${SCRIPT_DIR}/.."
 
-if [[ ! -f "${SKILL_DIR}/codex_preftrack/codex_posttooluse_block.py" ]]; then
+if [[ ! -f "${SKILL_DIR}/tellonce_codex/codex_posttooluse_block.py" ]]; then
     exit 0
 fi
 
@@ -51,6 +51,6 @@ fi
 # DO NOT redirect stderr to stdout — that would corrupt the JSON channel
 # and codex would print "hook returned invalid post-tool-use JSON output".
 printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SKILL_DIR}" \
-    _pt_timeout 15 python3 -m codex_preftrack.codex_posttooluse_block
+    _pt_timeout 15 python3 -m tellonce_codex.codex_posttooluse_block
 RC=$?
 exit $RC

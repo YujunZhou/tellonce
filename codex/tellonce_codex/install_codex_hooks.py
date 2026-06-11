@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Manage preference-tracker entries in ~/.codex/hooks.json.
+"""Manage tellonce entries in ~/.codex/hooks.json.
 
 Codex hook event names + JSON in/out protocol mirror Claude Code's: stdin
 JSON with prompt / tool_name / tool_input / tool_response; stdout JSON with
 hookSpecificOutput.additionalContext etc.; exit 2 = block with reason on stderr.
 
 Usage:
-  python3 -m codex_preftrack.install_codex_hooks --add
-  python3 -m codex_preftrack.install_codex_hooks --remove
-  python3 -m codex_preftrack.install_codex_hooks --verify
+  python3 -m tellonce_codex.install_codex_hooks --add
+  python3 -m tellonce_codex.install_codex_hooks --remove
+  python3 -m tellonce_codex.install_codex_hooks --verify
 
 Sentinel: every PT-managed entry tagged `_pt_managed: true` so cleanup is exact
 and we don't trample user's own hook entries.
@@ -42,7 +42,7 @@ import time
 from pathlib import Path
 
 
-PT_HOOKS_DEFAULT_DIR = Path.home() / ".codex" / "skills" / "preference-tracker" / "hooks"
+PT_HOOKS_DEFAULT_DIR = Path.home() / ".codex" / "skills" / "tellonce" / "hooks"
 
 # event_name -> ordered list of hook script basenames (run in order)
 PT_HOOKS = {
@@ -99,7 +99,7 @@ def _save_hooks_json(path: str, data: dict) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     # pid + uuid8 suffix avoids tmp-file race when concurrent installers run
-    # (mirror codex/codex_preftrack/ledger.py).
+    # (mirror codex/tellonce_codex/ledger.py).
     tmp = p.with_suffix(p.suffix + f".tmp.{os.getpid()}.{_uuid.uuid4().hex[:8]}")
     try:
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -119,17 +119,17 @@ def _save_hooks_json(path: str, data: dict) -> None:
 def _is_pt_command(cmd: str) -> bool:
     """Identify any registration string we previously wrote so cleanup is safe.
 
-    PT hook commands always live under */preference-tracker/hooks/ AND have one
+    PT hook commands always live under */tellonce/hooks/ AND have one
     of our known basenames. We use path-based identification (rather than a
     sentinel field on the entry) so hooks.json stays strictly schema-compliant.
 
     CX-B5 fix: normalize separators before matching. Hook commands written on
-    Windows use backslashes (`...\\preference-tracker\\hooks\\foo.sh`), so the
+    Windows use backslashes (`...\\tellonce\\hooks\\foo.sh`), so the
     old forward-slash-only `/hooks/` substring and `rsplit("/")` basename
     extraction never matched and cleanup/verify silently missed PT entries.
     """
     norm = cmd.replace("\\", "/")
-    if "preference-tracker" not in norm:
+    if "tellonce" not in norm:
         return False
     if "/hooks/" not in norm:
         return False
@@ -186,7 +186,7 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
 
 def cmd_remove(hooks_path: str, hooks_dir: str | None = None) -> int:
     """Remove all PT hooks. Identifies them by path (any command under
-    */preference-tracker/hooks/<known-basename>). Drops emptied entries
+    */tellonce/hooks/<known-basename>). Drops emptied entries
     cleanly."""
     backup = _versioned_backup(hooks_path)
     if backup:
@@ -254,7 +254,7 @@ def cmd_verify(hooks_path: str, hooks_dir: str) -> int:
                 if not cmd:
                     continue
                 cmd_to_events.setdefault(cmd, set()).add(event)
-    print(f"  Codex preference-tracker hook registration status:")
+    print(f"  Codex tellonce hook registration status:")
     print(f"    hooks.json: {hooks_path}")
     print(f"    hooks dir:  {hooks_dir_p}")
     bad = 0
@@ -273,7 +273,7 @@ def cmd_verify(hooks_path: str, hooks_dir: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Merge preference-tracker hooks into ~/.codex/hooks.json")
+    ap = argparse.ArgumentParser(description="Merge tellonce hooks into ~/.codex/hooks.json")
     ap.add_argument("--hooks-json", default=str(Path.home() / ".codex" / "hooks.json"))
     ap.add_argument("--hooks-dir", default=str(PT_HOOKS_DEFAULT_DIR))
     grp = ap.add_mutually_exclusive_group(required=True)

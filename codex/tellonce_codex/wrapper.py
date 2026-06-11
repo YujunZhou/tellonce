@@ -51,14 +51,14 @@ _ENV_ALLOW_PREFIXES: tuple[str, ...] = (
     "PATH", "HOME", "USER", "LOGNAME", "TERM", "TMPDIR", "TMP", "TEMP",
     "LANG", "LC_", "PWD", "SHELL", "DISPLAY", "XAUTHORITY",
     "PYTHON",  # PYTHONPATH / PYTHONIOENCODING etc
-    "CODEX_PREFTRACK_",  # our own opt-in env
+    "TELLONCE_CODEX_",  # our own opt-in env
     "XDG_",  # runtime / config / data dirs (e.g. XDG_RUNTIME_DIR for gh / ssh)
 )
 
 # Explicit names that survive the deny pass even though they contain
 # AUTH/TOKEN/KEY substrings — these are the standard credential envs
 # for the LLM CLIs that user_facing_command-passers most commonly pass to
-# `codex_preftrack exec`. If you want to forbid one, set
+# `tellonce_codex exec`. If you want to forbid one, set
 # CODEX_PT_STRICT_ENV=1.
 _ENV_ALLOW_NAMES: frozenset[str] = frozenset({
     # LLM vendors

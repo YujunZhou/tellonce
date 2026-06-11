@@ -38,7 +38,7 @@
 ## 3. `install.sh` phase summary
 
 1. **Prepare** (114-176): validate HOME, Python 3.7+, `jq`, `claude` CLI; check existing settings JSON; verify `lib/` + `hooks/` present.
-2. **Install** (184-340): compute paths → versioned backup of `settings.local.json` → register hooks (from `~/.claude/skills/preference-tracker/hooks`) into `settings.local.json` via Python merge → create state subdirs → write `~/.preference-tracker.config.json` → seed memory if absent.
+2. **Install** (184-340): compute paths → versioned backup of `settings.local.json` → register hooks (from `~/.claude/skills/tellonce/hooks`) into `settings.local.json` via Python merge → create state subdirs → write `~/.tellonce.config.json` → seed memory if absent.
 3. **Collect** (343-360): verify state dirs writable.
 4. **Execute** (362-372): run `doctor.sh`.
 5. **Uninstall ready** (374-407): confirm `uninstall.sh` executable.

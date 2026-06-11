@@ -40,13 +40,13 @@ JUDGE_MODEL_DEFAULT = 'claude-haiku-4-5'
 
 
 def default_state_dir(project_root: str) -> str:
-    """Default runtime state dir: <project_root>/.claude/preference-tracker-state/runtime."""
-    return os.path.join(project_root, '.claude', 'preference-tracker-state', 'runtime')
+    """Default runtime state dir: <project_root>/.claude/tellonce-state/runtime."""
+    return os.path.join(project_root, '.claude', 'tellonce-state', 'runtime')
 
 
 def default_obs_log_dir(project_root: str) -> str:
-    """Default observation/compliance/pending root: <project_root>/.claude/preference-tracker-state/obs_log."""
-    return os.path.join(project_root, '.claude', 'preference-tracker-state', 'obs_log')
+    """Default observation/compliance/pending root: <project_root>/.claude/tellonce-state/obs_log."""
+    return os.path.join(project_root, '.claude', 'tellonce-state', 'obs_log')
 
 
 def default_memory_dir(project_root: str) -> str:

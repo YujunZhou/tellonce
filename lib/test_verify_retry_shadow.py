@@ -41,6 +41,23 @@ for _rid, _desc in [
         _f.write(f'---\natomic_id: {_rid}\ndescription: {_desc}\n---\n\n{_desc} (test rule body).\n')
 shadow.MEMORY_DIR = _TEST_MEMORY_DIR
 
+# conftest.py reloads verify_retry_shadow after each chaos test (to undo env
+# poisoning), which WIPES the two module-level patches above when this file
+# runs in the same pytest session after the chaos suite. Re-apply them before
+# every test here instead of relying on import-time state. Standalone
+# `python test_verify_retry_shadow.py` runs keep working via the import-time
+# patch (pytest may be absent there, hence the guard).
+try:
+    import pytest as _pytest
+
+    @_pytest.fixture(autouse=True)
+    def _repatch_shadow_module():
+        shadow.SHADOW_RULE_IDS = ['lang-pit-130', 'oth-pref-001', 'lang-pref-001']
+        shadow.MEMORY_DIR = _TEST_MEMORY_DIR
+        yield
+except ImportError:
+    pass
+
 
 # ----------------------- Helper test fixtures -----------------------
 

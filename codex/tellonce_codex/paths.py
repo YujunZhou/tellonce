@@ -76,7 +76,7 @@ def resolve_project_root(path: Path, allow_unsafe: bool = False) -> Path:
     """
     root = Path(path).resolve()
     home = Path(os.path.expanduser("~")).resolve()
-    allow_unsafe = allow_unsafe or os.environ.get("CODEX_PREFTRACK_ALLOW_TEMP") == "1"
+    allow_unsafe = allow_unsafe or os.environ.get("TELLONCE_CODEX_ALLOW_TEMP") == "1"
     root_norm = _norm_for_compare(str(root))
     is_tmp = any(
         root_norm == p or root_norm.startswith(p + os.sep)
@@ -88,11 +88,11 @@ def resolve_project_root(path: Path, allow_unsafe: bool = False) -> Path:
 
 
 def default_state_root(project_root: Path) -> Path:
-    return project_root / ".codex" / "preference-tracker"
+    return project_root / ".codex" / "tellonce"
 
 
 def fallback_state_root(project_root: Path) -> Path:
-    return Path(os.path.expanduser("~")) / ".codex" / "projects" / project_id_for(project_root) / "preference-tracker"
+    return Path(os.path.expanduser("~")) / ".codex" / "projects" / project_id_for(project_root) / "tellonce"
 
 
 def register_project(project_root: Path, allow_unsafe: bool = False) -> Registration:
@@ -148,7 +148,7 @@ def load_registration(project_root: Path) -> Registration:
     policy that the caller asked for: load is permissive (so we can find
     legacy installs), but create-on-miss inherits the original caller's
     safety preference. The test fixture path that uses
-    `CODEX_PREFTRACK_ALLOW_TEMP=1` continues to work; cli.py paths that
+    `TELLONCE_CODEX_ALLOW_TEMP=1` continues to work; cli.py paths that
     don't set that env still get strict semantics on first install.
     """
     import json as _json
@@ -156,7 +156,7 @@ def load_registration(project_root: Path) -> Registration:
     # If the user explicitly opted into unsafe roots (via env), let load and
     # create both honor that. Otherwise: load is lax (find legacy state),
     # create is strict (don't silently provision under HOME/`/`/`/tmp`).
-    env_allow = os.environ.get("CODEX_PREFTRACK_ALLOW_TEMP") == "1"
+    env_allow = os.environ.get("TELLONCE_CODEX_ALLOW_TEMP") == "1"
     root = resolve_project_root(project_root, allow_unsafe=True)
     state = default_state_root(root)
     path = state / "registration.json"

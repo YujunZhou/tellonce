@@ -20,7 +20,7 @@ install.log
 Thumbs.db
 
 # 用户态运行数据 (个人项目-state, 不该入仓库)
-# state/ 已默认走 <project>/.claude/preference-tracker-state/, 不在 skill 目录下
+# state/ 已默认走 <project>/.claude/tellonce-state/, 不在 skill 目录下
 # 但若有人手动放, 防一下
 state/
 runtime/
@@ -29,17 +29,17 @@ runtime/
 # When install.sh runs inside repo root for testing, it writes here.
 .claude/
 .codex/
-.copilot/preference-tracker-state/
-.copilot/preference-tracker/
+.copilot/tellonce-state/
+.copilot/tellonce/
 _review_diff.txt
 
 # machine-specific python path recorded by install (run.ps1 launcher)
 copilot/hooks/.python_path.txt
 .python_path.txt
 
-# preference-tracker runtime state (any depth)
+# tellonce runtime state (any depth)
 **/.copilot/
-**/preference-tracker-state/
+**/tellonce-state/
 **/__pycache__/
 .pytest_cache/
 

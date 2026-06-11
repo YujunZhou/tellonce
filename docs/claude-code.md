@@ -1,4 +1,4 @@
-# Preference-Tracker — Claude Code variant
+# Tellonce — Claude Code variant
 
 This is the in-depth guide for the **Claude Code** implementation, which lives at
 the repository root (`hooks/`, `lib/`, `install.sh`, `SKILL.md`, …). For the
@@ -23,19 +23,19 @@ opt-in extension point (and how it behaved when rules were present).
 **Step 1 — get the source:**
 
 ```bash
-git clone git@github.com:YujunZhou/preference-tracker.git ~/.claude/skills/preference-tracker
+git clone git@github.com:YujunZhou/tellonce.git ~/.claude/skills/tellonce
 ```
 
 **Step 2 — register hooks (pick one):**
 
 ```bash
 # Option A — user-global (recommended; applies to every project at once):
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py \
+python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py \
   --settings ~/.claude/settings.json \
-  --hooks-dir ~/.claude/skills/preference-tracker/hooks --add
+  --hooks-dir ~/.claude/skills/tellonce/hooks --add
 
 # Option B — per-project (only enable for one project):
-cd /path/to/your/project && bash ~/.claude/skills/preference-tracker/install.sh
+cd /path/to/your/project && bash ~/.claude/skills/tellonce/install.sh
 ```
 
 See [`../INSTALL.md`](../INSTALL.md) for the full comparison plus upgrade /
@@ -48,10 +48,10 @@ self-check before declaring success, and rolls back via `trap ERR` on failure.
 
 | Item | Default | Override |
 |---|---|---|
-| skill | `~/.claude/skills/preference-tracker/` | (fixed) |
+| skill | `~/.claude/skills/tellonce/` | (fixed) |
 | hooks | `<skill_dir>/hooks/` (registered into settings directly; nothing is copied into the project) | (fixed) |
-| state | `<cwd>/.claude/preference-tracker-state/runtime/` | env `PT_STATE_DIR` or `~/.preference-tracker.config.json` |
-| obs_log | `<cwd>/.claude/preference-tracker-state/obs_log/` | env `PT_OBS_LOG_DIR` or config |
+| state | `<cwd>/.claude/tellonce-state/runtime/` | env `PT_STATE_DIR` or `~/.tellonce.config.json` |
+| obs_log | `<cwd>/.claude/tellonce-state/obs_log/` | env `PT_OBS_LOG_DIR` or config |
 | memory | `~/.claude/projects/<cwd_escaped>/memory/` | env `PT_MEMORY_DIR` or config |
 
 > Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
@@ -81,7 +81,7 @@ export PT_STREAK_BYPASS=3       # default 3
 ## Dashboard
 
 ```bash
-bash ~/.claude/skills/preference-tracker/dashboard.sh
+bash ~/.claude/skills/tellonce/dashboard.sh
 # Last 7 days:
 #   - deterministic block counts (bucketed by rule)
 #   - shadow violations (alerted vs filtered)
@@ -94,16 +94,16 @@ bash ~/.claude/skills/preference-tracker/dashboard.sh
 # Removes the hook registration (both project-local AND user-global
 # ~/.claude/settings.json) so the hooks actually STOP firing, then prompts about
 # the skill dir. Your memory/state is kept.
-bash ~/.claude/skills/preference-tracker/uninstall.sh
+bash ~/.claude/skills/tellonce/uninstall.sh
 
 # Full removal (also state + obs_log):
-bash ~/.claude/skills/preference-tracker/uninstall.sh --purge-state
+bash ~/.claude/skills/tellonce/uninstall.sh --purge-state
 
 # Keep the skill directory (easier reinstall):
-bash ~/.claude/skills/preference-tracker/uninstall.sh --keep-skill-dir
+bash ~/.claude/skills/tellonce/uninstall.sh --keep-skill-dir
 
 # Keep the user-global registration (only uninstall this project):
-bash ~/.claude/skills/preference-tracker/uninstall.sh --keep-global
+bash ~/.claude/skills/tellonce/uninstall.sh --keep-global
 ```
 
 > Note: deleting the skill files alone does NOT stop the hooks — they keep firing
@@ -117,19 +117,19 @@ and restored on reinstall).
 
 ```bash
 # Doctor self-check
-bash ~/.claude/skills/preference-tracker/doctor.sh
+bash ~/.claude/skills/tellonce/doctor.sh
 
 # Unit-level only (skip subprocess checks)
-bash ~/.claude/skills/preference-tracker/doctor.sh --quick
+bash ~/.claude/skills/tellonce/doctor.sh --quick
 
 # Roll back settings if an install broke them
-bash ~/.claude/skills/preference-tracker/doctor.sh --rollback
+bash ~/.claude/skills/tellonce/doctor.sh --rollback
 
 # Read the install log
-cat ~/.claude/skills/preference-tracker/install.log
+cat ~/.claude/skills/tellonce/install.log
 
 # See what path_config detects
-python3 ~/.claude/skills/preference-tracker/lib/path_config.py
+python3 ~/.claude/skills/tellonce/lib/path_config.py
 ```
 
 ## Architecture

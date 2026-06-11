@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Codex preference-tracker install. Installs:
-#   1. Global runtime to ~/.codex/skills/preference-tracker/
-#      (codex_preftrack/ + shared_lib/ from CC + hooks/ + seed_memory/)
+# Codex tellonce install. Installs:
+#   1. Global runtime to ~/.codex/skills/tellonce/
+#      (tellonce_codex/ + shared_lib/ from CC + hooks/ + seed_memory/)
 #      If a git clone occupies that path, the runtime is installed to
-#      ~/.codex/skills/preference-tracker-runtime instead (keeps the clone clean).
+#      ~/.codex/skills/tellonce-runtime instead (keeps the clone clean).
 #   2. Hook registrations to ~/.codex/hooks.json
 #      (UserPromptSubmit x3 + PostToolUse + SessionStart)
-#   3. Per-project state in $CWD (.codex/preference-tracker/)
+#   3. Per-project state in $CWD (.codex/tellonce/)
 #
 # Idempotent. Safe to re-run after `git pull`.
 #
@@ -19,8 +19,8 @@
 
 set -euo pipefail
 
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../preference-tracker/codex/
-REPO_ROOT="$(cd "${SKILL_DIR}/.." && pwd)"                  # .../preference-tracker/
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../tellonce/codex/
+REPO_ROOT="$(cd "${SKILL_DIR}/.." && pwd)"                  # .../tellonce/
 PYTHON="${PYTHON:-python3}"
 
 if ! command -v "${PYTHON}" >/dev/null 2>&1; then
@@ -30,7 +30,7 @@ fi
 
 # shared_lib source resolution: try repo layout first, then standalone-bundle
 # layout. Standalone bundles ship a `shared_lib/` directory pre-populated
-# alongside `codex_preftrack/` so they don't need the parent repo's lib/.
+# alongside `tellonce_codex/` so they don't need the parent repo's lib/.
 if [[ -d "${REPO_ROOT}/lib" ]]; then
     SHARED_LIB_SRC="${REPO_ROOT}/lib"
 elif [[ -d "${SKILL_DIR}/shared_lib" ]]; then
@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker"
+GLOBAL_DIR="${HOME}/.codex/skills/tellonce"
 HOOKS_JSON="${HOME}/.codex/hooks.json"
 
 # If the user cloned the repo to the GLOBAL_DIR path itself (the documented
@@ -71,8 +71,8 @@ if [[ -d "${GLOBAL_DIR}" ]]; then
     GLOBAL_DIR_REAL_PRE="$(cd "${GLOBAL_DIR}" && pwd -P)"
     REPO_ROOT_REAL="$(cd "${REPO_ROOT}" && pwd -P)"
     if [[ "${GLOBAL_DIR_REAL_PRE}" == "${REPO_ROOT_REAL}" || -e "${GLOBAL_DIR}/.git" ]]; then
-        GLOBAL_DIR="${HOME}/.codex/skills/preference-tracker-runtime"
-        echo "  (clone detected at ~/.codex/skills/preference-tracker — installing runtime to ${GLOBAL_DIR} to keep the clone clean)"
+        GLOBAL_DIR="${HOME}/.codex/skills/tellonce-runtime"
+        echo "  (clone detected at ~/.codex/skills/tellonce — installing runtime to ${GLOBAL_DIR} to keep the clone clean)"
     fi
 fi
 
@@ -126,17 +126,17 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         echo "  (standalone skill folder layout: SKILL_DIR == GLOBAL_DIR, skipping copies)"
     fi
 
-    # 1a. codex_preftrack Python package (the wrapper-driven enforcement code)
+    # 1a. tellonce_codex Python package (the wrapper-driven enforcement code)
     if [[ "${SELF_INSTALL}" != true ]]; then
         if command -v rsync >/dev/null 2>&1; then
             rsync -a --delete \
                 --exclude='__pycache__' --exclude='*.pyc' --exclude='tests/' \
-                "${SKILL_DIR}/codex_preftrack/" "${GLOBAL_DIR}/codex_preftrack/"
+                "${SKILL_DIR}/tellonce_codex/" "${GLOBAL_DIR}/tellonce_codex/"
         else
-            rm -rf "${GLOBAL_DIR}/codex_preftrack"
-            cp -r "${SKILL_DIR}/codex_preftrack" "${GLOBAL_DIR}/codex_preftrack"
-            find "${GLOBAL_DIR}/codex_preftrack" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
-            rm -rf "${GLOBAL_DIR}/codex_preftrack/tests" 2>/dev/null || true
+            rm -rf "${GLOBAL_DIR}/tellonce_codex"
+            cp -r "${SKILL_DIR}/tellonce_codex" "${GLOBAL_DIR}/tellonce_codex"
+            find "${GLOBAL_DIR}/tellonce_codex" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+            rm -rf "${GLOBAL_DIR}/tellonce_codex/tests" 2>/dev/null || true
         fi
     fi
 
@@ -162,7 +162,7 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         else
             echo "  ⚠ shared_lib source not found (no lib/ next to install.sh and no shared_lib/ in skill dir)"
             echo "    UserPromptSubmit retrieve / PostToolUse deterministic-block hooks will silently no-op"
-            echo "    (wrapper-driven enforcement via codex_preftrack exec still works)"
+            echo "    (wrapper-driven enforcement via tellonce_codex exec still works)"
         fi
     fi
 
@@ -205,23 +205,23 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         chmod +x "${GLOBAL_DIR}/hooks/"*.sh 2>/dev/null || true
     fi
 
-    echo "  ✓ codex_preftrack/ + shared_lib/ + hooks/ + seed_memory/ + SKILL.md"
+    echo "  ✓ tellonce_codex/ + shared_lib/ + hooks/ + seed_memory/ + SKILL.md"
 
-    # 1e2. Install a shell wrapper at ~/.local/bin/codex_preftrack so
-    # `codex_preftrack ...` works from any shell (no PYTHONPATH needed).
+    # 1e2. Install a shell wrapper at ~/.local/bin/tellonce_codex so
+    # `tellonce_codex ...` works from any shell (no PYTHONPATH needed).
     # Without this
-    # wrapper, users had to remember `PYTHONPATH=~/.codex/skills/preference-tracker
-    # python3 -m codex_preftrack ...` for every CLI invocation.
+    # wrapper, users had to remember `PYTHONPATH=~/.codex/skills/tellonce
+    # python3 -m tellonce_codex ...` for every CLI invocation.
     BIN_DIR="${HOME}/.local/bin"
     mkdir -p "${BIN_DIR}"
-    WRAPPER="${BIN_DIR}/codex_preftrack"
+    WRAPPER="${BIN_DIR}/tellonce_codex"
     cat > "${WRAPPER}" <<WRAPPER_EOF
 #!/usr/bin/env bash
-# codex_preftrack — shell wrapper installed by codex/install.sh.
-# Locks in PYTHONPATH so the codex_preftrack package is importable from
+# tellonce_codex — shell wrapper installed by codex/install.sh.
+# Locks in PYTHONPATH so the tellonce_codex package is importable from
 # any shell. Edit-aware: re-running install.sh overwrites this file.
 exec env PYTHONPATH="${GLOBAL_DIR}\${PYTHONPATH:+:\$PYTHONPATH}" \
-    "${PYTHON}" -m codex_preftrack "\$@"
+    "${PYTHON}" -m tellonce_codex "\$@"
 WRAPPER_EOF
     chmod +x "${WRAPPER}"
     echo "  ✓ shell wrapper: ${WRAPPER}"
@@ -241,11 +241,11 @@ WRAPPER_EOF
     if [[ "${NO_HOOKS}" != true ]]; then
         echo "[2/3] register hooks → ${HOOKS_JSON}"
         if [[ -f "${HOOKS_JSON}" ]]; then
-            PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m codex_preftrack.install_codex_hooks \
+            PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m tellonce_codex.install_codex_hooks \
                 --hooks-json "${HOOKS_JSON}" \
                 --remove >/dev/null 2>&1 || true
         fi
-        PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m codex_preftrack.install_codex_hooks \
+        PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m tellonce_codex.install_codex_hooks \
             --hooks-json "${HOOKS_JSON}" \
             --hooks-dir "${GLOBAL_DIR}/hooks" \
             --add
@@ -262,7 +262,7 @@ fi
 # Phase 3: Per-project state init
 # ============================================================
 if [[ "${SKIP_PROJECT}" != true ]]; then
-    echo "[3/3] per-project state init → $(pwd)/.codex/preference-tracker/"
+    echo "[3/3] per-project state init → $(pwd)/.codex/tellonce/"
     # Forward --no-hooks down so phase 3 does
     # not silently re-register hooks the user already opted out of via the
     # bash --no-hooks flag — and also when phase 1f already registered them
@@ -272,11 +272,11 @@ if [[ "${SKIP_PROJECT}" != true ]]; then
     if [[ "${NO_HOOKS}" == true || "${HOOKS_REGISTERED_IN_PHASE1:-false}" == true ]]; then
         PHASE3_ARGS+=("--no-hooks")
     fi
-    if [[ -d "${GLOBAL_DIR}/codex_preftrack" ]]; then
-        PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m codex_preftrack install ${PHASE3_ARGS[@]+"${PHASE3_ARGS[@]}"}
+    if [[ -d "${GLOBAL_DIR}/tellonce_codex" ]]; then
+        PYTHONPATH="${GLOBAL_DIR}" "${PYTHON}" -m tellonce_codex install ${PHASE3_ARGS[@]+"${PHASE3_ARGS[@]}"}
     else
         # Fall back to in-tree code (works for repo dev / no global install).
-        PYTHONPATH="${REPO_ROOT}/codex" "${PYTHON}" -m codex_preftrack install ${PHASE3_ARGS[@]+"${PHASE3_ARGS[@]}"}
+        PYTHONPATH="${REPO_ROOT}/codex" "${PYTHON}" -m tellonce_codex install ${PHASE3_ARGS[@]+"${PHASE3_ARGS[@]}"}
     fi
     echo "  ✓ state initialized"
 else
@@ -284,10 +284,10 @@ else
 fi
 
 echo ""
-echo "✓ codex preference-tracker install complete"
+echo "✓ codex tellonce install complete"
 echo "  global: ${GLOBAL_DIR}"
 echo "  hooks:  ${HOOKS_JSON}"
-echo "  project state: $(pwd)/.codex/preference-tracker/"
+echo "  project state: $(pwd)/.codex/tellonce/"
 echo ""
 echo "Next step: trigger a prompt in a new codex session, then check whether"
-echo "  $(pwd)/.codex/preference-tracker/runtime/posttooluse_log.jsonl gets written to."
+echo "  $(pwd)/.codex/tellonce/runtime/posttooluse_log.jsonl gets written to."

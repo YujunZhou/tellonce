@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Preference-Tracker uninstall — review-hardened.
+# Tellonce uninstall — review-hardened.
 #
 # Usage:
-#   bash ~/.claude/skills/preference-tracker/uninstall.sh
+#   bash ~/.claude/skills/tellonce/uninstall.sh
 #       [--keep-skill-dir] [--purge-state] [--keep-config]
 #
 # Steps:
 #   1. Unregister hooks (versioned backup, then remove PT hooks with Python)
 #   2. rm hooks .sh
-#   3. Ask the user whether to rm ~/.claude/skills/preference-tracker/
+#   3. Ask the user whether to rm ~/.claude/skills/tellonce/
 #   4. Leave memory + state untouched (user data preserved unless --purge-state)
-#   5. Clean ~/.preference-tracker.config.json (unless --keep-config)
+#   5. Clean ~/.tellonce.config.json (unless --keep-config)
 #
 # Hardening:
 #   - Refuse to run when PROJECT_ROOT==HOME (avoids deleting the user's global .claude/hooks/, etc.)
@@ -25,9 +25,9 @@ SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PT_PROJECT_ROOT:-${B5_PROJECT_ROOT:-$(pwd)}}"
 HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"
-STATE_DIR="${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/runtime}}"
-OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/preference-tracker-state/obs_log}}"
-CONFIG_FILE="${HOME}/.preference-tracker.config.json"
+STATE_DIR="${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/runtime}}"
+OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/obs_log}}"
+CONFIG_FILE="${HOME}/.tellonce.config.json"
 
 KEEP_SKILL_DIR=false
 PURGE_STATE=false
@@ -85,7 +85,7 @@ _refuse_dangerous_path() {
     fi
 }
 
-echo "Preference-Tracker uninstall"
+echo "Tellonce uninstall"
 echo "  PROJECT: ${PROJECT_ROOT}"
 echo ""
 
@@ -154,7 +154,7 @@ else
     if [[ -d "${HOOKS_DIR}" ]] && ls "${HOOKS_DIR}"/memory-*.sh > /dev/null 2>&1; then
         echo "  Found .sh files from an old install in ${HOOKS_DIR}/:"
         ls "${HOOKS_DIR}"/memory-*.sh "${HOOKS_DIR}"/check-observation-log.sh 2>/dev/null | sed 's/^/    /'
-        echo "  PT v1+ no longer registers these (settings.local.json already cleaned). Left for you to review."
+        echo "  Tellonce v1.2+ no longer registers these (settings.local.json already cleaned). Left for you to review."
         echo "  Decide for yourself whether they are leftovers from an old PT install. To have uninstall delete them, re-run with"
         echo "    --purge-legacy-project-hooks"
     fi
@@ -210,10 +210,10 @@ else
     echo "  Full delete: bash ${SKILL_DIR}/uninstall.sh --purge-state"
 fi
 
-# 5. ~/.preference-tracker.config.json (cleanup so a reinstall on a different
+# 5. ~/.tellonce.config.json (cleanup so a reinstall on a different
 # project doesn't reuse stale paths). --keep-config to preserve it.
 echo ""
-echo "[5/5] ~/.preference-tracker.config.json:"
+echo "[5/5] ~/.tellonce.config.json:"
 if [[ "${KEEP_CONFIG}" == true ]]; then
     echo "  - keeping ${CONFIG_FILE} (--keep-config)"
 elif [[ -f "${CONFIG_FILE}" ]]; then

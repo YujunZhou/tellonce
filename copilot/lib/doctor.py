@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""doctor — read-only self-check for the preference-tracker Copilot plugin.
+"""doctor — read-only self-check for the tellonce Copilot plugin.
 
 Cross-platform (pure Python, no third-party deps). Prints a PASS/WARN/FAIL
 report so a public user can diagnose an install without reading the code.
@@ -210,12 +210,12 @@ def check_plugin_registration():
             continue
         cp = p.get('cache_path')
         same_path = bool(cp) and os.path.normcase(os.path.normpath(cp)) == plugin_root
-        if same_path or p.get('name') == 'preference-tracker':
+        if same_path or p.get('name') == 'tellonce':
             found = p
             break
     if found is None:
         _record('FAIL', 'copilot plugin registration',
-                'preference-tracker NOT in ~/.copilot/config.json installedPlugins — '
+                'tellonce NOT in ~/.copilot/config.json installedPlugins — '
                 'Copilot will NOT load its hooks (no block / no injection). Install via '
                 '`/plugin`, or add a {name,marketplace,enabled,cache_path} entry.')
     elif found.get('enabled') is False:

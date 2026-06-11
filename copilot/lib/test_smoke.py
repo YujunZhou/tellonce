@@ -1,10 +1,10 @@
-"""Smoke tests for the preference-tracker Copilot variant.
+"""Smoke tests for the tellonce Copilot variant.
 
 Covers the release-critical paths that were hand-verified during the audit:
 cross-runtime transcript parsing, observe-vs-enforce gating + exit-code
 contract, the pt_mode switch (atomic + BOM-tolerant), config boolean parsing,
 and the child-session guard. These are intentionally hermetic — they never
-touch the real ~/.preference-tracker.config.json or any live state.
+touch the real ~/.tellonce.config.json or any live state.
 
 Run:  cd copilot/lib && pytest -q
 """

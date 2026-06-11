@@ -2,13 +2,13 @@
 """Central path detection (shared across runtime variants).
 
 All lib modules import this instead of hard-coding path constants. Resolution is
-a 3-layer fallback: env var > ~/.preference-tracker.config.json > per-variant
+a 3-layer fallback: env var > ~/.tellonce.config.json > per-variant
 default. The runtime-specific defaults (state/obs/memory dirs) live in
 ``pt_platform`` so this module stays identical across variants.
 
 Priority (high → low):
   1. Env var (B5_STATE_DIR / B5_MEMORY_DIR / B5_OBS_LOG_DIR / B5_PROJECT_ROOT)
-  2. ~/.preference-tracker.config.json (key: state_dir / memory_dir / obs_log_dir /
+  2. ~/.tellonce.config.json (key: state_dir / memory_dir / obs_log_dir /
               project_root)
   3. Auto-detect: project_root = os.getcwd(); state/obs/memory dirs come from
      pt_platform.default_state_dir / default_obs_log_dir / default_memory_dir.
@@ -44,7 +44,7 @@ def force_utf8_io():
 # so this guarantees UTF-8 stdout for block decisions / additionalContext.
 force_utf8_io()
 
-CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
+CONFIG_PATH = os.path.expanduser('~/.tellonce.config.json')
 
 
 _CHMOD_WARN_ONCE = set()
@@ -69,7 +69,7 @@ def chmod_or_warn(path, mode, critical=True):
             return
         try:
             sys.stderr.write(
-                f'preference-tracker: warning: chmod {oct(mode)} on {path} '
+                f'tellonce: warning: chmod {oct(mode)} on {path} '
                 f'failed ({e.__class__.__name__}: {e}). File may be '
                 f'world-readable; consider remounting on a chmod-capable '
                 f'filesystem or set PT_QUIET_CHMOD=1 to silence.\n'
@@ -91,7 +91,7 @@ def _clear_cache():
 
 @lru_cache(maxsize=1)
 def _read_config_file() -> dict:
-    """Read ~/.preference-tracker.config.json. Returns empty dict if missing/corrupt."""
+    """Read ~/.tellonce.config.json. Returns empty dict if missing/corrupt."""
     if not os.path.exists(CONFIG_PATH):
         return {}
     try:

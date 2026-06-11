@@ -9,7 +9,7 @@ production work, data persists, and install-uninstall-reinstall is idempotent.
 
 Per `wf-pref-290`: chaos testing is required for a production-quality skill.
 Per `wf-pref-036` defensive fallbacks (judge timeout / disk full / permission denied → exit 0).
-Per `tool-pit-130`: state lives under .claude/preference-tracker-state/, not /tmp.
+Per `tool-pit-130`: state lives under .claude/tellonce-state/, not /tmp.
 """
 import json
 import os

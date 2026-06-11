@@ -1,4 +1,4 @@
-# run.ps1 — robust launcher for preference-tracker Python hooks on Windows.
+# run.ps1 — robust launcher for tellonce Python hooks on Windows.
 #
 # Fixes two Copilot-on-Windows deployment problems found in live Test B:
 #   RC1: `pwsh -c "python ...; <python exits 2>"` makes pwsh return exit 1, and

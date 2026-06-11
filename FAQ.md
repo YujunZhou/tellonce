@@ -1,4 +1,4 @@
-# FAQ — Preference-Tracker
+# FAQ — Tellonce
 
 12 common questions. For the full architecture see
 [`docs/claude-code.md`](docs/claude-code.md) + `SKILL.md`.
@@ -25,7 +25,7 @@ ls -t ~/your-project/.claude/settings.local.json.v3_pre_pt_*.json | head -1
 Or:
 
 ```bash
-bash ~/.claude/skills/preference-tracker/doctor.sh --rollback
+bash ~/.claude/skills/tellonce/doctor.sh --rollback
 ```
 
 ---
@@ -34,17 +34,17 @@ bash ~/.claude/skills/preference-tracker/doctor.sh --rollback
 
 ```bash
 # Run the doctor self-check
-bash ~/.claude/skills/preference-tracker/doctor.sh
+bash ~/.claude/skills/tellonce/doctor.sh
 
 # Verify the hooks are registered in settings.local.json:
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py \
+python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py \
     --settings ~/your-project/.claude/settings.local.json \
-    --hooks-dir ~/.claude/skills/preference-tracker/hooks \
+    --hooks-dir ~/.claude/skills/tellonce/hooks \
     --verify
 
 # Manual smoke: deliberately trigger a violation
 echo '{"session_id":"test","transcript_path":"/tmp/t.jsonl"}' | \
-    python3 ~/.claude/skills/preference-tracker/lib/deterministic_block.py
+    python3 ~/.claude/skills/tellonce/lib/deterministic_block.py
 # (exit 2 / 0 depends on the transcript content)
 ```
 
@@ -138,7 +138,7 @@ hits on the same rule auto-bypasses it to avoid livelock.
 
 `install.sh` detects by default: `<cwd>` is the project root, hooks stay in the
 skill directory and are registered into `<cwd>/.claude/settings.local.json`,
-state lives in `<cwd>/.claude/preference-tracker-state/runtime/`, memory in
+state lives in `<cwd>/.claude/tellonce-state/runtime/`, memory in
 `~/.claude/projects/<cwd_escaped>/memory/`.
 
 If that's wrong, override:
@@ -155,7 +155,7 @@ PT_PROJECT_ROOT=/custom/project bash uninstall.sh
 
 > Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
 
-Or write `~/.preference-tracker.config.json` (schema:
+Or write `~/.tellonce.config.json` (schema:
 `{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"..."}`;
 any field left unset falls back to auto-detect).
 
@@ -185,34 +185,34 @@ wrapper-driven adapter — see the `codex/` subdirectory: install with
 
 ```bash
 # 1. Check the hook files are executable (they live in the skill dir, not the project)
-ls -la ~/.claude/skills/preference-tracker/hooks/memory-*.sh
+ls -la ~/.claude/skills/tellonce/hooks/memory-*.sh
 # should be -rwxr-xr-x; if not, chmod +x
 
 # 2. Check the registrations in settings point at the skill dir:
-python3 ~/.claude/skills/preference-tracker/lib/_install_merge_settings.py \
+python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py \
     --settings <project>/.claude/settings.local.json \
-    --hooks-dir ~/.claude/skills/preference-tracker/hooks \
+    --hooks-dir ~/.claude/skills/tellonce/hooks \
     --verify
 
 # 3. Read install.log:
-cat ~/.claude/skills/preference-tracker/install.log | tail -50
+cat ~/.claude/skills/tellonce/install.log | tail -50
 
 # 4. Run the full doctor check:
-bash ~/.claude/skills/preference-tracker/doctor.sh
+bash ~/.claude/skills/tellonce/doctor.sh
 
 # 5. Run a hook manually and watch the output:
 echo '{"session_id":"test","transcript_path":"/tmp/dummy.jsonl"}' | \
-    bash ~/.claude/skills/preference-tracker/hooks/memory-deterministic-block.sh
+    bash ~/.claude/skills/tellonce/hooks/memory-deterministic-block.sh
 # (should exit 0, since the transcript doesn't exist)
 
 # 6. See what path_config detects (env / config / default):
-python3 ~/.claude/skills/preference-tracker/lib/path_config.py
+python3 ~/.claude/skills/tellonce/lib/path_config.py
 ```
 
 ---
 
 More issues:
-- GitHub Issues: https://github.com/YujunZhou/preference-tracker/issues
+- GitHub Issues: https://github.com/YujunZhou/tellonce/issues
 - For a bug / false positive / whitelist request / threshold not working — attach
   the `doctor.sh` output + 7 days of `dashboard` data to your issue for easier
   diagnosis.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""dashboard — one-glance status of the preference-tracker install.
+"""dashboard — one-glance status of the tellonce install.
 
 Read-only: never writes, never blocks, never crashes. Mirrors the codex
 variant's `build_dashboard` (mode / hooks / blocking / counts) but reports the
@@ -134,7 +134,7 @@ def build_dashboard():
         reg_label = '? (could not read ~/.copilot/config.json)'
 
     lines = [
-        '═══ preference-tracker dashboard ═══',
+        '═══ tellonce dashboard ═══',
         f'mode:          {mode}',
         f'  enforce:     {enforce}',
         f'  shadow:      {shadow}',

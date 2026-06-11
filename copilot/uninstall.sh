@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# uninstall.sh — ONE-COMMAND uninstaller for preference-tracker (GitHub Copilot CLI, macOS/Linux).
+# uninstall.sh — ONE-COMMAND uninstaller for tellonce (GitHub Copilot CLI, macOS/Linux).
 #
-#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/uninstall.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/uninstall.sh | bash
 #
 # WHY THIS EXISTS: the hooks keep firing as long as the plugin is REGISTERED in
 # ~/.copilot/config.json — deleting the files alone is not enough. This removes
@@ -16,11 +16,11 @@ PURGE=0
 [ "${1:-}" = "--purge" ] && PURGE=1
 
 COPILOT_HOME="${HOME}/.copilot"
-PLUGIN_PARENT="${COPILOT_HOME}/installed-plugins/preference-tracker"
-PLUGIN="${PLUGIN_PARENT}/preference-tracker"
+PLUGIN_PARENT="${COPILOT_HOME}/installed-plugins/tellonce"
+PLUGIN="${PLUGIN_PARENT}/tellonce"
 
 echo "================================================================"
-echo "  preference-tracker — one-command uninstaller (Copilot CLI)"
+echo "  tellonce — one-command uninstaller (Copilot CLI)"
 echo "================================================================"
 
 # Find python3/python.
@@ -51,7 +51,7 @@ elif [ -n "$PY" ] && [ -f "${PLUGIN}/lib/register_plugin.py" ]; then
 fi
 if [ "$UNREG" = "0" ]; then
     echo "[i] Could not run the in-plugin uninstaller (python or plugin missing)."
-    echo "    Manually remove the 'preference-tracker' entry from ~/.copilot/config.json installedPlugins."
+    echo "    Manually remove the 'tellonce' entry from ~/.copilot/config.json installedPlugins."
 fi
 
 # 2. Remove the plugin files.
@@ -62,7 +62,7 @@ fi
 
 echo ""
 echo "================================================================"
-echo "[OK] preference-tracker uninstalled."
+echo "[OK] tellonce uninstalled."
 echo "  >> RESTART Copilot so the hooks fully unload. <<"
 if [ "$PURGE" = "0" ]; then
     echo "  Your saved memory/preferences were kept. To remove those too,"

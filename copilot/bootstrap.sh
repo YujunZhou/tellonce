@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# bootstrap.sh — ONE-COMMAND installer for preference-tracker (GitHub Copilot CLI, macOS/Linux).
+# bootstrap.sh — ONE-COMMAND installer for tellonce (GitHub Copilot CLI, macOS/Linux).
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
 #
 # Downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state, seed, observe mode, register,
@@ -16,15 +16,15 @@ set -euo pipefail
 
 main() {
 
-REPO="https://github.com/YujunZhou/preference-tracker"
+REPO="https://github.com/YujunZhou/tellonce"
 # Pinned to a release tag (immutable) for integrity.
-REF="v1.1.1"
+REF="v1.2.0"
 REFKIND="tags"
 
 fail() { printf '\033[31m[X] %s\033[0m\n' "$1" >&2; exit 1; }
 
 echo "================================================================"
-echo "  preference-tracker — one-command installer (Copilot CLI)"
+echo "  tellonce — one-command installer (Copilot CLI)"
 echo "================================================================"
 
 # 1. Copilot home.
@@ -68,7 +68,7 @@ fi
 # files deleted in newer releases. User memory/state live elsewhere, EXCEPT
 # the personal rule overlays (lib/*.user.yaml) which the docs tell users to
 # keep inside the plugin tree — carried over into the staged tree before swap.
-DEST="${COPILOT_HOME}/installed-plugins/preference-tracker/preference-tracker"
+DEST="${COPILOT_HOME}/installed-plugins/tellonce/tellonce"
 STAGE="${DEST}.new-$$"
 # Clean any staging dirs a previously failed run left behind (any pid).
 rm -rf "${DEST}".new-* 2>/dev/null || true
@@ -105,7 +105,7 @@ bash "${DEST}/install.sh" --mode observe --python "${PY}"
 
 echo ""
 echo "================================================================"
-echo "[OK] preference-tracker installed."
+echo "[OK] tellonce installed."
 echo "  >> RESTART Copilot for the hooks to load. <<"
 echo ""
 echo "  Default mode = observe (records your preferences, never blocks)."

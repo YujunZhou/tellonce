@@ -1,10 +1,10 @@
 {
-  "name": "preference-tracker",
+  "name": "tellonce",
   "description": "Automatic preference/pitfall/friction detection and memory enforcement for Copilot CLI",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": { "name": "Yujun Zhou", "email": "yzhou25@nd.edu" },
-  "homepage": "https://github.com/YujunZhou/preference-tracker",
-  "repository": "https://github.com/YujunZhou/preference-tracker",
+  "homepage": "https://github.com/YujunZhou/tellonce",
+  "repository": "https://github.com/YujunZhou/tellonce",
   "license": "MIT",
   "keywords": ["memory", "preferences", "pitfalls", "hooks", "enforcement", "personalization"]
 }

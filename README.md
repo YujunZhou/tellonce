@@ -1,14 +1,14 @@
-# Preference-Tracker
+# Tellonce
 
 **English** · [中文](README.zh.md)
 
-> Stop re-explaining yourself to your AI coding agent. Preference-Tracker
+> Stop re-explaining yourself to your AI coding agent. Tellonce
 > remembers the corrections you make and — when you ask it to — enforces them, so
 > the same mistake doesn't come back.
 
 You told your agent to stop writing scratch files to `/tmp`. To reply in your
 language. To leave unrelated code alone. Three turns later it does it again.
-Preference-Tracker watches each turn, records the preferences, pitfalls, and
+Tellonce watches each turn, records the preferences, pitfalls, and
 workflow rules it detects, and can hard-enforce the ones you care about.
 
 It is **safe by default**: out of the box it only records and reminds. It never
@@ -33,19 +33,19 @@ blocks you and never sends your conversation anywhere until you opt in.
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.** The command is pinned to the
-> immutable release tag `v1.1.1`, so a later change to `main` can't alter what
+> immutable release tag `v1.2.0`, so a later change to `main` can't alter what
 > you run.
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
 ```
 
 This downloads the plugin, copies it into Copilot's plugin directory, installs
@@ -112,11 +112,11 @@ python "<plugin>/lib/doctor.py"        # self-check: python / registration / mod
 python "<plugin>/lib/dashboard.py"     # status at a glance: mode / rules / records
 python "<plugin>/lib/uninstall.py"     # dry-run: show what would be removed
 python "<plugin>/lib/uninstall.py --all"
-copilot plugin uninstall preference-tracker
+copilot plugin uninstall tellonce
 ```
 
 `<plugin>` is printed at the end of install; it is
-`~/.copilot/installed-plugins/preference-tracker/preference-tracker`.
+`~/.copilot/installed-plugins/tellonce/tellonce`.
 
 ## Project layout
 

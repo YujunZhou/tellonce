@@ -1,12 +1,12 @@
-# Preference-Tracker
+# Tellonce
 
 [English](README.md) · **中文**
 
-> 别再一遍遍跟你的 AI 编码助手重复同样的话。Preference-Tracker 记住你做过的纠正，
+> 别再一遍遍跟你的 AI 编码助手重复同样的话。Tellonce 记住你做过的纠正，
 > 并在你需要时强制执行，让同一个错误不再回来。
 
 你让助手别往 `/tmp` 写临时文件、让它用你的语言回复、让它别动无关代码——结果三轮之后
-它又犯了。Preference-Tracker 在每一轮观察对话，自动记录它检测到的偏好（preference）、
+它又犯了。Tellonce 在每一轮观察对话，自动记录它检测到的偏好（preference）、
 陷阱（pitfall）、摩擦（friction），并能对你在意的规则做硬性强制。
 
 它**默认安全**：开箱即用只记录、只提醒，绝不打断你，也绝不把你的对话发往任何地方——
@@ -26,18 +26,18 @@
 ## 🚀 快速开始（GitHub Copilot CLI）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。**装完重启 Copilot。**
-> 命令钉在不可变的 release tag `v1.1.1`，不会因 `main` 变动而改，更安全。
+> 命令钉在不可变的 release tag `v1.2.0`，不会因 `main` 变动而改，更安全。
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -97,11 +97,11 @@ python "<plugin>/lib/doctor.py"        # 自检：python / 注册 / 模式 / 钩
 python "<plugin>/lib/dashboard.py"     # 一眼看状态：模式 / 规则数 / 记录数
 python "<plugin>/lib/uninstall.py"     # dry-run：看会删什么
 python "<plugin>/lib/uninstall.py --all"
-copilot plugin uninstall preference-tracker
+copilot plugin uninstall tellonce
 ```
 
 `<plugin>` 在安装结束时会打印，即
-`~/.copilot/installed-plugins/preference-tracker/preference-tracker`。
+`~/.copilot/installed-plugins/tellonce/tellonce`。
 
 ## 目录结构
 

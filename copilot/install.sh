@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# install.sh — Post-install setup for preference-tracker Copilot CLI plugin.
+# install.sh — Post-install setup for tellonce Copilot CLI plugin.
 #
-# Run after `copilot plugin install YujunZhou/preference-tracker:copilot`
+# Run after `copilot plugin install YujunZhou/tellonce:copilot`
 # to initialize state directories and seed memory if not already present.
 #
 # Usage:
@@ -35,7 +35,7 @@ case "${MODE}" in
 esac
 
 echo "╔═══════════════════════════════════════════════════════════════╗"
-echo "║  preference-tracker — Copilot CLI plugin post-install        ║"
+echo "║  tellonce — Copilot CLI plugin post-install        ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Plugin root:  ${SCRIPT_DIR}"
@@ -107,7 +107,7 @@ else
 fi
 
 # 5. Write config file (retrieve defaults) + set mode switch automatically.
-CONFIG_PATH="${HOME}/.preference-tracker.config.json"
+CONFIG_PATH="${HOME}/.tellonce.config.json"
 if [ ! -f "${CONFIG_PATH}" ]; then
     echo ""
     echo "Writing default config to ${CONFIG_PATH}..."
@@ -125,7 +125,7 @@ else
     # overrides per-cwd path resolution. Strip it so runtime falls back to cwd.
     "${PY}" - <<'PY' 2>/dev/null || true
 import json, io, os
-p = os.path.expanduser("~/.preference-tracker.config.json")
+p = os.path.expanduser("~/.tellonce.config.json")
 try:
     c = json.load(io.open(p, encoding="utf-8-sig"))
 except Exception:
@@ -187,6 +187,6 @@ echo "  python3 \"${PT_LIB}/pt_mode.py\" full        # blocking + AI judge"
 echo "  python3 \"${PT_LIB}/pt_mode.py\" observe     # back to safe default"
 echo "  python3 \"${PT_LIB}/pt_mode.py\" status      # show current mode"
 echo ""
-echo "State will be written to: ${PROJECT_ROOT}/.copilot/preference-tracker-state/"
+echo "State will be written to: ${PROJECT_ROOT}/.copilot/tellonce-state/"
 echo "Memory rules live at:     ${MEMORY_DIR}"
 echo "════════════════════════════════════════════════════════════════"

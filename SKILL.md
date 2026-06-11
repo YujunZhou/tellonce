@@ -1,10 +1,10 @@
 ---
-name: preference-tracker
+name: tellonce
 description: "EVERY-MESSAGE enforcement: scan for preference/pitfall/friction signals, record to memory, log observations. Also handles memory audit/restructure. Use on EVERY user message — even simple ones, even during intensive technical work, even when you think there's nothing to detect. If you're not invoking this, you're skipping compliance."
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 ---
 
-# Preference Tracker
+# Tellonce
 
 ## 运行模式与默认值（公开发布版）
 
@@ -27,7 +27,7 @@ PT_SHADOW=1    # 开 AI 判官（影子模式）
 
 这个 skill 不止是 Iron Law + Gate Function. 装了 3 层基础设施, 以**自动 hook** 形式运行, 不需要显式 Skill 调用就生效.
 
-> **路径占位说明**: 下文出现的 `<skill_dir>` 默认是 `~/.claude/skills/preference-tracker/`，`<project_root>` 是当前项目根，`<state_dir>` 是 `<project_root>/.claude/preference-tracker-state/`。所有路径在运行时由 `lib/path_config.py` 解析（env > `~/.preference-tracker.config.json` > 自动 detect 三层兜底），SKILL.md 不写绝对路径以免污染 Claude 输出。
+> **路径占位说明**: 下文出现的 `<skill_dir>` 默认是 `~/.claude/skills/tellonce/`，`<project_root>` 是当前项目根，`<state_dir>` 是 `<project_root>/.claude/tellonce-state/`。所有路径在运行时由 `lib/path_config.py` 解析（env > `~/.tellonce.config.json` > 自动 detect 三层兜底），SKILL.md 不写绝对路径以免污染 Claude 输出。
 
 ### Deterministic fingerprint retrieval (UserPromptSubmit hook)
 
@@ -75,7 +75,7 @@ retrieval hook 注入的每条 rule 后面带 `applies_when: ...` 和 `condition
 | Compliance log | `<state_dir>/obs_log/compliance_log.jsonl` |
 | Hooks 注册 | `<project_root>/.claude/settings.local.json` (直接注册 `<skill_dir>/hooks/` 路径, 不往项目里 copy 文件) |
 
-> **要看你机器上真实 path**: 跑 `python3 ~/.claude/skills/preference-tracker/lib/path_config.py` 会打印当前 detect 出来的所有 path. 不要根据这份 SKILL.md 的占位字面量去写 / 创建文件 — 用 path_config 给的 runtime 值.
+> **要看你机器上真实 path**: 跑 `python3 ~/.claude/skills/tellonce/lib/path_config.py` 会打印当前 detect 出来的所有 path. 不要根据这份 SKILL.md 的占位字面量去写 / 创建文件 — 用 path_config 给的 runtime 值.
 
 ### 规则新增 / 更新时要同步动
 
@@ -283,7 +283,7 @@ Examples:
 
 ## Memory 文件格式
 
-存储位置 (path_config-driven): `~/.claude/projects/<cwd_escaped>/memory/`，其中 `<cwd_escaped>` 是当前项目 cwd 把 `/` 换成 `-`. 真实路径跑 `python3 ~/.claude/skills/preference-tracker/lib/path_config.py` 看 `memory_dir` 字段，或读 `<skill_dir>/lib/path_config.py:get_memory_dir()`.
+存储位置 (path_config-driven): `~/.claude/projects/<cwd_escaped>/memory/`，其中 `<cwd_escaped>` 是当前项目 cwd 把 `/` 换成 `-`. 真实路径跑 `python3 ~/.claude/skills/tellonce/lib/path_config.py` 看 `memory_dir` 字段，或读 `<skill_dir>/lib/path_config.py:get_memory_dir()`.
 
 ### Frontmatter 规范
 
@@ -405,7 +405,7 @@ DIFF=$((FILE_COUNT - INDEX_COUNT))
 
 ### 手动触发：完整从头重排
 
-用户调用 `/preference-tracker` 或说"整理 memory"时执行。
+用户调用 `/tellonce` 或说"整理 memory"时执行。
 
 **关键：完整重排不基于旧分类。** 因为随着 memory 积累，domain 分类可能变化（比如之前分在 workflow 的现在更适合分在 experiment）。必须从头看每条 memory 的内容重新分类，不能只在旧索引上修补。
 

@@ -390,7 +390,7 @@ def _write_pending_alert(queue):
             f.write(f'**Generated**: {_now().isoformat()}\n')
             f.write(f'**Queue length**: {len(queue)}\n')
             f.write(f'**Threshold**: {ALERT_LEN_THRESHOLD}\n\n')
-            f.write('Pending memory entries detected by `preference-tracker` skill but not '
+            f.write('Pending memory entries detected by `tellonce` skill but not '
                     'yet finalized to a memory file.  These survived prior session(s) and '
                     'must be processed before the next major work block.\n\n')
             f.write('## Unresolved entries\n\n')

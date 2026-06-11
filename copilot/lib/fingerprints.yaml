@@ -1,6 +1,6 @@
-# Preference-tracker Fingerprint Library
+# Tellonce Fingerprint Library
 #
-# SHIPPED EMPTY ON PURPOSE. preference-tracker does NOT pre-load anyone's
+# SHIPPED EMPTY ON PURPOSE. tellonce does NOT pre-load anyone's
 # personal preference rules. Your rules accumulate as YOU teach the agent
 # (the Gate Function records them), and you can hand-author fingerprints here.
 #

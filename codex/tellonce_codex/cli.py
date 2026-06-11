@@ -19,7 +19,7 @@ COMMANDS = ("install", "doctor", "uninstall", "scan", "promote", "dashboard", "e
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="codex_preftrack")
+    parser = argparse.ArgumentParser(prog="tellonce_codex")
     sub = parser.add_subparsers(dest="command")
     for command in COMMANDS:
         p = sub.add_parser(command)
@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         if command == "uninstall":
             # CX-6: real --purge-state flag; default keeps data.
             p.add_argument("--purge-state", action="store_true",
-                           help="DANGER: rm -rf the entire <project>/.codex/preference-tracker/ state directory.")
+                           help="DANGER: rm -rf the entire <project>/.codex/tellonce/ state directory.")
         if command == "exec":
             def _positive_int(s: str) -> int:
                 v = int(s)
@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(
                 "promote: --dry-run is the only supported CLI mode; programmatic callers "
-                "should use codex_preftrack.promote.promote_candidate() directly.",
+                "should use tellonce_codex.promote.promote_candidate() directly.",
                 file=sys.stderr,
             )
             return 2
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
     elif args.command == "exec":
-        # CX-12: enforce `--` as the separator between codex_preftrack flags
+        # CX-12: enforce `--` as the separator between tellonce_codex flags
         # and the wrapped command. Without it, argparse will swallow flags
         # like --project-root that the user intended to pass through.
         cmd = list(args.cmd)
@@ -143,8 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(
                 "exec: missing `--` separator. Use:\n"
-                "    codex_preftrack exec [--project-root PATH] [--timeout SEC] -- <wrapped command...>\n"
-                "Without `--`, codex_preftrack flags can intercept arguments meant for the wrapped command.",
+                "    tellonce_codex exec [--project-root PATH] [--timeout SEC] -- <wrapped command...>\n"
+                "Without `--`, tellonce_codex flags can intercept arguments meant for the wrapped command.",
                 file=sys.stderr,
             )
             return 2

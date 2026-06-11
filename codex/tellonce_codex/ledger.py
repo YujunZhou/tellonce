@@ -38,7 +38,7 @@ def _chmod_or_warn(path, mode: int, *, critical: bool = True) -> None:
             return
         try:
             sys.stderr.write(
-                f"codex_preftrack: warning: chmod {oct(mode)} on {path} failed "
+                f"tellonce_codex: warning: chmod {oct(mode)} on {path} failed "
                 f"({e.__class__.__name__}: {e}). File may be world-readable; "
                 f"consider remounting on a chmod-capable filesystem or set "
                 f"CODEX_PT_QUIET_CHMOD=1 to silence.\n"
@@ -146,7 +146,7 @@ def secure_write_text(path: Path, data: str, *, atomic: bool = False) -> None:
     """Write `data` to `path` and chmod 0o600. If atomic=True, write to .tmp
     then rename and fsync parent dir.
 
-    All on-disk codex_preftrack artifacts go through this helper rather than
+    All on-disk tellonce_codex artifacts go through this helper rather than
     Path.write_text, because the package writes user prompts / subprocess
     stdout / preference rule_text — anything an attacker on a shared host
     might want to read. POSIX umask defaults to 0022 → world-readable
@@ -155,7 +155,7 @@ def secure_write_text(path: Path, data: str, *, atomic: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if atomic:
         # Per-pid + uuid suffix so concurrent
-        # writers (e.g. two `codex_preftrack exec` instances flushing mode.json
+        # writers (e.g. two `tellonce_codex exec` instances flushing mode.json
         # simultaneously) don't truncate each other's tmp file before the rename.
         # Old behavior used a fixed `.tmp` suffix → race window where P1 writes
         # data, P2 truncates + writes data2, P1 renames truncated→target.

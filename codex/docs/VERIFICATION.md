@@ -8,18 +8,18 @@ throwaway project directory.
 ## 0. Get the code & set up
 
 ```bash
-git clone git@github.com:YujunZhou/preference-tracker.git
-cd preference-tracker/codex
+git clone git@github.com:YujunZhou/tellonce.git
+cd tellonce/codex
 python3 --version          # 3.8+ expected
 ```
 
-The package is `codex_preftrack`; run the commands below from `preference-tracker/codex/`
+The package is `tellonce_codex`; run the commands below from `tellonce/codex/`
 so it is importable, or after `install.sh` from the installed skill dir.
 
 ## 1. Unit suite
 
 ```bash
-cd preference-tracker/codex
+cd tellonce/codex
 python -m unittest tests.test_core -v      # or: python -m pytest tests/test_core.py -q
 ```
 
@@ -29,24 +29,24 @@ python -m unittest tests.test_core -v      # or: python -m pytest tests/test_cor
 
 ```bash
 mkdir -p ~/pt-codex-smoke && cd ~/pt-codex-smoke && git init -q
-bash ~/.codex/skills/preference-tracker/codex/install.sh    # after cloning to that path, per codex/docs/README.md
-bash ~/.codex/skills/preference-tracker/codex/doctor.sh
+bash ~/.codex/skills/tellonce/codex/install.sh    # after cloning to that path, per codex/docs/README.md
+bash ~/.codex/skills/tellonce/codex/doctor.sh
 # (the repo-root install.sh is the Claude Code variant — don't run it here)
 ```
 
 > Use a scratch project under your home directory, not `/tmp`:
-> `codex_preftrack/paths.py` rejects `/tmp` / `/var/tmp` project roots with
+> `tellonce_codex/paths.py` rejects `/tmp` / `/var/tmp` project roots with
 > `ProjectRootError`. If you really need a temp path, set
-> `CODEX_PREFTRACK_ALLOW_TEMP=1`.
+> `TELLONCE_CODEX_ALLOW_TEMP=1`.
 
 **Expected:** install is idempotent (safe to re-run), doctor prints a status line
-with mode = `audit_only` and no FAIL. The project gets `.codex/preference-tracker/`
+with mode = `audit_only` and no FAIL. The project gets `.codex/tellonce/`
 with `mode.json` + `events.jsonl`.
 
 ## 3. Scan classifies signals
 
 ```bash
-python -m codex_preftrack scan --project-root . --message "from now on always answer me in Chinese"
+python -m tellonce_codex scan --project-root . --message "from now on always answer me in Chinese"
 ```
 
 **Expected:** a `scan_recorded` event is appended to `events.jsonl` classifying
@@ -55,7 +55,7 @@ the message as a preference (not `none`).
 ## 4. Wrapper exec records a ledger event + verdict
 
 ```bash
-python -m codex_preftrack exec --project-root . -- definitely-missing-codex-binary
+python -m tellonce_codex exec --project-root . -- definitely-missing-codex-binary
 ```
 
 **Expected:** a `wrapper_run_completed` event is recorded (even though the binary
@@ -65,13 +65,13 @@ handled gracefully.
 ## 5. The three modes behave as documented
 
 ```bash
-python -m codex_preftrack dashboard --project-root .   # shows mode + counts
+python -m tellonce_codex dashboard --project-root .   # shows mode + counts
 # inspect/flip mode via mode.json (the mode authority)
 ```
 
 **Expected:**
 - `audit_only` (default): records scans/warnings, never claims hard enforcement.
-- `wrapper`: only output produced through `codex_preftrack exec` is checked.
+- `wrapper`: only output produced through `tellonce_codex exec` is checked.
 - `hooks_experimental`: opt-in only; not the default.
 
 ## 6. M2 regression — PostToolUse must not false-positive on ordinary tool calls
@@ -83,7 +83,7 @@ the language rules on normal tool input.
 ```bash
 # Feed the hook a normal tool call (e.g. a Chinese commit message or a plain bash command)
 echo '{"tool_name":"Bash","tool_input":{"command":"git commit -m \"refactor auth module\""},"tool_response":{"output":"ok"},"cwd":"."}' \
-  | python -m codex_preftrack.codex_posttooluse_block
+  | python -m tellonce_codex.codex_posttooluse_block
 ```
 
 **Expected:** **no block** for an ordinary tool call. The language rules must not
@@ -93,7 +93,7 @@ block. Confirm a real violation (e.g. `echo x >> /tmp/a` inside code) still does
 ## 7. Empty-seed default
 
 ```bash
-ls ~/.codex/skills/preference-tracker/seed_memory/    # shipped seed
+ls ~/.codex/skills/tellonce/seed_memory/    # shipped seed
 ```
 
 **Expected:** a new user starts blank (no personal rules pre-loaded), matching
@@ -118,7 +118,7 @@ in `~/.codex/hooks.json` and fire.
 ## 9. Private-path audit
 
 ```bash
-bash ~/.codex/skills/preference-tracker/doctor.sh     # includes a private-path audit
+bash ~/.codex/skills/tellonce/doctor.sh     # includes a private-path audit
 ```
 
 **Expected:** no real machine paths / personal identifiers reported.
@@ -127,7 +127,7 @@ bash ~/.codex/skills/preference-tracker/doctor.sh     # includes a private-path 
 
 ## What changed this session (sanity-check these)
 
-- **M2** — `codex_preftrack/codex_posttooluse_block.py`: language rules no longer
+- **M2** — `tellonce_codex/codex_posttooluse_block.py`: language rules no longer
   false-positive on tool input (check §6).
 
 ## What to report back

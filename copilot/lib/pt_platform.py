@@ -40,24 +40,24 @@ JUDGE_MODEL_DEFAULT = ''
 
 
 def default_state_dir(project_root: str) -> str:
-    """Default runtime state dir: <project_root>/.copilot/preference-tracker-state/runtime."""
-    return os.path.join(project_root, '.copilot', 'preference-tracker-state', 'runtime')
+    """Default runtime state dir: <project_root>/.copilot/tellonce-state/runtime."""
+    return os.path.join(project_root, '.copilot', 'tellonce-state', 'runtime')
 
 
 def default_obs_log_dir(project_root: str) -> str:
-    """Default observation/compliance/pending root: <project_root>/.copilot/preference-tracker-state/obs_log."""
-    return os.path.join(project_root, '.copilot', 'preference-tracker-state', 'obs_log')
+    """Default observation/compliance/pending root: <project_root>/.copilot/tellonce-state/obs_log."""
+    return os.path.join(project_root, '.copilot', 'tellonce-state', 'obs_log')
 
 
 def default_memory_dir(project_root: str) -> str:
     """Default memory-rules dir for Copilot: project-local at
-    <project_root>/.copilot/preference-tracker/memory.
+    <project_root>/.copilot/tellonce/memory.
 
     Migration fallback: if the new path has no .md files, check the legacy Claude
     Code path (~/.claude/projects/<cwd_escaped>/memory) and use it if it has
     content, so rules recorded before switching from Claude Code aren't invisible.
     """
-    new_dir = os.path.join(project_root, '.copilot', 'preference-tracker', 'memory')
+    new_dir = os.path.join(project_root, '.copilot', 'tellonce', 'memory')
     try:
         if os.path.isdir(new_dir) and any(f.endswith('.md') for f in os.listdir(new_dir)):
             return new_dir

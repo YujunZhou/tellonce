@@ -1,4 +1,4 @@
-# PORT_DESIGN.md — Preference-Tracker → Copilot CLI Plugin
+# PORT_DESIGN.md — Tellonce → Copilot CLI Plugin
 
 > Design document for porting Claude Code hooks to Copilot CLI plugin format.
 > Created 2026-05-20.
@@ -73,24 +73,24 @@ Non-blocking Stop hooks (compliance/shadow/promote) stay `exit 0` with no stdout
 
 | Claude path | Copilot equivalent | Strategy |
 |---|---|---|
-| `~/.claude/skills/preference-tracker/` | Plugin install dir (`${PLUGIN_ROOT}`) | Use `${CLAUDE_PLUGIN_ROOT}` token in hooks.json commands |
-| `<cwd>/.claude/preference-tracker-state/` | `<cwd>/.copilot/preference-tracker-state/` | Change in `path_config.py` default |
-| `~/.claude/projects/<escaped>/memory/` | `<cwd>/.copilot/preference-tracker/memory/` | Simplify — project-local |
-| `~/.preference-tracker.config.json` | Same (unchanged) | Config file is tool-agnostic |
-| `${HOME}/.claude/skills/preference-tracker/lib` | `${CLAUDE_PLUGIN_ROOT}/lib` | Via env var set in hooks.json |
+| `~/.claude/skills/tellonce/` | Plugin install dir (`${PLUGIN_ROOT}`) | Use `${CLAUDE_PLUGIN_ROOT}` token in hooks.json commands |
+| `<cwd>/.claude/tellonce-state/` | `<cwd>/.copilot/tellonce-state/` | Change in `path_config.py` default |
+| `~/.claude/projects/<escaped>/memory/` | `<cwd>/.copilot/tellonce/memory/` | Simplify — project-local |
+| `~/.tellonce.config.json` | Same (unchanged) | Config file is tool-agnostic |
+| `${HOME}/.claude/skills/tellonce/lib` | `${CLAUDE_PLUGIN_ROOT}/lib` | Via env var set in hooks.json |
 
 ### 3.1 `path_config.py` Changes
 
 ```python
 # Old defaults
-STATE_DIR = "<cwd>/.claude/preference-tracker-state/runtime"
-OBS_LOG_DIR = "<cwd>/.claude/preference-tracker-state/obs_log"
+STATE_DIR = "<cwd>/.claude/tellonce-state/runtime"
+OBS_LOG_DIR = "<cwd>/.claude/tellonce-state/obs_log"
 MEMORY_DIR = "~/.claude/projects/<escaped>/memory"
 
 # New defaults (Copilot)
-STATE_DIR = "<cwd>/.copilot/preference-tracker-state/runtime"
-OBS_LOG_DIR = "<cwd>/.copilot/preference-tracker-state/obs_log"
-MEMORY_DIR = "<cwd>/.copilot/preference-tracker/memory"
+STATE_DIR = "<cwd>/.copilot/tellonce-state/runtime"
+OBS_LOG_DIR = "<cwd>/.copilot/tellonce-state/obs_log"
+MEMORY_DIR = "<cwd>/.copilot/tellonce/memory"
 ```
 
 The 3-layer priority (env > config > default) stays identical.
@@ -147,7 +147,7 @@ copilot/
 
 ```json
 {
-  "name": "preference-tracker",
+  "name": "tellonce",
   "description": "Automatic preference/pitfall/friction detection and memory enforcement for Copilot CLI",
   "version": "1.0.0",
   "author": { "name": "Yujun Zhou", "email": "yzhou25@nd.edu" }

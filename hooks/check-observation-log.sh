@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hook: Verify preference-tracker Gate Function was FULLY executed
+# Hook: Verify tellonce Gate Function was FULLY executed
 # Fires on Stop event — blocks response if any step is missing
 #
 # Gate Function has 4 steps when signal detected:
@@ -98,7 +98,7 @@ except Exception:
       TRACE_LOG="${_PT_STATE_DIR_FOR_TRACE}/hook-trace.log"
       mkdir -p "${_PT_STATE_DIR_FOR_TRACE}" 2>/dev/null || true
     else
-      TRACE_LOG="${TMPDIR:-/tmp}/preference-tracker-hook-trace-$$.log"
+      TRACE_LOG="${TMPDIR:-/tmp}/tellonce-hook-trace-$$.log"
     fi
   fi
   TRACE_ID="inv-$(date +%s.%N)"
@@ -354,7 +354,7 @@ if [ -n "$WARNINGS" ] && [ "$PT_ENFORCE_ON" = "1" ]; then
   # (Only PreToolUse / UserPromptSubmit / PostToolUse support hookSpecificOutput.)
   OUTPUT=$(jq -n --arg msg "$MSG" '{
     "decision": "block",
-    "reason": ("🔴 PREFERENCE-TRACKER GATE CHECK FAILED\n\nMissing steps detected:\n" + $msg + "\nGate Function: SCAN → RECORD → CONFIRM → ROOT CAUSE (if signal detected)\n\nYou cannot stop until you: (1) SCAN the user message for preference/pitfall/friction signals, (2) RECORD an entry to observations.jsonl, (3) CONFIRM the scan result to the user, (4) ROOT CAUSE if signal detected.\n\nRoot cause = the general rule that prevents this CLASS of error, not the specific instance.\n\nDo this NOW in a brief follow-up, then stop. Not optional.")
+    "reason": ("🔴 TELLONCE GATE CHECK FAILED\n\nMissing steps detected:\n" + $msg + "\nGate Function: SCAN → RECORD → CONFIRM → ROOT CAUSE (if signal detected)\n\nYou cannot stop until you: (1) SCAN the user message for preference/pitfall/friction signals, (2) RECORD an entry to observations.jsonl, (3) CONFIRM the scan result to the user, (4) ROOT CAUSE if signal detected.\n\nRoot cause = the general rule that prevents this CLASS of error, not the specific instance.\n\nDo this NOW in a brief follow-up, then stop. Not optional.")
   }')
   echo "[output] $OUTPUT" >> "$TRACE_LOG"
   echo "[exit_code] 2 (BLOCKING)" >> "$TRACE_LOG"

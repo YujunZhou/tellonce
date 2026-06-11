@@ -1,6 +1,6 @@
-# uninstall.ps1 — ONE-COMMAND uninstaller for preference-tracker (GitHub Copilot CLI, Windows).
+# uninstall.ps1 — ONE-COMMAND uninstaller for tellonce (GitHub Copilot CLI, Windows).
 #
-#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/preference-tracker/v1.1.1/copilot/uninstall.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/uninstall.ps1 | iex"
 #
 # WHY THIS EXISTS: the hooks keep firing as long as the plugin is REGISTERED in
 # ~/.copilot/config.json — deleting the files alone is not enough. This removes
@@ -13,11 +13,11 @@ $ErrorActionPreference = 'Stop'
 function Note($m){ Write-Host $m }
 
 $copilotHome = Join-Path $env:USERPROFILE '.copilot'
-$pluginParent = Join-Path $copilotHome 'installed-plugins\preference-tracker'
-$plugin = Join-Path $pluginParent 'preference-tracker'
+$pluginParent = Join-Path $copilotHome 'installed-plugins\tellonce'
+$plugin = Join-Path $pluginParent 'tellonce'
 
 Write-Host "================================================================"
-Write-Host "  preference-tracker — one-command uninstaller (Copilot CLI)"
+Write-Host "  tellonce — one-command uninstaller (Copilot CLI)"
 Write-Host "================================================================"
 
 # Find a real python (skip the Microsoft Store WindowsApps stub).
@@ -52,7 +52,7 @@ if ($py -and (Test-Path (Join-Path $plugin 'lib\uninstall.py'))) {
 }
 if (-not $unregistered) {
     Write-Host "[i] Could not run the in-plugin uninstaller (python or plugin missing)." -ForegroundColor Yellow
-    Write-Host "    Manually remove the 'preference-tracker' entry from ~\.copilot\config.json installedPlugins." -ForegroundColor Yellow
+    Write-Host "    Manually remove the 'tellonce' entry from ~\.copilot\config.json installedPlugins." -ForegroundColor Yellow
 }
 
 # 2. Remove the plugin files.
@@ -63,7 +63,7 @@ if (Test-Path $pluginParent) {
 
 Write-Host ""
 Write-Host "================================================================"
-Write-Host "[OK] preference-tracker uninstalled." -ForegroundColor Green
+Write-Host "[OK] tellonce uninstalled." -ForegroundColor Green
 Write-Host "  >> RESTART Copilot so the hooks fully unload. <<"
 if (-not $Purge) {
     Write-Host "  Your saved memory/preferences were kept. To remove those too,"

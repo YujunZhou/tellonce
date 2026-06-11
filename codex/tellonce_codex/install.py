@@ -24,7 +24,7 @@ def _try_register_global_hooks() -> tuple[bool, str]:
     Returns (registered, message). registered=True iff the call ran without
     error AND the hooks dir exists. message is for the caller to surface.
     """
-    skill_dir = Path.home() / ".codex" / "skills" / "preference-tracker"
+    skill_dir = Path.home() / ".codex" / "skills" / "tellonce"
     # Mirror codex/install.sh's clone detection: when the user's git clone
     # occupies the default path, the generated runtime (with the CODEX hook
     # scripts) lives in the sibling -runtime dir. The clone's root hooks/
@@ -33,12 +33,12 @@ def _try_register_global_hooks() -> tuple[bool, str]:
     # `.git` covers clones; the codex/install.sh marker covers repos COPIED
     # there without git metadata (the generated runtime layout has no codex/).
     if (skill_dir / ".git").exists() or (skill_dir / "codex" / "install.sh").exists():
-        skill_dir = Path.home() / ".codex" / "skills" / "preference-tracker-runtime"
+        skill_dir = Path.home() / ".codex" / "skills" / "tellonce-runtime"
     hooks_dir = skill_dir / "hooks"
     hooks_json = Path.home() / ".codex" / "hooks.json"
     if not hooks_dir.is_dir():
         return False, (
-            f"⚠ ~/.codex/skills/preference-tracker/hooks/ not present — global "
+            f"⚠ ~/.codex/skills/tellonce/hooks/ not present — global "
             f"runtime not installed yet. Run `bash codex/install.sh` once to "
             f"deploy the runtime + hooks. Current call only initialized "
             f"per-project state."
@@ -55,12 +55,12 @@ def install(project_root: Path, register_hooks: bool = True) -> InstallRecord:
     registration = register_project(project_root)
     state = registration.state_root
     secure_write_text(state / "install_record.json", '{"status":"installed"}\n')
-    secure_write_text(state / "managed_runtime.txt", "codex_preftrack runtime\n")
+    secure_write_text(state / "managed_runtime.txt", "tellonce_codex runtime\n")
 
     hooks_registered = False
     if register_hooks:
         hooks_registered, msg = _try_register_global_hooks()
-        # Surface the message so users running `codex_preftrack install`
+        # Surface the message so users running `tellonce_codex install`
         # bare (without bash install.sh wrapping it) see what happened.
         try:
             sys.stderr.write(msg + "\n")

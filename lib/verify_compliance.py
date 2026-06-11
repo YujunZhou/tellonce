@@ -625,7 +625,7 @@ def main():
 
         # Imperative reason — tells Claude what to do, not just what's wrong.
         reason = (
-            f"⛔ STOP BLOCKED — preference-tracker B4 gate triggered. "
+            f"⛔ STOP BLOCKED — tellonce B4 gate triggered. "
             f"You detected {pending_count} preference signal(s) but did NOT finalize them "
             f"to memory. **Do not just retry stop**; you must act before next stop succeeds.\n\n"
             f"PENDING SIGNALS (you flagged these as detected=True earlier in this session "

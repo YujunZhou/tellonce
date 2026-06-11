@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Codex SessionStart hook: lazy-initialize project state when codex enters a
-# fresh project (no .codex/preference-tracker/ dir yet). Idempotent — exits
+# fresh project (no .codex/tellonce/ dir yet). Idempotent — exits
 # fast if state already exists.
 #
 #   - Pass --no-hooks so SessionStart NEVER writes ~/.codex/hooks.json.
@@ -41,7 +41,7 @@ if [[ -z "${CODEX_CWD}" || ! -d "${CODEX_CWD}" ]]; then
 fi
 
 # Already initialized?
-if [[ -f "${CODEX_CWD}/.codex/preference-tracker/registration.json" ]]; then
+if [[ -f "${CODEX_CWD}/.codex/tellonce/registration.json" ]]; then
     exit 0
 fi
 
@@ -49,6 +49,6 @@ fi
 # nothing to inject) and silence stderr too (any Python noise must not
 # surface to the user during routine SessionStart).
 PYTHONIOENCODING=utf-8 PYTHONPATH="${SKILL_DIR}" \
-    _pt_timeout 10 python3 -m codex_preftrack install --project-root "${CODEX_CWD}" --no-hooks \
+    _pt_timeout 10 python3 -m tellonce_codex install --project-root "${CODEX_CWD}" --no-hooks \
     > /dev/null 2>/dev/null
 exit 0

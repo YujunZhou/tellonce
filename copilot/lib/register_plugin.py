@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""register_plugin — register/unregister preference-tracker in Copilot's plugin list.
+"""register_plugin — register/unregister tellonce in Copilot's plugin list.
 
 WHY THIS EXISTS: Copilot only loads a plugin's hooks if the plugin is listed in
 ~/.copilot/config.json `installedPlugins` (each entry points at a cache_path).
@@ -26,7 +26,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
-PLUGIN_NAME = 'preference-tracker'
+PLUGIN_NAME = 'tellonce'
 CONFIG_PATH = os.path.expanduser('~/.copilot/config.json')
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -121,7 +121,7 @@ def register():
     plugins.append({
         'name': PLUGIN_NAME,
         'marketplace': PLUGIN_NAME,
-        'version': '1.1.1',
+        'version': '1.2.0',
         'installed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         'enabled': True,
         'cache_path': PLUGIN_ROOT,

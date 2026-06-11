@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preference-tracker memory retrieve + inject (cli backend).
+"""Tellonce memory retrieve + inject (cli backend).
 
 Reads UserPromptSubmit JSON from stdin, picks relevant atomic_ids based on
 B5_RETRIEVE_BACKEND env var:
@@ -22,7 +22,7 @@ Default model is derived from B5_RETRIEVE_CLI when B5_RETRIEVE_MODEL is unset:
 Recursion guard: when retrieve_inject invokes the CLI, it sets
 B5_RETRIEVE_RECURSION_GUARD=1 in the child env. The hook scripts in
 <PLUGIN_ROOT>/hooks/memory-retrieve-inject.sh and
-~/.codex/skills/preference-tracker/hooks/userpromptsubmit-retrieve-inject.sh
+~/.codex/skills/tellonce/hooks/userpromptsubmit-retrieve-inject.sh
 honor this flag and exit 0 immediately, so a nested CLI session doesn't
 re-trigger the retrieve hook and loop.
 
@@ -72,15 +72,15 @@ def _load_fingerprints():
 
 
 # Persist retrieve defaults in
-# ~/.preference-tracker.config.json so the user doesn't have to remember
+# ~/.tellonce.config.json so the user doesn't have to remember
 # `export B5_RETRIEVE_*` for every shell. Precedence per setting:
 #   1. process env (B5_RETRIEVE_*)        — highest
-#   2. ~/.preference-tracker.config.json   — persistent default
+#   2. ~/.tellonce.config.json   — persistent default
 #   3. built-in default                    — lowest
 # Plus: if config has retrieve_env_file, we read that .env file (KEY=VALUE)
 # and inject DEEPINFRA_API_KEY / OPENROUTER_API_KEY / etc. into os.environ
 # so the API backend can find them without `source .env` in every shell.
-_USER_CONFIG_PATH = os.path.expanduser('~/.preference-tracker.config.json')
+_USER_CONFIG_PATH = os.path.expanduser('~/.tellonce.config.json')
 
 
 def _load_user_config() -> dict:
@@ -140,7 +140,7 @@ _autoload_env_file_from_config(_USER_CONFIG)
 # 'api' backend for OpenAI-compatible HTTP endpoints
 # (DeepInfra / OpenRouter / etc.) — fastest path because no CLI cold-start
 # and no nested-hook collision. Recommended for batch experiment runs.
-# Settings can come from ~/.preference-tracker.config.json so
+# Settings can come from ~/.tellonce.config.json so
 # the user doesn't have to `export B5_RETRIEVE_*` in every shell.
 RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _USER_CONFIG, 'cli').lower()
 # Backwards compat: 'haiku' alias 'cli'.
@@ -569,8 +569,8 @@ def _resolve_api_endpoint() -> tuple[str, dict, str]:
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
             # OpenRouter prefers identifying headers (rate-limit hygiene).
-            'HTTP-Referer': 'https://github.com/YujunZhou/preference-tracker',
-            'X-Title': 'preference-tracker',
+            'HTTP-Referer': 'https://github.com/YujunZhou/tellonce',
+            'X-Title': 'tellonce',
         }
     else:
         # Custom OpenAI-compatible: user MUST provide both env vars.

@@ -1,16 +1,16 @@
-# Codex Preference Tracker
+# Codex Tellonce
 
-Codex-native port of the corrected Claude Code `preference-tracker`.
+Codex-native port of the corrected Claude Code `tellonce`.
 
 ## User Flow
 
 The external UX should stay simple:
 
 ```bash
-git clone <repo> ~/.codex/skills/preference-tracker
+git clone <repo> ~/.codex/skills/tellonce
 cd /path/to/project
-bash ~/.codex/skills/preference-tracker/codex/install.sh
-bash ~/.codex/skills/preference-tracker/codex/doctor.sh
+bash ~/.codex/skills/tellonce/codex/install.sh
+bash ~/.codex/skills/tellonce/codex/doctor.sh
 ```
 
 > The Codex installer lives under `codex/` — the repo-root `install.sh` is the
@@ -21,7 +21,7 @@ Internally the package records a project-local audit ledger and uses wrapper-bas
 ## Modes
 
 - `audit_only`: default. Records scans and warnings; does not claim hard enforcement.
-- `wrapper`: checks output produced through `codex_preftrack exec`.
+- `wrapper`: checks output produced through `tellonce_codex exec`.
 - `blocking`: opt-in hard-block layer on PostToolUse (ships with no built-in
   rules, so on its own it blocks nothing until you add rules).
 
@@ -30,7 +30,7 @@ Internally the package records a project-local audit ledger and uses wrapper-bas
 
 ## Current V1 Capabilities
 
-- Project registration under `.codex/preference-tracker/`.
+- Project registration under `.codex/tellonce/`.
 - `mode.json` as mode authority.
 - Append-only `events.jsonl` with centralized redaction.
 - Scan events for preference/pitfall/friction/none.
@@ -58,11 +58,11 @@ See `CC_PARITY_MATRIX.md`. No Claude Code capability should be dropped; features
 ```bash
 # Per-project disable only (keeps the global runtime + ~/.codex/hooks.json entries
 # so other projects keep working):
-bash ~/.codex/skills/preference-tracker/codex/uninstall.sh
+bash ~/.codex/skills/tellonce/codex/uninstall.sh
 
 # FULL uninstall — also removes the hook registrations from ~/.codex/hooks.json
 # (so the hooks stop firing everywhere) and the global runtime:
-bash ~/.codex/skills/preference-tracker/codex/uninstall.sh --purge-hooks --purge-skill
+bash ~/.codex/skills/tellonce/codex/uninstall.sh --purge-hooks --purge-skill
 ```
 
 > Note: the hooks keep firing as long as they're registered in

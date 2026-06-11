@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Install helper — merge preference-tracker hooks into <project>/.claude/settings.local.json.
+"""Install helper — merge tellonce hooks into <project>/.claude/settings.local.json.
 
 Used by install.sh / uninstall.sh / doctor.sh.
 
 Modes:
   --add: add hooks to settings (idempotent, additive, does not remove existing)
-  --remove: remove preference-tracker hooks from settings (uninstall)
+  --remove: remove tellonce hooks from settings (uninstall)
   --verify: list registered hooks (doctor)
 
 Versioned backup — cp settings.local.json.v3_pre_pt_<ts>.json before editing.
@@ -242,7 +242,7 @@ def cmd_verify(settings_path: str, hooks_dir: str):
                 if cmd in pt_commands:
                     found[pt_commands[cmd]] = event
 
-    print('Preference-tracker hook registration status:')
+    print('Tellonce hook registration status:')
     print(f'  settings: {settings_path}')
     print(f'  hooks dir: {hooks_dir}')
     print()
@@ -260,7 +260,7 @@ def cmd_verify(settings_path: str, hooks_dir: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Merge preference-tracker hooks to settings.local.json')
+    parser = argparse.ArgumentParser(description='Merge tellonce hooks to settings.local.json')
     parser.add_argument('--settings', required=True, help='Path to .claude/settings.local.json')
     parser.add_argument('--hooks-dir', required=True, help='Path to .claude/hooks/ (where .sh wrappers live)')
     g = parser.add_mutually_exclusive_group(required=True)

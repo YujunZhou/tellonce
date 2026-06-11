@@ -9,24 +9,24 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from codex_preftrack.cli import main
-from codex_preftrack.dashboard import build_dashboard
-from codex_preftrack.doctor import run_doctor
-from codex_preftrack.index import build_active_index
-from codex_preftrack.install import install
-from codex_preftrack.ledger import DuplicateEventError, append_event, read_events, repair_tail
-from codex_preftrack.memory import canonical_key, parse_memory
-from codex_preftrack.migrate import preview_migration
-from codex_preftrack.mode import load_mode, write_mode
-from codex_preftrack.paths import ProjectRootError, register_project, resolve_project_root
-from codex_preftrack.promote import promote_candidate
-from codex_preftrack.scan import scan_message
-from codex_preftrack.uninstall import uninstall
-from codex_preftrack.verify import verify_output
-from codex_preftrack.wrapper import run_wrapped
+from tellonce_codex.cli import main
+from tellonce_codex.dashboard import build_dashboard
+from tellonce_codex.doctor import run_doctor
+from tellonce_codex.index import build_active_index
+from tellonce_codex.install import install
+from tellonce_codex.ledger import DuplicateEventError, append_event, read_events, repair_tail
+from tellonce_codex.memory import canonical_key, parse_memory
+from tellonce_codex.migrate import preview_migration
+from tellonce_codex.mode import load_mode, write_mode
+from tellonce_codex.paths import ProjectRootError, register_project, resolve_project_root
+from tellonce_codex.promote import promote_candidate
+from tellonce_codex.scan import scan_message
+from tellonce_codex.uninstall import uninstall
+from tellonce_codex.verify import verify_output
+from tellonce_codex.wrapper import run_wrapped
 
 
-class CodexPreftrackCoreTests(unittest.TestCase):
+class TellonceCodexCoreTests(unittest.TestCase):
     def test_cli_requires_command(self):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
@@ -56,10 +56,10 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             project = base / "project"
             home.mkdir()
             project.mkdir()
-            with patch.dict(os.environ, {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"}):
+            with patch.dict(os.environ, {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"}):
                 registration = register_project(project)
             self.assertEqual(registration.project_root, project.resolve())
-            self.assertEqual(registration.state_root, project.resolve() / ".codex" / "preference-tracker")
+            self.assertEqual(registration.state_root, project.resolve() / ".codex" / "tellonce")
             self.assertTrue((registration.state_root / "registration.json").is_file())
             self.assertTrue((registration.state_root / "mode.json").is_file())
             self.assertEqual(load_mode(registration.state_root).mode, "audit_only")
@@ -174,8 +174,8 @@ class CodexPreftrackCoreTests(unittest.TestCase):
                 "does_not_apply_when": "(none)",
                 "confidence": "high",
             }
-            import codex_preftrack.promote as promote_mod
-            from codex_preftrack.index import build_active_index
+            import tellonce_codex.promote as promote_mod
+            from tellonce_codex.index import build_active_index
 
             calls = {"n": 0}
             real_append = promote_mod.append_event
@@ -206,12 +206,12 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             project = base / "project"
             home.mkdir()
             project.mkdir()
-            with patch.dict(os.environ, {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"}):
+            with patch.dict(os.environ, {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"}):
                 record = install(project)
                 report = run_doctor(project)
                 result = uninstall(project, keep_data=True)
             self.assertTrue(record.state_root.exists())
-            self.assertTrue(report.status_line.startswith("Preference Tracker status:"))
+            self.assertTrue(report.status_line.startswith("Tellonce status:"))
             self.assertEqual(report.sections["state"], "PASS")
             self.assertTrue(result.removed_integration)
             self.assertTrue(record.state_root.exists())
@@ -230,18 +230,18 @@ class CodexPreftrackCoreTests(unittest.TestCase):
                 os.environ,
                 {
                     "HOME": str(home),
-                    "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                    "TELLONCE_CODEX_ALLOW_TEMP": "1",
                     "CODEX_PT_PRIVATE_PATTERNS": "__test_leaked_token__",
                 },
             ):
                 # Reload doctor to pick up env-extended patterns.
                 import importlib
 
-                from codex_preftrack import doctor as _doctor
+                from tellonce_codex import doctor as _doctor
 
                 importlib.reload(_doctor)
                 install(project)
-                bad = project / ".codex" / "preference-tracker" / "managed_runtime.txt"
+                bad = project / ".codex" / "tellonce" / "managed_runtime.txt"
                 bad.write_text(
                     "this file accidentally contains __test_leaked_token__ from a fork",
                     encoding="utf-8",
@@ -305,7 +305,7 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             legacy.write_text("---\natomic_id: wf-pref-001\nrule_text: old\n---\nbody\n", encoding="utf-8")
             rc = main(["migrate", "--project-root", str(project), "--preview", "--source", str(legacy)])
             self.assertEqual(rc, 0)
-            self.assertFalse((project / ".codex" / "preference-tracker").exists())
+            self.assertFalse((project / ".codex" / "tellonce").exists())
 
     def test_doctor_ignores_registration_private_paths(self):
         # registration.json is special-cased: even if it contains the
@@ -321,17 +321,17 @@ class CodexPreftrackCoreTests(unittest.TestCase):
                 os.environ,
                 {
                     "HOME": str(home),
-                    "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                    "TELLONCE_CODEX_ALLOW_TEMP": "1",
                     "CODEX_PT_PRIVATE_PATTERNS": "__test_token_for_registration_test__",
                 },
             ):
                 import importlib
 
-                from codex_preftrack import doctor as _doctor
+                from tellonce_codex import doctor as _doctor
 
                 importlib.reload(_doctor)
                 install(project)
-                registration = project / ".codex" / "preference-tracker" / "registration.json"
+                registration = project / ".codex" / "tellonce" / "registration.json"
                 # Inject the leak token inside a real JSON field so the file
                 # stays valid JSON; the audit must still skip registration.json
                 # by special-case (its filename, not its content).
@@ -343,13 +343,13 @@ class CodexPreftrackCoreTests(unittest.TestCase):
 
     def test_skill_package_wrappers_exist(self):
         root = Path(__file__).resolve().parents[2]
-        package = root / "codex_preftrack_skill" / "preference-tracker"
+        package = root / "tellonce_codex_skill" / "tellonce"
         for name in ["SKILL.md", "install.sh", "doctor.sh", "uninstall.sh", "dashboard.sh"]:
             self.assertTrue((package / name).is_file(), name)
 
     def test_skill_install_and_doctor_wrappers_smoke(self):
         root = Path(__file__).resolve().parents[2]
-        package = root / "codex_preftrack_skill" / "preference-tracker"
+        package = root / "tellonce_codex_skill" / "tellonce"
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -358,7 +358,7 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             project.mkdir()
             env = os.environ.copy()
             env["HOME"] = str(home)
-            env["CODEX_PREFTRACK_ALLOW_TEMP"] = "1"
+            env["TELLONCE_CODEX_ALLOW_TEMP"] = "1"
             env["PYTHON"] = os.sys.executable
             install_proc = subprocess.run(
                 ["bash", str(package / "install.sh"), "--project-root", str(project)],
@@ -378,23 +378,23 @@ class CodexPreftrackCoreTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(doctor_proc.returncode, 0, doctor_proc.stderr)
-            self.assertIn("Preference Tracker status:", doctor_proc.stdout)
+            self.assertIn("Tellonce status:", doctor_proc.stdout)
 
     def test_standalone_skill_folder_install_smoke(self):
         root = Path(__file__).resolve().parents[2]
-        source = root / "codex_preftrack_skill" / "preference-tracker"
+        source = root / "tellonce_codex_skill" / "tellonce"
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
             project = base / "project"
-            skill = home / ".codex" / "skills" / "preference-tracker"
+            skill = home / ".codex" / "skills" / "tellonce"
             home.mkdir()
             project.mkdir()
             skill.parent.mkdir(parents=True)
             shutil.copytree(source, skill)
             env = os.environ.copy()
             env["HOME"] = str(home)
-            env["CODEX_PREFTRACK_ALLOW_TEMP"] = "1"
+            env["TELLONCE_CODEX_ALLOW_TEMP"] = "1"
             env["PYTHON"] = os.sys.executable
             proc = subprocess.run(
                 ["bash", str(skill / "install.sh"), "--project-root", str(project)],
@@ -413,9 +413,9 @@ class CodexPreftrackCoreTests(unittest.TestCase):
             project = base / "project"
             home.mkdir()
             project.mkdir()
-            with patch.dict(os.environ, {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"}):
+            with patch.dict(os.environ, {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"}):
                 install(project)
-                state = project / ".codex" / "preference-tracker"
+                state = project / ".codex" / "tellonce"
                 run_wrapped(state, ["definitely-missing-codex-binary"], timeout_s=1)
                 report = run_doctor(project)
             self.assertIn(report.sections["wrapper"], {"PASS", "DEGRADED"})
@@ -425,13 +425,13 @@ class CodexHookIntegrationTests(unittest.TestCase):
     """Round-7: codex hook integration (install_codex_hooks + PostToolUse adapter)."""
 
     def test_install_codex_hooks_add_remove_idempotent(self):
-        from codex_preftrack import install_codex_hooks as ich
+        from tellonce_codex import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             hooks_json = Path(td) / "hooks.json"
             # _is_pt_command identifies PT hooks by path: must contain
-            # "preference-tracker" + "/hooks/" + a known basename. Mirror the
-            # real layout (~/.codex/skills/preference-tracker/hooks/) for tests.
-            hooks_dir = Path(td) / "preference-tracker" / "hooks"
+            # "tellonce" + "/hooks/" + a known basename. Mirror the
+            # real layout (~/.codex/skills/tellonce/hooks/) for tests.
+            hooks_dir = Path(td) / "tellonce" / "hooks"
             hooks_dir.mkdir(parents=True)
             # First add
             ich.cmd_add(str(hooks_json), str(hooks_dir))
@@ -466,10 +466,10 @@ class CodexHookIntegrationTests(unittest.TestCase):
 
     def test_install_codex_hooks_preserves_user_entries(self):
         """User's own non-PT hook entries must survive --add and --remove."""
-        from codex_preftrack import install_codex_hooks as ich
+        from tellonce_codex import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             hooks_json = Path(td) / "hooks.json"
-            hooks_dir = Path(td) / "preference-tracker" / "hooks"
+            hooks_dir = Path(td) / "tellonce" / "hooks"
             hooks_dir.mkdir(parents=True)
             seed = {
                 "hooks": {
@@ -509,7 +509,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
             )
 
     def test_posttooluse_adapter_extract_agent_text(self):
-        from codex_preftrack import codex_posttooluse_block as cpb
+        from tellonce_codex import codex_posttooluse_block as cpb
         # Write tool style
         self.assertEqual(
             cpb._extract_agent_text({"tool_input": {"content": "hello"}}),
@@ -532,7 +532,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
         self.assertEqual(cpb._extract_agent_text({"tool_input": {}}), "")
 
     def test_posttooluse_adapter_audit_only_logs_but_doesnt_block(self):
-        from codex_preftrack import codex_posttooluse_block as cpb
+        from tellonce_codex import codex_posttooluse_block as cpb
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -541,7 +541,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1",
                  "PT_TEST_FORCE_VIOLATION": "1"},
             ):
                 install(project)
@@ -558,7 +558,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     rc = cpb.main()
                 self.assertEqual(rc, 0, "audit_only must never block (rc=0)")
                 log = (
-                    project / ".codex" / "preference-tracker" / "runtime"
+                    project / ".codex" / "tellonce" / "runtime"
                     / "posttooluse_log.jsonl"
                 )
                 self.assertTrue(log.is_file(), "must write log entry")
@@ -568,7 +568,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 self.assertIn("test-synthetic", last["violations"])
 
     def test_posttooluse_adapter_blocking_mode_returns_2_on_violation(self):
-        from codex_preftrack import codex_posttooluse_block as cpb
+        from tellonce_codex import codex_posttooluse_block as cpb
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -577,12 +577,12 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1",
                  "PT_TEST_FORCE_VIOLATION": "1"},
             ):
                 install(project)
                 # Force blocking mode for the test
-                mode_path = project / ".codex" / "preference-tracker" / "mode.json"
+                mode_path = project / ".codex" / "tellonce" / "mode.json"
                 m = json.loads(mode_path.read_text())
                 m["mode"] = "blocking"
                 mode_path.write_text(json.dumps(m, indent=2))
@@ -601,7 +601,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 )
 
     def test_posttooluse_adapter_clean_input_returns_0(self):
-        from codex_preftrack import codex_posttooluse_block as cpb
+        from tellonce_codex import codex_posttooluse_block as cpb
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -610,10 +610,10 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"},
             ):
                 install(project)
-                mode_path = project / ".codex" / "preference-tracker" / "mode.json"
+                mode_path = project / ".codex" / "tellonce" / "mode.json"
                 m = json.loads(mode_path.read_text())
                 m["mode"] = "blocking"
                 mode_path.write_text(json.dumps(m, indent=2))
@@ -632,7 +632,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
         """Round-7 robustness: when ~/.codex is a 0-byte regular file (a real
         case observed in production), secure_mkdir must give an actionable
         error before mkdir bombs with a generic FileExistsError."""
-        from codex_preftrack.ledger import secure_mkdir, NonDirectoryPathError
+        from tellonce_codex.ledger import secure_mkdir, NonDirectoryPathError
         with tempfile.TemporaryDirectory() as td:
             blocker = Path(td) / "ima_file"
             blocker.write_text("not-a-dir")
@@ -649,7 +649,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
 
     def test_doctor_reports_hooks_status(self):
         """doctor must report hooks=PASS / NOT_INSTALLED / PARTIAL / FAIL."""
-        from codex_preftrack import install_codex_hooks as ich
+        from tellonce_codex import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -658,7 +658,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"},
             ):
                 install(project)
                 # No hooks registered yet
@@ -667,7 +667,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 # Register all 5 hooks
                 hooks_json = home / ".codex" / "hooks.json"
                 (home / ".codex").mkdir(exist_ok=True)
-                hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+                hooks_dir = home / ".codex" / "skills" / "tellonce" / "hooks"
                 hooks_dir.mkdir(parents=True)
                 ich.cmd_add(str(hooks_json), str(hooks_dir))
                 report = run_doctor(project)
@@ -692,7 +692,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": str(home),
-                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "TELLONCE_CODEX_ALLOW_TEMP": "1",
                 "PYTHON": os.sys.executable,
             })
             # Install
@@ -701,7 +701,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 cwd=project, env=env, text=True, capture_output=True, check=False,
             )
             self.assertEqual(ip.returncode, 0, ip.stderr)
-            global_dir = home / ".codex" / "skills" / "preference-tracker"
+            global_dir = home / ".codex" / "skills" / "tellonce"
             hooks_json = home / ".codex" / "hooks.json"
             self.assertTrue(global_dir.is_dir())
             self.assertTrue(hooks_json.is_file())
@@ -720,8 +720,8 @@ class CodexHookIntegrationTests(unittest.TestCase):
     def test_dashboard_hooks_status_reflects_hooks_json(self):
         """Round-7 fix: dashboard reads ground truth (~/.codex/hooks.json)
         not the stale `mode.hooks` field."""
-        from codex_preftrack import install_codex_hooks as ich
-        from codex_preftrack.dashboard import build_dashboard
+        from tellonce_codex import install_codex_hooks as ich
+        from tellonce_codex.dashboard import build_dashboard
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -730,15 +730,15 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"},
             ):
                 install(project, register_hooks=False)
-                state = project / ".codex" / "preference-tracker"
+                state = project / ".codex" / "tellonce"
                 # No hooks registered yet
                 out = build_dashboard(state)
                 self.assertIn("hooks: NOT_INSTALLED", out)
                 # Now register hooks (simulate global runtime layout)
-                hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+                hooks_dir = home / ".codex" / "skills" / "tellonce" / "hooks"
                 hooks_dir.mkdir(parents=True)
                 ich.cmd_add(
                     str(home / ".codex" / "hooks.json"),
@@ -749,9 +749,9 @@ class CodexHookIntegrationTests(unittest.TestCase):
                     "dashboard must reflect hooks.json reality, not stale mode field")
 
     def test_install_auto_registers_global_hooks_when_layout_present(self):
-        """Round-7: codex_preftrack install (programmatic) auto-registers hooks
+        """Round-7: tellonce_codex install (programmatic) auto-registers hooks
         if global runtime is present."""
-        from codex_preftrack import install_codex_hooks as ich
+        from tellonce_codex import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -759,11 +759,11 @@ class CodexHookIntegrationTests(unittest.TestCase):
             home.mkdir()
             project.mkdir()
             # Pre-create the global runtime layout (skill dir with hooks/)
-            hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+            hooks_dir = home / ".codex" / "skills" / "tellonce" / "hooks"
             hooks_dir.mkdir(parents=True)
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"},
             ):
                 rec = install(project)
                 self.assertTrue(rec.hooks_registered,
@@ -789,11 +789,11 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project = base / "project"
             home.mkdir()
             project.mkdir()
-            hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+            hooks_dir = home / ".codex" / "skills" / "tellonce" / "hooks"
             hooks_dir.mkdir(parents=True)
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"},
             ):
                 rec = install(project, register_hooks=False)
                 self.assertFalse(rec.hooks_registered)
@@ -801,7 +801,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
 
     def test_install_sh_creates_shell_wrapper(self):
         """Round-9 fix: install.sh must drop a shell wrapper at
-        ~/.local/bin/codex_preftrack so users don't need PYTHONPATH."""
+        ~/.local/bin/tellonce_codex so users don't need PYTHONPATH."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -812,7 +812,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": str(home),
-                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "TELLONCE_CODEX_ALLOW_TEMP": "1",
                 "PYTHON": os.sys.executable,
             })
             proc = subprocess.run(
@@ -820,25 +820,25 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 cwd=project, env=env, text=True, capture_output=True, check=False,
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            wrapper = home / ".local" / "bin" / "codex_preftrack"
+            wrapper = home / ".local" / "bin" / "tellonce_codex"
             self.assertTrue(wrapper.is_file(), "wrapper must exist")
             self.assertTrue(os.access(str(wrapper), os.X_OK),
                 "wrapper must be executable")
             content = wrapper.read_text()
             self.assertIn("PYTHONPATH=", content)
-            self.assertIn("codex_preftrack", content)
+            self.assertIn("tellonce_codex", content)
             # Wrapper must work bare (no PYTHONPATH from caller).
             env_clean = {
                 "HOME": str(home),
                 "PATH": env.get("PATH", "/usr/bin"),
-                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "TELLONCE_CODEX_ALLOW_TEMP": "1",
             }
             run = subprocess.run(
                 [str(wrapper), "doctor", "--project-root", str(project)],
                 env=env_clean, text=True, capture_output=True, check=False,
             )
             self.assertEqual(run.returncode, 0, run.stderr)
-            self.assertIn("Preference Tracker status", run.stdout)
+            self.assertIn("Tellonce status", run.stdout)
 
     def test_uninstall_sh_removes_shell_wrapper_with_purge_skill(self):
         """Round-9: uninstall --purge-skill must also remove the wrapper."""
@@ -852,14 +852,14 @@ class CodexHookIntegrationTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": str(home),
-                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "TELLONCE_CODEX_ALLOW_TEMP": "1",
                 "PYTHON": os.sys.executable,
             })
             subprocess.run(
                 ["bash", str(repo_root / "codex" / "install.sh")],
                 cwd=project, env=env, text=True, capture_output=True, check=True,
             )
-            wrapper = home / ".local" / "bin" / "codex_preftrack"
+            wrapper = home / ".local" / "bin" / "tellonce_codex"
             self.assertTrue(wrapper.is_file())
             subprocess.run(
                 ["bash", str(repo_root / "codex" / "uninstall.sh"),
@@ -873,10 +873,10 @@ class CodexHookIntegrationTests(unittest.TestCase):
         """Round-8 P1-1 (Medium): cmd_verify must rc=1 when a hook is
         registered to the wrong event, not just when missing. Symmetric
         with doctor._hooks_status PARTIAL detection."""
-        from codex_preftrack import install_codex_hooks as ich
+        from tellonce_codex import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             hooks_json = Path(td) / "hooks.json"
-            hooks_dir = Path(td) / "preference-tracker" / "hooks"
+            hooks_dir = Path(td) / "tellonce" / "hooks"
             hooks_dir.mkdir(parents=True)
             ich.cmd_add(str(hooks_json), str(hooks_dir))
             # Move PostToolUse hook to UserPromptSubmit
@@ -891,19 +891,19 @@ class CodexHookIntegrationTests(unittest.TestCase):
             self.assertEqual(rc, 1, "wrong-event registration must fail verify")
 
     def test_cli_install_no_hooks_flag(self):
-        """Round-7 P1-3 (High): codex_preftrack install --no-hooks must NOT
+        """Round-7 P1-3 (High): tellonce_codex install --no-hooks must NOT
         write ~/.codex/hooks.json."""
-        from codex_preftrack.cli import main
+        from tellonce_codex.cli import main
         with tempfile.TemporaryDirectory() as td:
             home = Path(td) / "home"
             project = Path(td) / "project"
             home.mkdir()
             project.mkdir()
             # Pre-create hooks dir so the install would normally find it
-            (home / ".codex" / "skills" / "preference-tracker" / "hooks").mkdir(parents=True)
+            (home / ".codex" / "skills" / "tellonce" / "hooks").mkdir(parents=True)
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"},
             ):
                 rc = main(["install", "--project-root", str(project), "--no-hooks"])
             self.assertEqual(rc, 0)
@@ -915,7 +915,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
         """Round-7 P1-6 (Medium): doctor must mark a hook registered to the
         WRONG event as PARTIAL, not silently report PASS just because the
         basename appears somewhere."""
-        from codex_preftrack import install_codex_hooks as ich
+        from tellonce_codex import install_codex_hooks as ich
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -924,12 +924,12 @@ class CodexHookIntegrationTests(unittest.TestCase):
             project.mkdir()
             with patch.dict(
                 os.environ,
-                {"HOME": str(home), "CODEX_PREFTRACK_ALLOW_TEMP": "1"},
+                {"HOME": str(home), "TELLONCE_CODEX_ALLOW_TEMP": "1"},
             ):
                 install(project, register_hooks=False)
                 # Build a hooks.json with PostToolUse hook misregistered under
-                # UserPromptSubmit (still under preference-tracker/hooks/ path).
-                hooks_dir = home / ".codex" / "skills" / "preference-tracker" / "hooks"
+                # UserPromptSubmit (still under tellonce/hooks/ path).
+                hooks_dir = home / ".codex" / "skills" / "tellonce" / "hooks"
                 hooks_dir.mkdir(parents=True)
                 hooks_json = home / ".codex" / "hooks.json"
                 # First do a normal --add to get the right baseline,
@@ -960,7 +960,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
             env = os.environ.copy()
             env.update({
                 "HOME": str(home),
-                "CODEX_PREFTRACK_ALLOW_TEMP": "1",
+                "TELLONCE_CODEX_ALLOW_TEMP": "1",
                 "PYTHON": os.sys.executable,
             })
             proc = subprocess.run(
@@ -968,8 +968,8 @@ class CodexHookIntegrationTests(unittest.TestCase):
                 cwd=project, env=env, text=True, capture_output=True, check=False,
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            global_dir = home / ".codex" / "skills" / "preference-tracker"
-            self.assertTrue((global_dir / "codex_preftrack").is_dir())
+            global_dir = home / ".codex" / "skills" / "tellonce"
+            self.assertTrue((global_dir / "tellonce_codex").is_dir())
             self.assertTrue((global_dir / "shared_lib").is_dir())
             self.assertTrue((global_dir / "hooks").is_dir())
             self.assertTrue((global_dir / "shared_lib" / "retrieve_inject.py").is_file())
@@ -985,7 +985,7 @@ class CodexHookIntegrationTests(unittest.TestCase):
             self.assertIn("SessionStart", data["hooks"])
             # Per-project state init also ran
             self.assertTrue(
-                (project / ".codex" / "preference-tracker" / "registration.json").is_file()
+                (project / ".codex" / "tellonce" / "registration.json").is_file()
             )
 
 
