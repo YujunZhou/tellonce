@@ -97,9 +97,9 @@ SHA256 of each bootstrap script.
 
 | Platform | Status | Install | Docs |
 |---|---|---|---|
-| **Claude Code** | ✅ Supported | clone + register hooks (above) | [`docs/claude-code.md`](docs/claude-code.md) |
+| **Claude Code** | ✅ Recommended (largest user base) | clone + register hooks (above) | [`docs/claude-code.md`](docs/claude-code.md) |
 | **Codex** | Experimental | clone + `codex/install.sh` (above) | [`codex/docs/README.md`](codex/docs/README.md) |
-| **GitHub Copilot CLI** | ✅ One-command install | one command (above) | [`copilot/README.md`](copilot/README.md) |
+| **GitHub Copilot CLI** | Supported (one-command install) | one command (above) | [`copilot/README.md`](copilot/README.md) |
 
 All three share the same user-preference memory and design philosophy (Iron Law /
 Gate Function / scan → record → confirm). The underlying mechanism is adapted per

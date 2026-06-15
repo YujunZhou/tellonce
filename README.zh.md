@@ -85,9 +85,9 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/b
 
 | 平台 | 状态 | 安装 | 文档 |
 |---|---|---|---|
-| **Claude Code** | ✅ 支持 | clone + 注册 hooks（见上） | [`docs/claude-code.md`](docs/claude-code.md) |
+| **Claude Code** | ✅ 推荐（用户量最大） | clone + 注册 hooks（见上） | [`docs/claude-code.md`](docs/claude-code.md) |
 | **Codex** | 实验性 | clone + `codex/install.sh`（见上） | [`codex/docs/README.md`](codex/docs/README.md) |
-| **GitHub Copilot CLI** | ✅ 一键安装 | 一条命令（见上） | [`copilot/README.md`](copilot/README.md) |
+| **GitHub Copilot CLI** | 支持（一键安装） | 一条命令（见上） | [`copilot/README.md`](copilot/README.md) |
 
 三者共享同一份用户偏好记忆与设计哲学（Iron Law / Gate Function / scan → record →
 confirm）。底层机制按运行时适配：Claude Code 和 Copilot 走 `Stop` hook，而 Codex
