@@ -90,10 +90,21 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-> Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
-> automatic. **Restart Copilot after install.** The command is pinned to the
-> immutable release tag `v1.2.2`, so a later change to `main` can't alter what
-> you run.
+Native marketplace (matches Claude Code / Codex):
+
+```bash
+copilot plugin marketplace add YujunZhou/tellonce
+copilot plugin install tellonce@tellonce
+```
+
+Restart Copilot to load the hooks. Starts in the safe `observe` mode.
+
+<details>
+<summary>Or the one-command bootstrap (a verified <code>curl | bash</code>)</summary>
+
+The bootstrap is pinned to the immutable tag `v1.2.2` and its SHA256 is
+published, so you can verify it before piping to a shell (see
+[`copilot/README.md`](copilot/README.md#verify-integrity)).
 
 **Windows (PowerShell)**
 
@@ -107,13 +118,10 @@ powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.c
 curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.sh | bash
 ```
 
-This downloads the plugin, copies it into Copilot's plugin directory, installs
-the optional dependency, registers it with Copilot (so the hooks load), sets the
-safe `observe` mode, and records your Python path. Then restart Copilot.
-
-Cautious? Verify the script before piping it to a shell — see
-[`copilot/README.md`](copilot/README.md#verify-integrity) for the published
-SHA256 of each bootstrap script.
+It downloads the plugin, copies it into Copilot's plugin directory, installs the
+optional dependency, registers it (so the hooks load), sets the safe `observe`
+mode, and records your Python path. Then restart Copilot.
+</details>
 
 ## Supported platforms
 

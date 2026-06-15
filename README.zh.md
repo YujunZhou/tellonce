@@ -79,8 +79,20 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
-> 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。**装完重启 Copilot。**
-> 命令钉在不可变的 release tag `v1.2.2`，不会因 `main` 变动而改，更安全。
+原生市场（和 Claude Code / Codex 一致）：
+
+```bash
+copilot plugin marketplace add YujunZhou/tellonce
+copilot plugin install tellonce@tellonce
+```
+
+重启 Copilot 加载 hooks。默认进安全的 `observe` 模式。
+
+<details>
+<summary>或一键引导脚本（已验证的 <code>curl | bash</code>）</summary>
+
+引导脚本钉在不可变 tag `v1.2.2`、SHA256 已公布，可在管道前核对（见
+[`copilot/README.md`](copilot/README.md#verify-integrity)）。
 
 **Windows (PowerShell)**
 
@@ -94,11 +106,9 @@ powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.c
 curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.sh | bash
 ```
 
-这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
-（hook 才会加载）→ 设成安全的 `observe` 模式 → 记录你的 Python 路径。然后重启 Copilot。
-
-谨慎的话，可在管道执行前先核对脚本——见 [`copilot/README.md`](copilot/README.md)
-里公布的每个 bootstrap 脚本的 SHA256。
+它会：下载插件 → 放进 Copilot 插件目录 → 装可选依赖 → 注册（hook 才加载）→ 设
+`observe` 模式 → 记录 Python 路径。然后重启 Copilot。
+</details>
 
 ## 支持的平台
 
