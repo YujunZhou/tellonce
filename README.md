@@ -60,16 +60,17 @@ remove one (`...--remove`) before adding the other.
 
 ## 🚀 Quick start (Codex)
 
-The native way — run these **inside Codex** (Codex CLI ≥ the March 2026 plugin
-release):
+The native way — Codex CLI plugin marketplace (Codex CLI ≥ the March 2026
+plugin release):
 
-```
-/plugin marketplace add YujunZhou/tellonce
-/plugin install tellonce@tellonce
-/reload-plugins
+```bash
+codex plugin marketplace add YujunZhou/tellonce
+codex plugin add tellonce --marketplace tellonce
+# verify: codex plugin list --marketplace tellonce  ->  installed, enabled
 ```
 
-Tellonce begins in the safe `audit_only` mode (records, never blocks). The Codex marketplace
+Tellonce begins in the safe `audit_only` mode (records, never blocks).
+(The install verb is `codex plugin add`, not `install`.) The Codex marketplace
 manifest is validated against the current Codex CLI (`codex plugin marketplace
 add` + the plugin validator pass); if `/plugin install` doesn't load the hooks on
 your Codex build, use the manual install below.

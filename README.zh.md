@@ -51,15 +51,16 @@ python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.c
 
 ## 🚀 快速开始（Codex）
 
-原生方式——**在 Codex 里**敲（Codex CLI 需 ≥ 2026 年 3 月的插件版本）：
+原生方式——Codex CLI 插件市场（Codex CLI 需 ≥ 2026 年 3 月的插件版本）：
 
-```
-/plugin marketplace add YujunZhou/tellonce
-/plugin install tellonce@tellonce
-/reload-plugins
+```bash
+codex plugin marketplace add YujunZhou/tellonce
+codex plugin add tellonce --marketplace tellonce
+# 验证: codex plugin list --marketplace tellonce  ->  installed, enabled
 ```
 
-默认进安全的 `audit_only` 模式（只记录，不拦截）。Codex 的清单已对现行 Codex CLI 验证通过
+默认进安全的 `audit_only` 模式（只记录，不拦截）。
+（安装动词是 `codex plugin add`，不是 `install`。）Codex 的清单已对现行 Codex CLI 验证通过
 （`codex plugin marketplace add` + 插件 validator 都过）；如果 `/plugin install` 在你的
 Codex 版本上没装上 hooks，请用下面的手动安装。
 
