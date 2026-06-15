@@ -20,31 +20,8 @@
 - 🔒 **默认私密**：所有记录只存本机；可选的 LLM 判官默认关闭，开启后也只看到
   脱敏片段，并走你自己的订阅。（存了规则之后，「检索相关规则」这一步也走你自己
   订阅的小模型；想完全本地可设 `PT_RETRIEVE_BACKEND=keyword`。）
-- ⚡ **一键安装**（GitHub Copilot CLI），同时也支持 Claude Code 和 Codex。
+- ⚡ **支持 Claude Code、Codex、GitHub Copilot CLI**（Copilot 一键安装）——三者共享同一份记忆。
 - 🎛️ **三种模式，一个开关**：`observe` → `enforce` → `full`。
-
-## 🚀 快速开始（GitHub Copilot CLI）
-
-> 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。**装完重启 Copilot。**
-> 命令钉在不可变的 release tag `v1.2.0`，不会因 `main` 变动而改，更安全。
-
-**Windows (PowerShell)**
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
-```
-
-**macOS / Linux**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
-```
-
-这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
-（hook 才会加载）→ 设成安全的 `observe` 模式 → 记录你的 Python 路径。然后重启 Copilot。
-
-谨慎的话，可在管道执行前先核对脚本——见 [`copilot/README.md`](copilot/README.md)
-里公布的每个 bootstrap 脚本的 SHA256。
 
 ## 🚀 快速开始（Claude Code）
 
@@ -81,13 +58,36 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 默认进 `audit_only` 模式（只记录，不拦截）。模式与 wrapper 流程见
 [`codex/docs/README.md`](codex/docs/README.md)。
 
+## 🚀 快速开始（GitHub Copilot CLI）
+
+> 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。**装完重启 Copilot。**
+> 命令钉在不可变的 release tag `v1.2.0`，不会因 `main` 变动而改，更安全。
+
+**Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
+```
+
+**macOS / Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
+```
+
+这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
+（hook 才会加载）→ 设成安全的 `observe` 模式 → 记录你的 Python 路径。然后重启 Copilot。
+
+谨慎的话，可在管道执行前先核对脚本——见 [`copilot/README.md`](copilot/README.md)
+里公布的每个 bootstrap 脚本的 SHA256。
+
 ## 支持的平台
 
 | 平台 | 状态 | 安装 | 文档 |
 |---|---|---|---|
-| **GitHub Copilot CLI** | ✅ 推荐（公开发布版） | 一条命令（见上） | [`copilot/README.md`](copilot/README.md) |
-| **Claude Code** | 支持 | clone + 注册 hooks | [`docs/claude-code.md`](docs/claude-code.md) |
-| **Codex** | 实验性 | `bash codex/install.sh` | [`codex/docs/README.md`](codex/docs/README.md) |
+| **Claude Code** | ✅ 支持 | clone + 注册 hooks（见上） | [`docs/claude-code.md`](docs/claude-code.md) |
+| **Codex** | 实验性 | clone + `codex/install.sh`（见上） | [`codex/docs/README.md`](codex/docs/README.md) |
+| **GitHub Copilot CLI** | ✅ 一键安装 | 一条命令（见上） | [`copilot/README.md`](copilot/README.md) |
 
 三者共享同一份用户偏好记忆与设计哲学（Iron Law / Gate Function / scan → record →
 confirm）。底层机制按运行时适配：Claude Code 和 Copilot 走 `Stop` hook，而 Codex

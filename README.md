@@ -25,36 +25,9 @@ blocks you and never sends your conversation anywhere until you opt in.
   snippet and runs through your own subscription. (Once you have saved rules,
   rule *retrieval* also runs through your own subscription's small model; set
   `PT_RETRIEVE_BACKEND=keyword` to keep even that fully local.)
-- ⚡ **One-command install** for GitHub Copilot CLI. Also runs on Claude Code and
-  Codex.
+- ⚡ **Runs on Claude Code, Codex, and GitHub Copilot CLI** (one-command install
+  on Copilot) — one shared memory across all three.
 - 🎛️ **Three modes, one switch:** `observe` → `enforce` → `full`.
-
-## 🚀 Quick start (GitHub Copilot CLI)
-
-> Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
-> automatic. **Restart Copilot after install.** The command is pinned to the
-> immutable release tag `v1.2.0`, so a later change to `main` can't alter what
-> you run.
-
-**Windows (PowerShell)**
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
-```
-
-**macOS / Linux**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
-```
-
-This downloads the plugin, copies it into Copilot's plugin directory, installs
-the optional dependency, registers it with Copilot (so the hooks load), sets the
-safe `observe` mode, and records your Python path. Then restart Copilot.
-
-Cautious? Verify the script before piping it to a shell — see
-[`copilot/README.md`](copilot/README.md#verify-integrity) for the published
-SHA256 of each bootstrap script.
 
 ## 🚀 Quick start (Claude Code)
 
@@ -93,13 +66,40 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 Starts in the default `audit_only` mode (records, never blocks). See
 [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flow.
 
+## 🚀 Quick start (GitHub Copilot CLI)
+
+> Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
+> automatic. **Restart Copilot after install.** The command is pinned to the
+> immutable release tag `v1.2.0`, so a later change to `main` can't alter what
+> you run.
+
+**Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
+```
+
+**macOS / Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
+```
+
+This downloads the plugin, copies it into Copilot's plugin directory, installs
+the optional dependency, registers it with Copilot (so the hooks load), sets the
+safe `observe` mode, and records your Python path. Then restart Copilot.
+
+Cautious? Verify the script before piping it to a shell — see
+[`copilot/README.md`](copilot/README.md#verify-integrity) for the published
+SHA256 of each bootstrap script.
+
 ## Supported platforms
 
 | Platform | Status | Install | Docs |
 |---|---|---|---|
-| **GitHub Copilot CLI** | ✅ Recommended (public release) | one command (above) | [`copilot/README.md`](copilot/README.md) |
-| **Claude Code** | Supported | clone + register hooks | [`docs/claude-code.md`](docs/claude-code.md) |
-| **Codex** | Experimental | `bash codex/install.sh` | [`codex/docs/README.md`](codex/docs/README.md) |
+| **Claude Code** | ✅ Supported | clone + register hooks (above) | [`docs/claude-code.md`](docs/claude-code.md) |
+| **Codex** | Experimental | clone + `codex/install.sh` (above) | [`codex/docs/README.md`](codex/docs/README.md) |
+| **GitHub Copilot CLI** | ✅ One-command install | one command (above) | [`copilot/README.md`](copilot/README.md) |
 
 All three share the same user-preference memory and design philosophy (Iron Law /
 Gate Function / scan → record → confirm). The underlying mechanism is adapted per
