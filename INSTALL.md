@@ -118,7 +118,7 @@ bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-state   # delete this 
 
 ## Upgrading (from an older version / older install method)
 
-v1.2.0 renamed the project (preference-tracker → Tellonce), including the
+Tellonce was renamed from preference-tracker (v1.2.0), changing the
 install directories, state directories, and the global config filename. There
 is no in-place migration: if you installed a pre-rename version, remove it
 with ITS OWN uninstaller first, then install Tellonce fresh:

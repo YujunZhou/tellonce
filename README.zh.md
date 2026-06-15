@@ -25,54 +25,71 @@
 
 ## 🚀 快速开始（Claude Code）
 
-> 前提：已装好 Claude Code CLI 和 Python 3.7+。
+原生方式——**在 Claude Code 里**敲这两条命令：
+
+```
+/plugin marketplace add YujunZhou/tellonce
+/plugin install tellonce@tellonce
+```
+
+hooks 会自动注册，开个新会话即生效。默认进安全的 `observe` 模式（只记录提醒，绝不
+拦截）；想开硬拦截，在 shell 里 `export PT_ENFORCE=1`。
+
+<details>
+<summary>或手动安装（git clone + 注册）</summary>
 
 ```bash
-# 1. 克隆到 Claude Code 的 skills 目录
 git clone https://github.com/YujunZhou/tellonce.git ~/.claude/skills/tellonce
-
-# 2. 一次注册，对所有项目生效（推荐）：
 python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/tellonce/hooks --add
 ```
 
-这样会把 Tellonce 注册到用户级 `~/.claude/settings.json`，你之后在任何项目里跑
-Claude Code 都生效；状态和记忆仍按项目隔离。只想对单个项目启用？在那个项目根目录
-跑 `bash ~/.claude/skills/tellonce/install.sh`（它还会跑一遍 `doctor.sh` 自检）。
-默认进安全的 `observe` 模式。完整指南（强制执行、单项目安装、卸载）见
-[`INSTALL.md`](INSTALL.md)。
+这样注册到用户级 `~/.claude/settings.json`（所有项目生效；状态/记忆仍按项目隔离）。
+只想对单个项目：`cd <project> && bash ~/.claude/skills/tellonce/install.sh`。完整指南
+（强制执行、卸载）见 [`INSTALL.md`](INSTALL.md)。**只用一种方式**：如果你既走 settings.json
+注册又用 `/plugin install`，hooks 会触发两次——加一个前先把另一个移除（`...--remove`）。
+</details>
 
 ## 🚀 快速开始（Codex）
 
-> 前提：已装好 Codex CLI 和 Python 3.7+。实验性——走 wrapper（Codex 没有 `Stop` hook）。
+原生方式——**在 Codex 里**敲（Codex CLI 需 ≥ 2026 年 3 月的插件版本）：
+
+```
+/plugin marketplace add YujunZhou/tellonce
+/plugin install tellonce@tellonce
+/reload-plugins
+```
+
+默认进安全的 `audit_only` 模式（只记录，不拦截）。Codex 的插件市场安装路径比手动方式更新、
+验证较少——如果 `/plugin install` 在你的 Codex 版本上没装上 hooks，请用下面的手动安装。
+
+<details>
+<summary>或手动安装（git clone + 安装脚本）</summary>
 
 ```bash
-# 1. 克隆到 Codex 的 skills 目录
 git clone https://github.com/YujunZhou/tellonce.git ~/.codex/skills/tellonce
-
-# 2. 跑 Codex 安装器（注意：在 codex/ 下，不是仓库根的 install.sh）
 cd /path/to/your/project
-bash ~/.codex/skills/tellonce/codex/install.sh
+bash ~/.codex/skills/tellonce/codex/install.sh   # 在 codex/ 下，不是仓库根的 install.sh
 bash ~/.codex/skills/tellonce/codex/doctor.sh
 ```
 
-默认进 `audit_only` 模式（只记录，不拦截）。模式与 wrapper 流程见
-[`codex/docs/README.md`](codex/docs/README.md)。
+模式与 wrapper 流程见 [`codex/docs/README.md`](codex/docs/README.md)。
+</details>
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。**装完重启 Copilot。**
-> 命令钉在不可变的 release tag `v1.2.0`，不会因 `main` 变动而改，更安全。
+> 命令钉在不可变的 release tag `v1.2.1`，不会因 `main` 变动而改，更安全。
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -85,8 +102,8 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/b
 
 | 平台 | 状态 | 安装 | 文档 |
 |---|---|---|---|
-| **Claude Code** | ✅ 推荐（用户量最大） | clone + 注册 hooks（见上） | [`docs/claude-code.md`](docs/claude-code.md) |
-| **Codex** | 实验性 | clone + `codex/install.sh`（见上） | [`codex/docs/README.md`](codex/docs/README.md) |
+| **Claude Code** | ✅ 推荐（用户量最大） | `/plugin install`（见上） | [`docs/claude-code.md`](docs/claude-code.md) |
+| **Codex** | 实验性 | `/plugin install`（见上） | [`codex/docs/README.md`](codex/docs/README.md) |
 | **GitHub Copilot CLI** | 支持（一键安装） | 一条命令（见上） | [`copilot/README.md`](copilot/README.md) |
 
 三者共享同一份用户偏好记忆与设计哲学（Iron Law / Gate Function / scan → record →

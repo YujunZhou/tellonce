@@ -7,21 +7,28 @@
   },
   "metadata": {
     "description": "tellonce: records the corrections you make to your coding agent and (opt-in) enforces them. Safe-by-default observe mode.",
-    "version": "1.2.0"
+    "version": "1.2.1"
   },
   "plugins": [
     {
       "name": "tellonce",
-      "description": "Automatic preference/pitfall/friction detection + memory enforcement (observe / enforce / full modes). Native on GitHub Copilot CLI.",
-      "version": "1.2.0",
-      "source": "./copilot",
+      "description": "Automatic preference/pitfall/friction detection + memory enforcement (observe / enforce / full modes). Native Claude Code plugin: hooks auto-register on install.",
+      "version": "1.2.1",
+      "source": ".",
       "author": {
         "name": "Yujun Zhou",
         "email": "yzhou25@nd.edu"
       },
       "homepage": "https://github.com/YujunZhou/tellonce",
       "license": "MIT",
-      "keywords": ["memory", "preferences", "pitfalls", "hooks", "enforcement", "personalization"]
+      "keywords": [
+        "memory",
+        "preferences",
+        "pitfalls",
+        "hooks",
+        "enforcement",
+        "personalization"
+      ]
     }
   ]
 }

@@ -38,7 +38,7 @@ jobs:
         run: python -m pip install --upgrade pip pyyaml pytest
 
       - name: Compile all core modules
-        run: python -m compileall -q lib copilot/lib codex/tellonce_codex
+        run: python -m compileall -q lib copilot/lib codex/tellonce_codex codex/shared_lib
 
       # Import-smoke: compileall only parses; version-dependent constructs like
       # un-futured `str | None` annotations explode at IMPORT time on the

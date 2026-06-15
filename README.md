@@ -31,58 +31,79 @@ blocks you and never sends your conversation anywhere until you opt in.
 
 ## 🚀 Quick start (Claude Code)
 
-> Prerequisites: Claude Code CLI and Python 3.7+.
+The native way — run these two commands **inside Claude Code**:
+
+```
+/plugin marketplace add YujunZhou/tellonce
+/plugin install tellonce@tellonce
+```
+
+The hooks auto-register; start a new session to activate. Tellonce begins in the
+safe `observe` mode (records + reminds, never blocks); turn on hard blocking in a
+shell with `export PT_ENFORCE=1`.
+
+<details>
+<summary>Or install manually (git clone + register)</summary>
 
 ```bash
-# 1. Clone into your Claude Code skills directory
 git clone https://github.com/YujunZhou/tellonce.git ~/.claude/skills/tellonce
-
-# 2. Register the hooks once, for every project (recommended):
 python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/tellonce/hooks --add
 ```
 
-That registers Tellonce user-global in `~/.claude/settings.json`, so every
-project you run Claude Code in is covered; state and memory are still kept
-per-project. Prefer to scope it to one project instead? Run
-`bash ~/.claude/skills/tellonce/install.sh` from that project's root (it also
-runs a `doctor.sh` self-check). Starts in the safe `observe` mode. Full guide —
-enforcement, per-project setup, uninstall — in [`INSTALL.md`](INSTALL.md).
+That registers Tellonce user-global in `~/.claude/settings.json` (every project
+covered; state/memory still per-project). Per-project instead:
+`cd <project> && bash ~/.claude/skills/tellonce/install.sh`. Full guide —
+enforcement, uninstall — in [`INSTALL.md`](INSTALL.md). **Pick one method:** if
+you register via settings.json AND `/plugin install`, the hooks fire twice —
+remove one (`...--remove`) before adding the other.
+</details>
 
 ## 🚀 Quick start (Codex)
 
-> Prerequisites: Codex CLI and Python 3.7+. Experimental — wrapper-driven (Codex
-> has no `Stop` hook).
+The native way — run these **inside Codex** (Codex CLI ≥ the March 2026 plugin
+release):
+
+```
+/plugin marketplace add YujunZhou/tellonce
+/plugin install tellonce@tellonce
+/reload-plugins
+```
+
+Tellonce begins in the safe `audit_only` mode (records, never blocks). The Codex
+plugin-marketplace path is newer and less battle-tested than the manual one — if
+`/plugin install` doesn't load the hooks on your Codex build, use the manual
+install below.
+
+<details>
+<summary>Or install manually (git clone + install script)</summary>
 
 ```bash
-# 1. Clone into your Codex skills directory
 git clone https://github.com/YujunZhou/tellonce.git ~/.codex/skills/tellonce
-
-# 2. Run the Codex installer (note: under codex/, NOT the repo-root install.sh)
 cd /path/to/your/project
-bash ~/.codex/skills/tellonce/codex/install.sh
+bash ~/.codex/skills/tellonce/codex/install.sh   # under codex/, NOT the repo-root install.sh
 bash ~/.codex/skills/tellonce/codex/doctor.sh
 ```
 
-Starts in the default `audit_only` mode (records, never blocks). See
-[`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flow.
+See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flow.
+</details>
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.** The command is pinned to the
-> immutable release tag `v1.2.0`, so a later change to `main` can't alter what
+> immutable release tag `v1.2.1`, so a later change to `main` can't alter what
 > you run.
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.sh | bash
 ```
 
 This downloads the plugin, copies it into Copilot's plugin directory, installs
@@ -97,8 +118,8 @@ SHA256 of each bootstrap script.
 
 | Platform | Status | Install | Docs |
 |---|---|---|---|
-| **Claude Code** | ✅ Recommended (largest user base) | clone + register hooks (above) | [`docs/claude-code.md`](docs/claude-code.md) |
-| **Codex** | Experimental | clone + `codex/install.sh` (above) | [`codex/docs/README.md`](codex/docs/README.md) |
+| **Claude Code** | ✅ Recommended (largest user base) | `/plugin install` (above) | [`docs/claude-code.md`](docs/claude-code.md) |
+| **Codex** | Experimental | `/plugin install` (above) | [`codex/docs/README.md`](codex/docs/README.md) |
 | **GitHub Copilot CLI** | Supported (one-command install) | one command (above) | [`copilot/README.md`](copilot/README.md) |
 
 All three share the same user-preference memory and design philosophy (Iron Law /

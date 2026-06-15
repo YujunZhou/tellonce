@@ -61,6 +61,30 @@ else
     fail=1
 fi
 
+# 3. codex/shared_lib must be a byte-identical copy of lib/ (minus tests).
+CODEX_SHARED="${REPO}/codex/shared_lib"
+if [ -d "${CODEX_SHARED}" ]; then
+    shopt -s nullglob
+    for f in "${SRC}"/*.py "${SRC}"/*.yaml "${SRC}"/*.txt; do
+        base="$(basename "${f}")"
+        case "${base}" in conftest.py|test_*.py) continue ;; esac
+        if [ ! -f "${CODEX_SHARED}/${base}" ]; then
+            echo "FAIL: ${base} missing in codex/shared_lib/ (run scripts/sync-variants.sh)"
+            fail=1
+        elif ! diff -q "${f}" "${CODEX_SHARED}/${base}" >/dev/null 2>&1; then
+            echo "FAIL: ${base} differs between lib/ and codex/shared_lib/ (run scripts/sync-variants.sh)"
+            fail=1
+        fi
+    done
+    # No stale extras in codex/shared_lib.
+    for f in "${CODEX_SHARED}"/*.py "${CODEX_SHARED}"/*.yaml "${CODEX_SHARED}"/*.txt; do
+        [ -e "${f}" ] || continue
+        base="$(basename "${f}")"
+        [ -f "${SRC}/${base}" ] || { echo "FAIL: stale ${base} in codex/shared_lib/ (not in lib/)"; fail=1; }
+    done
+    shopt -u nullglob
+fi
+
 if [ "${fail}" -eq 0 ]; then
     echo "parity-check: OK — shared core identical, pt_platform interfaces match"
 fi

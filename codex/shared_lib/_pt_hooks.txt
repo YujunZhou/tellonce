@@ -1,0 +1,11 @@
+# Tellonce hook filename source-of-truth.
+# install.sh / doctor.sh / uninstall.sh / _install_merge_settings.py all source this list.
+# When changing the hook set, add/remove one filename here and all three stay in sync.
+memory-deterministic-block.sh
+memory-shadow-judge.sh
+memory-shadow-alert-inject.sh
+memory-verify-compliance.sh
+memory-retrieve-inject.sh
+memory-pending-promote.sh
+memory-pending-inject.sh
+check-observation-log.sh

@@ -1,0 +1,21 @@
+{
+  "name": "tellonce",
+  "displayName": "Tellonce",
+  "description": "Records the corrections you make to your Claude Code agent and (opt-in) enforces them, so the same mistake doesn't come back. Safe observe-only by default.",
+  "version": "1.2.1",
+  "author": {
+    "name": "Yujun Zhou",
+    "email": "yzhou25@nd.edu"
+  },
+  "homepage": "https://github.com/YujunZhou/tellonce",
+  "repository": "https://github.com/YujunZhou/tellonce",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "preferences",
+    "pitfalls",
+    "hooks",
+    "enforcement",
+    "personalization"
+  ]
+}

@@ -121,7 +121,7 @@ def register():
     plugins.append({
         'name': PLUGIN_NAME,
         'marketplace': PLUGIN_NAME,
-        'version': '1.2.0',
+        'version': '1.2.1',
         'installed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         'enabled': True,
         'cache_path': PLUGIN_ROOT,

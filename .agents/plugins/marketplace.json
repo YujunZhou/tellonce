@@ -1,15 +1,25 @@
 {
   "name": "tellonce",
+  "description": "Self-hosted marketplace for tellonce — automatic preference/pitfall/friction memory and enforcement for AI coding agents.",
+  "interface": {
+    "displayName": "Tellonce"
+  },
+  "owner": {
+    "name": "Yujun Zhou",
+    "email": "yzhou25@nd.edu"
+  },
+  "metadata": {
+    "version": "1.2.1"
+  },
   "plugins": [
     {
       "name": "tellonce",
-      "source": {
-        "source": "local",
-        "path": "./codex"
-      },
+      "description": "Records the corrections you make to your Codex agent and (opt-in) enforces them via PostToolUse + wrapper. Safe audit-only by default.",
+      "version": "1.2.1",
+      "source": { "source": "local", "path": "./codex" },
       "policy": {
         "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
+        "authentication": "ON_FIRST_USE"
       },
       "category": "Productivity"
     }
