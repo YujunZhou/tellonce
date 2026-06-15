@@ -1,6 +1,6 @@
 {
   "name": "tellonce",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Automatic preference/pitfall/friction detection and memory enforcement for AI coding agents (Codex variant: audit log + wrapper enforcement via tellonce_codex).",
   "author": {
     "name": "Yujun Zhou",
@@ -29,6 +29,11 @@
       "Interactive",
       "Read",
       "Write"
+    ],
+    "defaultPrompt": [
+      "Record my coding preferences from this thread.",
+      "Show my active tellonce memories.",
+      "Run a tellonce health check for this repo."
     ],
     "websiteURL": "https://github.com/YujunZhou/tellonce"
   }

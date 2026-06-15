@@ -69,10 +69,10 @@ release):
 /reload-plugins
 ```
 
-Tellonce begins in the safe `audit_only` mode (records, never blocks). The Codex
-plugin-marketplace path is newer and less battle-tested than the manual one — if
-`/plugin install` doesn't load the hooks on your Codex build, use the manual
-install below.
+Tellonce begins in the safe `audit_only` mode (records, never blocks). The Codex marketplace
+manifest is validated against the current Codex CLI (`codex plugin marketplace
+add` + the plugin validator pass); if `/plugin install` doesn't load the hooks on
+your Codex build, use the manual install below.
 
 <details>
 <summary>Or install manually (git clone + install script)</summary>
@@ -91,19 +91,19 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.** The command is pinned to the
-> immutable release tag `v1.2.1`, so a later change to `main` can't alter what
+> immutable release tag `v1.2.2`, so a later change to `main` can't alter what
 > you run.
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.sh | bash
 ```
 
 This downloads the plugin, copies it into Copilot's plugin directory, installs

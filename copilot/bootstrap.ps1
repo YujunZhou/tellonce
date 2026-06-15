@@ -2,7 +2,7 @@
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.ps1 | iex"
 #
 # It downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state dirs, seed rules, observe mode,
@@ -13,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 $REPO   = 'https://github.com/YujunZhou/tellonce'
 # Pinned to a release tag (immutable) for integrity. git clone --branch accepts
 # a tag; archive uses refs/tags for a tag (refs/heads for a branch).
-$REF    = 'v1.2.1'
+$REF    = 'v1.2.2'
 $REFKIND = 'tags'
 
 function Fail($msg) { Write-Host "[X] $msg" -ForegroundColor Red; exit 1 }

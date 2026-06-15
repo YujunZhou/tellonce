@@ -59,8 +59,9 @@ python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.c
 /reload-plugins
 ```
 
-默认进安全的 `audit_only` 模式（只记录，不拦截）。Codex 的插件市场安装路径比手动方式更新、
-验证较少——如果 `/plugin install` 在你的 Codex 版本上没装上 hooks，请用下面的手动安装。
+默认进安全的 `audit_only` 模式（只记录，不拦截）。Codex 的清单已对现行 Codex CLI 验证通过
+（`codex plugin marketplace add` + 插件 validator 都过）；如果 `/plugin install` 在你的
+Codex 版本上没装上 hooks，请用下面的手动安装。
 
 <details>
 <summary>或手动安装（git clone + 安装脚本）</summary>
@@ -78,18 +79,18 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 ## 🚀 快速开始（GitHub Copilot CLI）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。**装完重启 Copilot。**
-> 命令钉在不可变的 release tag `v1.2.1`，不会因 `main` 变动而改，更安全。
+> 命令钉在不可变的 release tag `v1.2.2`，不会因 `main` 变动而改，更安全。
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot

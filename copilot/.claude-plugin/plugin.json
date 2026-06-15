@@ -1,7 +1,7 @@
 {
   "name": "tellonce",
   "description": "Automatic preference/pitfall/friction detection and memory enforcement for Copilot CLI",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": { "name": "Yujun Zhou", "email": "yzhou25@nd.edu" },
   "homepage": "https://github.com/YujunZhou/tellonce",
   "repository": "https://github.com/YujunZhou/tellonce",
