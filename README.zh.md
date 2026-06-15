@@ -46,6 +46,41 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.0/copilot/b
 谨慎的话，可在管道执行前先核对脚本——见 [`copilot/README.md`](copilot/README.md)
 里公布的每个 bootstrap 脚本的 SHA256。
 
+## 🚀 快速开始（Claude Code）
+
+> 前提：已装好 Claude Code CLI 和 Python 3.7+。
+
+```bash
+# 1. 克隆到 Claude Code 的 skills 目录
+git clone https://github.com/YujunZhou/tellonce.git ~/.claude/skills/tellonce
+
+# 2. 一次注册，对所有项目生效（推荐）：
+python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/tellonce/hooks --add
+```
+
+这样会把 Tellonce 注册到用户级 `~/.claude/settings.json`，你之后在任何项目里跑
+Claude Code 都生效；状态和记忆仍按项目隔离。只想对单个项目启用？在那个项目根目录
+跑 `bash ~/.claude/skills/tellonce/install.sh`（它还会跑一遍 `doctor.sh` 自检）。
+默认进安全的 `observe` 模式。完整指南（强制执行、单项目安装、卸载）见
+[`INSTALL.md`](INSTALL.md)。
+
+## 🚀 快速开始（Codex）
+
+> 前提：已装好 Codex CLI 和 Python 3.7+。实验性——走 wrapper（Codex 没有 `Stop` hook）。
+
+```bash
+# 1. 克隆到 Codex 的 skills 目录
+git clone https://github.com/YujunZhou/tellonce.git ~/.codex/skills/tellonce
+
+# 2. 跑 Codex 安装器（注意：在 codex/ 下，不是仓库根的 install.sh）
+cd /path/to/your/project
+bash ~/.codex/skills/tellonce/codex/install.sh
+bash ~/.codex/skills/tellonce/codex/doctor.sh
+```
+
+默认进 `audit_only` 模式（只记录，不拦截）。模式与 wrapper 流程见
+[`codex/docs/README.md`](codex/docs/README.md)。
+
 ## 支持的平台
 
 | 平台 | 状态 | 安装 | 文档 |

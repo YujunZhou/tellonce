@@ -56,6 +56,43 @@ Cautious? Verify the script before piping it to a shell — see
 [`copilot/README.md`](copilot/README.md#verify-integrity) for the published
 SHA256 of each bootstrap script.
 
+## 🚀 Quick start (Claude Code)
+
+> Prerequisites: Claude Code CLI and Python 3.7+.
+
+```bash
+# 1. Clone into your Claude Code skills directory
+git clone https://github.com/YujunZhou/tellonce.git ~/.claude/skills/tellonce
+
+# 2. Register the hooks once, for every project (recommended):
+python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.claude/settings.json --hooks-dir ~/.claude/skills/tellonce/hooks --add
+```
+
+That registers Tellonce user-global in `~/.claude/settings.json`, so every
+project you run Claude Code in is covered; state and memory are still kept
+per-project. Prefer to scope it to one project instead? Run
+`bash ~/.claude/skills/tellonce/install.sh` from that project's root (it also
+runs a `doctor.sh` self-check). Starts in the safe `observe` mode. Full guide —
+enforcement, per-project setup, uninstall — in [`INSTALL.md`](INSTALL.md).
+
+## 🚀 Quick start (Codex)
+
+> Prerequisites: Codex CLI and Python 3.7+. Experimental — wrapper-driven (Codex
+> has no `Stop` hook).
+
+```bash
+# 1. Clone into your Codex skills directory
+git clone https://github.com/YujunZhou/tellonce.git ~/.codex/skills/tellonce
+
+# 2. Run the Codex installer (note: under codex/, NOT the repo-root install.sh)
+cd /path/to/your/project
+bash ~/.codex/skills/tellonce/codex/install.sh
+bash ~/.codex/skills/tellonce/codex/doctor.sh
+```
+
+Starts in the default `audit_only` mode (records, never blocks). See
+[`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flow.
+
 ## Supported platforms
 
 | Platform | Status | Install | Docs |
