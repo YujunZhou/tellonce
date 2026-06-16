@@ -68,32 +68,8 @@ jobs:
           done
           exit $fail
 
-      # --- Windows-safe tests (run on every OS) ---
-      - name: Copilot variant smoke
-        run: python -m pytest copilot/lib/test_smoke.py -q
-
-      - name: Root Windows-safe tests
-        run: |
-          python lib/test_deterministic_block.py
-          python lib/test_rule_params.py
-          python lib/test_threshold_advisor.py
-
-      # --- POSIX-only suites + codex + parity (Linux/macOS) ---
-      - name: Root POSIX-only tests
-        if: runner.os != 'Windows'
-        run: |
-          fail=0
-          for t in test_path_config test_auto_light_entry test_b4_blocking test_verify_retry_shadow test_chaos_fault_injection; do
-            echo "::group::$t"
-            python "lib/$t.py" || { echo "::error::FAILED $t"; fail=1; }
-            echo "::endgroup::"
-          done
-          exit $fail
-
-      - name: Codex test suite
-        if: runner.os != 'Windows'
-        working-directory: codex
-        run: python -m pytest tests/test_core.py -q
+      # Unit/integration tests are maintained locally and kept out of the public
+      # tree; the public CI gate is compile + import-smoke + parity + shell-lint.
 
       - name: Cross-variant parity check
         if: runner.os != 'Windows'

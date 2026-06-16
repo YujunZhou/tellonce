@@ -66,3 +66,8 @@ copilot/seed_memory.user/
 
 # root (Claude Code) personal seed overlay (kept local, never shipped)
 /seed_memory.user/
+
+# tests - verified locally, kept out of the public tree (run locally: pytest lib/, codex/, etc.)
+test_*.py
+conftest.py
+**/tests/
