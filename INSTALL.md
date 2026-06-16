@@ -141,12 +141,12 @@ default uninstall; new state accumulates under `.claude/tellonce-state/`.
 ## Post-install check
 
 ```bash
-bash ~/.claude/skills/tellonce/doctor.sh        # 13 tests in 4 groups, incl. a real-violation block smoke test
-bash ~/.claude/skills/tellonce/dashboard.sh     # 7-day compliance summary + threshold advice
+bash ~/.claude/skills/tellonce/doctor.sh        # install-health checks (3 groups), incl. a real-violation block smoke test
+bash ~/.claude/skills/tellonce/dashboard.sh     # recent shadow-judge alerts (if shadow enabled)
 ```
 
-Expected: doctor all-pass; dashboard shows no data yet (fresh install) or recent
-trigger records.
+Expected: doctor all-pass; dashboard shows recent shadow alerts, or nothing if
+the shadow judge is off.
 
 ---
 

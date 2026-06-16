@@ -70,28 +70,7 @@ semantics to dedupe (idempotent) and won't add the same hook twice.
 
 ---
 
-## Configuration / thresholds
 
-### Q8: How do I change a threshold?
-
-**Simple version** (already shipped): for an enforce rule you recorded, edit the
-`params:` block in its memory `.md` frontmatter:
-
-```yaml
----
-atomic_id: <your-rule-id>
-params:
-  some_threshold: 0.55
----
-```
-
-No reload needed. The next hook call reads the frontmatter.
-
-**Full version, `threshold_advisor.py`:** runs on your data to suggest threshold
-changes for you to approve. See the docstring at the top of
-`lib/threshold_advisor.py`.
-
----
 
 ### Q9: How much API money does the shadow judge cost me?
 

@@ -82,26 +82,15 @@ echo "  HOME: ${HOME}"
 echo "  PROJECT: ${PROJECT_ROOT}"
 echo ""
 
-# ============================================================
-# Test group 1: Unit tests
-# ============================================================
-echo "[1/4] Unit tests (path_config + deterministic + shadow + chaos + rule_params + auto_light_entry):"
-run_test "test_path_config"        python3 "${SKILL_DIR}/lib/test_path_config.py"
-run_test "test_deterministic_block" python3 "${SKILL_DIR}/lib/test_deterministic_block.py"
-run_test "test_verify_retry_shadow" python3 "${SKILL_DIR}/lib/test_verify_retry_shadow.py"
-run_test "test_chaos_fault_injection" python3 "${SKILL_DIR}/lib/test_chaos_fault_injection.py"
-run_test "test_rule_params" python3 "${SKILL_DIR}/lib/test_rule_params.py"
-# test_b4_blocking now uses path_config + tempfile, so every user can run it.
-# No more HOME-based skip.
-run_test "test_b4_blocking (14)" python3 "${SKILL_DIR}/lib/test_b4_blocking.py"
-# hook auto-fallback prevents 600s false positives; adds 7 units
-run_test "test_auto_light_entry (7)" python3 "${SKILL_DIR}/lib/test_auto_light_entry.py"
+# (Unit/integration tests are dev-only and live outside the shipped tree; run
+#  them locally with pytest. doctor.sh checks install health below.)
+
 
 # ============================================================
 # Test group 2: Path / permission
 # ============================================================
 echo ""
-echo "[2/4] Path / permission:"
+echo "[1/3] Path / permission:"
 
 # 2.1 path_config detect passes
 run_test "path_config debug print" \
@@ -129,7 +118,7 @@ run_test "state/obs_log/memory dirs writable" state_writable_test
 # Test group 3: Hook registration + CLI
 # ============================================================
 echo ""
-echo "[3/4] Hook registration + CLI:"
+echo "[2/3] Hook registration + CLI:"
 
 # Accept user-global registration as PASS. The project-local settings.local.json
 # may exist (user has their own hooks) without PT. Claude Code merges
@@ -176,7 +165,7 @@ fi
 # ============================================================
 if [[ "${QUICK}" != true ]]; then
     echo ""
-    echo "[4/4] Smoke test (subprocess violation check):"
+    echo "[3/3] Smoke test (subprocess violation check):"
     smoke_test() {
         TMP_TRANSCRIPT=$(mktemp)
         cat > "${TMP_TRANSCRIPT}" <<'EOF'

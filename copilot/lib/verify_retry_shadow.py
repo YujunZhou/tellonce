@@ -552,8 +552,8 @@ def evaluate(stdin_data):
         _bump_daily_cost(cost_usd)
 
     # Pre-collect violation rule_ids for the main compliance log:
-    # the main entry writes a shadow_violation_rule_ids list so analyze_b5_compliance.py can do
-    # per-rule bucketing directly, without reading b5_shadow_log.jsonl as a second source.
+    # the main entry writes a shadow_violation_rule_ids list for per-rule bucketing
+    # directly, without reading b5_shadow_log.jsonl as a second source.
     raw_violations = [v for v in verdicts
                       if v.get('applicable', True) and not v.get('compliant', True)]
     violations = list(raw_violations)

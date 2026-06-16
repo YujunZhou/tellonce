@@ -82,10 +82,7 @@ export PT_STREAK_BYPASS=3       # default 3
 
 ```bash
 bash ~/.claude/skills/tellonce/dashboard.sh
-# Last 7 days:
-#   - deterministic block counts (bucketed by rule)
-#   - shadow violations (alerted vs filtered)
-#   - judge failure rate / cost / latency
+# Recent shadow-judge alerts (the shadow judge is opt-in via PT_SHADOW=1).
 ```
 
 ## Uninstall
