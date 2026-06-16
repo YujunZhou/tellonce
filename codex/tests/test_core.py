@@ -343,13 +343,13 @@ class TellonceCodexCoreTests(unittest.TestCase):
 
     def test_skill_package_wrappers_exist(self):
         root = Path(__file__).resolve().parents[2]
-        package = root / "tellonce_codex_skill" / "tellonce"
+        package = root / "codex"
         for name in ["SKILL.md", "install.sh", "doctor.sh", "uninstall.sh", "dashboard.sh"]:
             self.assertTrue((package / name).is_file(), name)
 
     def test_skill_install_and_doctor_wrappers_smoke(self):
         root = Path(__file__).resolve().parents[2]
-        package = root / "tellonce_codex_skill" / "tellonce"
+        package = root / "codex"
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
@@ -382,7 +382,7 @@ class TellonceCodexCoreTests(unittest.TestCase):
 
     def test_standalone_skill_folder_install_smoke(self):
         root = Path(__file__).resolve().parents[2]
-        source = root / "tellonce_codex_skill" / "tellonce"
+        source = root / "codex"
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             home = base / "home"
