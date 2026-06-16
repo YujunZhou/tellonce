@@ -188,7 +188,7 @@ def test_T5_install_idempotent_rerun():
                     all_cmds.append(h['command'])
         unique = len(set(all_cmds))
         total = len(all_cmds)
-        assert unique == total, f'重复注册: unique={unique}, total={total}'
+        assert unique == total, f'duplicate registration: unique={unique}, total={total}'
         return True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -286,22 +286,22 @@ def test_T10_all_env_opt_out():
                     ['python3', os.path.join(LIB_DIR, 'deterministic_block.py')],
                     input=stdin_json, capture_output=True, text=True, timeout=10
                 )
-                assert proc.returncode == 0, f'deterministic 应 exit 0 (disabled), got {proc.returncode}'
+                assert proc.returncode == 0, f'deterministic should exit 0 (disabled), got {proc.returncode}'
                 # shadow disabled → exit 0 silent
                 proc2 = subprocess.run(
                     ['python3', os.path.join(LIB_DIR, 'verify_retry_shadow.py')],
                     input=stdin_json, capture_output=True, text=True, timeout=10
                 )
-                assert proc2.returncode == 0, f'shadow 应 exit 0, got {proc2.returncode}'
+                assert proc2.returncode == 0, f'shadow should exit 0, got {proc2.returncode}'
                 # inject disabled → exit 0 silent + no hookSpecificOutput in stdout (M12 fix)
                 proc3 = subprocess.run(
                     ['python3', os.path.join(LIB_DIR, 'shadow_alert_inject.py')],
                     input=stdin_json, capture_output=True, text=True, timeout=5
                 )
-                assert proc3.returncode == 0, f'inject 应 exit 0, got {proc3.returncode}'
+                assert proc3.returncode == 0, f'inject should exit 0, got {proc3.returncode}'
                 # M12 fix: actually assert stdout has no hookSpecificOutput (otherwise the harness still injects)
                 assert 'hookSpecificOutput' not in proc3.stdout, \
-                    f'inject disabled 时 stdout 不应有 hookSpecificOutput, got: {proc3.stdout[:200]}'
+                    f'inject disabled: stdout should have no hookSpecificOutput, got: {proc3.stdout[:200]}'
                 return True
             finally:
                 os.unlink(tr)
@@ -334,7 +334,7 @@ def test_T11_install_uninstall_reinstall_state_persistent():
         with open(settings_path) as f:
             d1 = json.load(f)
         n1 = sum(len(e.get('hooks', [])) for chain in d1['hooks'].values() for e in chain)
-        assert n1 == 8, f'add 后期望 8 hooks, got {n1}'
+        assert n1 == 8, f'expected 8 hooks after add, got {n1}'
 
         # write state file (simulate user data)
         import path_config
@@ -351,9 +351,9 @@ def test_T11_install_uninstall_reinstall_state_persistent():
         with open(settings_path) as f:
             d2 = json.load(f)
         n2 = sum(len(e.get('hooks', [])) for chain in d2['hooks'].values() for e in chain)
-        assert n2 == 0, f'remove 后期望 0 hooks, got {n2}'
+        assert n2 == 0, f'expected 0 hooks after remove, got {n2}'
         # state file still present (uninstall does not touch state)
-        assert os.path.exists(state_file), 'state 不该被 remove 删'
+        assert os.path.exists(state_file), 'state should not be deleted by remove'
 
         # cycle 3: re-add
         subprocess.run(['python3', os.path.join(LIB_DIR, '_install_merge_settings.py'),
@@ -362,12 +362,12 @@ def test_T11_install_uninstall_reinstall_state_persistent():
         with open(settings_path) as f:
             d3 = json.load(f)
         n3 = sum(len(e.get('hooks', [])) for chain in d3['hooks'].values() for e in chain)
-        assert n3 == 8, f'重 add 后期望 8 hooks, got {n3}'
+        assert n3 == 8, f'expected 8 hooks after re-add, got {n3}'
         # state file still present
-        assert os.path.exists(state_file), 'state 持久不丢'
+        assert os.path.exists(state_file), 'state should persist'
         with open(state_file) as f:
             d_state = json.load(f)
-        assert d_state['total_usd'] == 0.42, f'state 内容应保留, got {d_state}'
+        assert d_state['total_usd'] == 0.42, f'state content should be preserved, got {d_state}'
         return True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -387,7 +387,7 @@ def test_T12_cwd_with_special_chars():
         path_config.ensure_dirs()
         # memory dir uses cwd escape
         md = path_config.get_memory_dir()
-        assert os.path.exists(md), f'memory dir 应已创: {md}'
+        assert os.path.exists(md), f'memory dir should be created: {md}'
         return True
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -399,17 +399,17 @@ def test_T12_cwd_with_special_chars():
 
 def main():
     tests = [
-        ('T1 shadow CLI 网络 fail → exit 0', test_T1_shadow_judge_cli_raises),
-        ('T2 磁盘满 OSError 28 兜底', test_T2_disk_full_open_oserror),
-        ('T3 state dir chmod 000 → 兜底', test_T3_state_dir_chmod_000),
-        ('T4 corrupt settings JSON → install 早 detect', test_T4_corrupt_settings_install_early_detect),
-        ('T5 install --add 重跑 idempotent', test_T5_install_idempotent_rerun),
-        ('T6 streak per-sid 隔离', test_T6_streak_isolated_per_session_id),
-        ('T7 cost cap 触发', test_T7_cost_cap_triggered),
+        ('T1 shadow CLI network fail -> exit 0', test_T1_shadow_judge_cli_raises),
+        ('T2 disk full OSError 28 fallback', test_T2_disk_full_open_oserror),
+        ('T3 state dir chmod 000 -> fallback', test_T3_state_dir_chmod_000),
+        ('T4 corrupt settings JSON -> install early detect', test_T4_corrupt_settings_install_early_detect),
+        ('T5 install --add rerun idempotent', test_T5_install_idempotent_rerun),
+        ('T6 streak per-sid isolation', test_T6_streak_isolated_per_session_id),
+        ('T7 cost cap triggered', test_T7_cost_cap_triggered),
         ('T9 streak bypass after 3', test_T9_streak_bypass_after_3),
-        ('T10 三 env opt-out 全跳过', test_T10_all_env_opt_out),
-        ('T11 装-卸-重装 state 持久', test_T11_install_uninstall_reinstall_state_persistent),
-        ('T12 cwd 含空格 path 处理 OK', test_T12_cwd_with_special_chars),
+        ('T10 all three env opt-outs skip', test_T10_all_env_opt_out),
+        ('T11 install-uninstall-reinstall state persists', test_T11_install_uninstall_reinstall_state_persistent),
+        ('T12 cwd with space path handled OK', test_T12_cwd_with_special_chars),
     ]
     passed = 0
     failed = []

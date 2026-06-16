@@ -1,0 +1,16 @@
+# Shell scripts must use LF — CRLF breaks them under bash (e.g. `$'\r': command
+# not found`) on Windows checkouts where core.autocrlf would otherwise convert them.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# PowerShell / batch files stay CRLF on Windows.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Treat these as text with normalized LF in the repo.
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf

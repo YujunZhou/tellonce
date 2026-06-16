@@ -60,7 +60,7 @@ def test_T2_rule_without_params_returns_empty():
     """A rule with no params block returns an empty dict."""
     rule_params._clear_cache()
     p = rule_params.read_rule_params('oth-pref-001')
-    assert p == {}, 'oth-pref-001 没 params 应返 {} got ' + str(p)
+    assert p == {}, 'oth-pref-001 with no params should return {} got ' + str(p)
     return True
 
 
@@ -68,10 +68,10 @@ def test_T3_get_param_fallback_default():
     """get_param returns the default when the key is not found."""
     rule_params._clear_cache()
     v = rule_params.get_param('lang-pit-130', 'nonexistent_key', 999)
-    assert v == 999, '没设 key 应返 default 999 got ' + str(v)
+    assert v == 999, 'unset key should return default 999 got ' + str(v)
     # a set key returns the frontmatter value, not the default
     v2 = rule_params.get_param('lang-pit-130', 'min_length', 50)
-    assert v2 == 50, 'min_length 应返 frontmatter 50 got ' + str(v2)
+    assert v2 == 50, 'min_length should return frontmatter 50 got ' + str(v2)
     return True
 
 
@@ -91,12 +91,12 @@ other_field: ignored
 body
 """
     p = rule_params._parse_params_block(content)
-    assert p['threshold'] == 0.55, 'threshold 应 0.55 got ' + str(p)
-    assert p['min_length'] == 80, 'min_length 应 80'
-    assert p['mode'] == 'strict', 'mode 应 strict (去引号)'
-    assert p['label'] == 'pilot', 'label 应 pilot (去单引号)'
-    assert p['count'] == 42, 'count 应 42 (int)'
-    assert 'other_field' not in p, 'top-level 字段不该混入'
+    assert p['threshold'] == 0.55, 'threshold should be 0.55 got ' + str(p)
+    assert p['min_length'] == 80, 'min_length should be 80'
+    assert p['mode'] == 'strict', 'mode should be strict (quotes stripped)'
+    assert p['label'] == 'pilot', 'label should be pilot (single quotes stripped)'
+    assert p['count'] == 42, 'count should be 42 (int)'
+    assert 'other_field' not in p, 'top-level field should not be mixed in'
     return True
 
 
@@ -104,7 +104,7 @@ def test_T5_missing_file_no_crash():
     """memory_dir missing or rule atomic_id not found → return empty dict without crashing."""
     rule_params._clear_cache()
     p = rule_params.read_rule_params('nonexistent-rule-id-9999')
-    assert p == {}, '找不到规则应返 {} got ' + str(p)
+    assert p == {}, 'a missing rule should return {} got ' + str(p)
     return True
 
 
@@ -114,22 +114,22 @@ def test_T6_clear_cache_rereads_frontmatter():
     p1 = rule_params.read_rule_params('lang-pit-130')
     # second call with the same atomic_id gets the cached value
     p2 = rule_params.read_rule_params('lang-pit-130')
-    assert p1 == p2, 'cache hit 应 deterministic'
+    assert p1 == p2, 'cache hit should be deterministic'
     # after _clear_cache, reading again still works (fresh disk read)
     rule_params._clear_cache()
     p3 = rule_params.read_rule_params('lang-pit-130')
-    assert p3 == p1, '_clear_cache 后重读应一致'
+    assert p3 == p1, 'reread after _clear_cache should be consistent'
     return True
 
 
 def main():
     tests = [
-        ('T1 lang-pit-130 真规则读 params', test_T1_real_rule_reads_params),
-        ('T2 没 params 块返空', test_T2_rule_without_params_returns_empty),
+        ('T1 lang-pit-130 real rule reads params', test_T1_real_rule_reads_params),
+        ('T2 no params block returns empty', test_T2_rule_without_params_returns_empty),
         ('T3 get_param fallback default', test_T3_get_param_fallback_default),
-        ('T4 解析注释 / 引号 / 类型', test_T4_parser_handles_comments_and_quotes),
-        ('T5 缺规则不 crash', test_T5_missing_file_no_crash),
-        ('T6 _clear_cache 重读', test_T6_clear_cache_rereads_frontmatter),
+        ('T4 parse comments / quotes / types', test_T4_parser_handles_comments_and_quotes),
+        ('T5 missing rule no crash', test_T5_missing_file_no_crash),
+        ('T6 _clear_cache reread', test_T6_clear_cache_rereads_frontmatter),
     ]
     passed = 0
     failed = []

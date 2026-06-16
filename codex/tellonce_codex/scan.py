@@ -16,9 +16,9 @@ class ScanResult:
 def classify(message: str) -> str:
     """Heuristic classifier — kept simple on purpose.
 
-    HX-6 fix: removed single-character "卡" trigger. "卡" appears in
-    "卡尔", "信用卡", "打卡", "卡夫卡", etc. and made friction over-fire
-    on entirely unrelated messages. Replaced with disambiguating
+    HX-6 fix: removed the single-character friction trigger that appeared
+    as a substring inside many unrelated common words, which made friction
+    over-fire on entirely unrelated messages. Replaced with disambiguating
     multi-character forms.
     """
     lowered = message.lower()
