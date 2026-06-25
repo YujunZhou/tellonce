@@ -257,7 +257,7 @@ This skill has three responsibilities:
 ## Signal Type Definitions
 
 ### preference
-The user explicitly expresses how they want something done. Forward-looking behavioral guidance.
+The user explicitly expresses how they want something done. Forward-looking behavioral guidance; prefer recording a concrete action or check over an adjective/attitude (see the Actionability gate below).
 
 Examples:
 - "use camelCase for functions, UPPER_SNAKE for constants"
@@ -265,7 +265,7 @@ Examples:
 - "run lint and unit tests once before committing"
 
 ### pitfall
-A recurring technical trap / error pattern. The "don't do it again" kind. Usually comes from user corrections or repeatedly stepping into the same trap.
+A recurring technical trap / error pattern. The "don't do it again" kind. Usually comes from user corrections or repeatedly stepping into the same trap; when possible capture the prevention action or check, not just a warning.
 
 Examples:
 - "nested ``` breaks the markdown structure; use 4+ backticks"
@@ -354,6 +354,21 @@ Examples:
 
 **How to apply:** <under what circumstances and how to apply this memory>
 ```
+
+### Actionability gate (preference / pitfall only)
+
+Before writing a `preference` or `pitfall`, run the **reusable self-check**: if a future agent reads this rule *without the original conversation*, can it pick a concrete action or check whose outcome may differ by context? If not, the rule is too soft — an adjective/attitude like "be thorough" guides nothing.
+
+- **If you can compile it confidently** → record the actionable version.
+- **If you can't** → don't invent a narrow, possibly-wrong step. Record your best operational interpretation, and make `confirmation_text` carry **both** the user's original wording **and** your proposed actionable version so the user can sharpen it. (Turning an attitude into an action needs the user's domain knowledge — surface the gap, don't paper over it.)
+
+This gate does **not** apply to `friction`, `user`, `project`, or `reference` — those may stay descriptive.
+
+| User signal | Too soft ❌ | Actionable ✅ |
+|---|---|---|
+| "think about design as meticulously as I do" | "Think very meticulously about design." | "Don't accept your own simplifying assumptions: for each, pressure-test it against real scenarios — would it hold in practice? any counterexamples? what complexity did it discard?" |
+| "write better tests" | "Write high-quality tests." | "For a behavior change, cover the happy path, one edge/failure case, and the specific regression it protects." |
+| "stop saying it's fixed when it isn't verified" | "Avoid premature confidence." | "Before claiming fixed/passing/done, run the relevant check and cite the result; if you can't verify, say what's unverified instead." |
 
 ---
 
@@ -578,6 +593,8 @@ If the user has said "stop asking, just record it" / "no need to confirm":
 | **UPDATE** | which existing preference was updated + the added increment, with the original rule kept. E.g.: `Updated [<atomic_id>] with <delta>; original rule kept.` |
 | **SUPERSEDE** | which old preference it conflicts with, which new one was created to supersede it, the old file marked superseded_by. E.g.: `Conflicts with [<old id>]; created [<new id>] to supersede it.` |
 | **NOOP**   | what preference was detected, which existing atomic_id already covers it, not rewritten. E.g.: `Detected "<content>" — already covered by [<existing id>], no new file.` |
+
+**For a soft `preference` / `pitfall`** (see the Actionability gate): if you could not confidently compile an actionable rule, the `confirmation_text` must also carry the user's original wording **and** your proposed actionable version, so the user can sharpen it.
 
 **Exception**: only when the user has explicitly enabled **global silent mode** and this time detected=false may confirmation_text be empty. Any detected=true path must fill it in.
 
