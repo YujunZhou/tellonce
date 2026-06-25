@@ -6,13 +6,13 @@
     "email": "yzhou25@nd.edu"
   },
   "metadata": {
-    "version": "1.2.2"
+    "version": "1.2.3"
   },
   "plugins": [
     {
       "name": "tellonce",
       "description": "Records the corrections you make to your Copilot CLI agent and (opt-in) enforces them. Safe observe-only by default.",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "source": "./copilot",
       "author": { "name": "Yujun Zhou", "email": "yzhou25@nd.edu" },
       "homepage": "https://github.com/YujunZhou/tellonce",

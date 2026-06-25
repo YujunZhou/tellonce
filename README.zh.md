@@ -91,19 +91,19 @@ copilot plugin install tellonce@tellonce
 <details>
 <summary>或一键引导脚本（已验证的 <code>curl | bash</code>）</summary>
 
-引导脚本钉在不可变 tag `v1.2.2`、SHA256 已公布，可在管道前核对（见
+引导脚本钉在不可变 tag `v1.2.3`、SHA256 已公布，可在管道前核对（见
 [`copilot/README.md`](copilot/README.md#verify-integrity)）。
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.2/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/bootstrap.sh | bash
 ```
 
 它会：下载插件 → 放进 Copilot 插件目录 → 装可选依赖 → 注册（hook 才加载）→ 设

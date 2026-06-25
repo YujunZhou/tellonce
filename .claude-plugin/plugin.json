@@ -2,7 +2,7 @@
   "name": "tellonce",
   "displayName": "Tellonce",
   "description": "Records the corrections you make to your Claude Code agent and (opt-in) enforces them, so the same mistake doesn't come back. Safe observe-only by default.",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "author": {
     "name": "Yujun Zhou",
     "email": "yzhou25@nd.edu"
