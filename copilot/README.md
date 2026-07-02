@@ -16,19 +16,19 @@ For the project overview and the other platforms, see the
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.**
-> The command is pinned to the immutable release tag `v1.2.3` (it won't change
+> The command is pinned to the immutable release tag `v1.3.0` (it won't change
 > when `main` does), which is safer.
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.sh | bash
 ```
 
 This command automatically: downloads the plugin → copies it into Copilot's
@@ -41,17 +41,17 @@ plugin directory → installs the optional dependency → registers it with Copi
 ### Verify integrity
 
 If you'd rather not pipe a script straight into a shell, download it first, read
-it, and check its SHA256 against the value published for `v1.2.3`:
+it, and check its SHA256 against the value published for `v1.3.0`:
 
 ```bash
-# Windows: irm ".../v1.2.3/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.2.3/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.3.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.3.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| File | SHA256 (v1.2.3) |
+| File | SHA256 (v1.3.0) |
 |------|------------------|
-| `bootstrap.ps1` | `e8f5ab4977496ee8b90ddb9f8691a024dc4a0d7cf8488daf04bc95b117fef63b` |
-| `bootstrap.sh`  | `f999dfaa08fd830e76bc84b61225ede148b105e672d54f3a06a12ae65bdddf51` |
+| `bootstrap.ps1` | `205134ca82a23d0d323c60da7c3ae544ff81b0d60f5b5794ddecd2d1599d95f5` |
+| `bootstrap.sh`  | `4c17eafbee577d6a6da81478e30f7bdfcc9272ffa14f811179c7dcacffd9cec7` |
 
 ---
 
@@ -89,11 +89,11 @@ then the plugin files; your saved memory is kept):
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/uninstall.sh | bash
 ```
 **Restart Copilot afterward.** To also wipe your saved memory/state, download the
 script and run it with `-Purge` (PowerShell) / `--purge` (bash). Note that

@@ -102,20 +102,20 @@ Restart Copilot to load the hooks. Starts in the safe `observe` mode.
 <details>
 <summary>Or the one-command bootstrap (a verified <code>curl | bash</code>)</summary>
 
-The bootstrap is pinned to the immutable tag `v1.2.3` and its SHA256 is
+The bootstrap is pinned to the immutable tag `v1.3.0` and its SHA256 is
 published, so you can verify it before piping to a shell (see
 [`copilot/README.md`](copilot/README.md#verify-integrity)).
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.sh | bash
 ```
 
 It downloads the plugin, copies it into Copilot's plugin directory, installs the

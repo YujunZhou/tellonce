@@ -3,7 +3,7 @@
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.2.3/copilot/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.sh | bash
 #
 # Downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state, seed, observe mode, register,
@@ -18,7 +18,7 @@ main() {
 
 REPO="https://github.com/YujunZhou/tellonce"
 # Pinned to a release tag (immutable) for integrity.
-REF="v1.2.3"
+REF="v1.3.0"
 REFKIND="tags"
 
 fail() { printf '\033[31m[X] %s\033[0m\n' "$1" >&2; exit 1; }
