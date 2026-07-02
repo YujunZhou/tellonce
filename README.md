@@ -22,9 +22,9 @@ blocks you and never sends your conversation anywhere until you opt in.
   rules are blocked, and the agent fixes them in the same turn.
 - 🔒 **Private by default.** All records stay on your machine, and the optional
   LLM judge is off by default — when enabled it only ever sees a redacted
-  snippet and runs through your own subscription. (Once you have saved rules,
-  rule *retrieval* also runs through your own subscription's small model; set
-  `PT_RETRIEVE_BACKEND=keyword` to keep even that fully local.)
+  snippet and runs through your own subscription. (Rule *retrieval* is fully
+  local by default — the `progressive` backend just reads your saved rule files,
+  no model call; opt into small-model matching with `PT_RETRIEVE_BACKEND=cli`.)
 - ⚡ **Runs on Claude Code, Codex, and GitHub Copilot CLI** (one-command install
   on Copilot) — one shared memory across all three.
 - 🎛️ **Three modes, one switch:** `observe` → `enforce` → `full`.
@@ -156,10 +156,11 @@ python "<plugin>/lib/pt_mode.py" status    # show the current mode
 
 **Privacy:** all records stay local in every mode. Only `full` sends the
 last message and reply (redacted) to `copilot -p` for scoring, on your own
-subscription. Rule retrieval (once you have saved rules) also runs through your
-own subscription's small model; `PT_RETRIEVE_BACKEND=keyword` keeps it fully
-local. The `full` judge additionally needs `PT_SHADOW_RULE_IDS` set to the rule
-ids you want checked — `pt_mode.py full` prints a reminder.
+subscription. Rule retrieval is fully local by default (the `progressive`
+backend just reads your saved rule files); `PT_RETRIEVE_BACKEND=cli` opts into
+your own subscription's small model. The `full` judge additionally needs
+`PT_SHADOW_RULE_IDS` set to the rule ids you want checked — `pt_mode.py full`
+prints a reminder.
 
 ## How it works
 

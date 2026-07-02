@@ -174,26 +174,37 @@ keeps them by default in case you have a same-named hook of your own):
 
 ---
 
-## Retrieve backend (defaults to `cli`)
+## Retrieve backend (defaults to `progressive`)
 
-The UserPromptSubmit hook defaults to **CLI small-model semantic matching**
-(`PT_RETRIEVE_BACKEND=cli`):
+The UserPromptSubmit / SessionStart hook defaults to **`progressive`**: it scans
+your memory dir and injects a one-line index of **every** saved rule each turn
+(Claude Code) or at session start (Copilot), and lets the main model judge which
+apply. Zero LLM calls, zero keyword matching, zero CLI cold-start — and because
+it doesn't depend on `fingerprints.yaml` priority tags, it also closes Copilot's
+old SessionStart "0 rules" gap.
 
-| Runtime | CLI used | Default model | Channel |
+> Codex also defaults to `progressive`. Because Codex promotes rules to
+> `<project>/.codex/tellonce/memories/active` (not the CC `~/.claude/...` path
+> the shared lib resolves by default), its UserPromptSubmit hook bridges
+> `B5_MEMORY_DIR` to that dir so retrieval reads where promotion writes.
+
+Alternate backends (opt in with `PT_RETRIEVE_BACKEND=...`):
+
+| Backend | What it does | Latency | Cost |
 |---|---|---|---|
-| Claude Code | `claude -p` | `claude-haiku-4-5` | Pro/Max subscription quota, free |
-| Codex | `codex exec --ephemeral` | `gpt-5.4-mini` | Codex subscription quota, free |
+| `progressive` (default) | inject full rule index, main model self-selects | ~0, local | 0 |
+| `cli` | small-model semantic match (`claude -p` / `codex exec`) | 1-2s/prompt | 0 (subscription quota) |
+| `keyword` (legacy) | `fingerprints.yaml` literal/regex triggers | <10ms | 0 |
+| `api` | OpenAI-compatible HTTP endpoint | network RTT | provider-billed |
 
-Adds 1-2s latency per prompt, but its hit rate is far higher than keyword
-matching. Use this default when you want the best retrieval quality (e.g. for
-paper experiments).
+`cli` gives the highest small-model retrieval precision; set
+`PT_RETRIEVE_BACKEND=cli` to reproduce the pre-`progressive` behavior (e.g. for an
+apples-to-apples retrieval experiment). Its per-runtime CLI/model defaults:
 
-### Trade-off
-
-| Mode | Hit rate | Latency | Cost | Maintenance |
-|---|---|---|---|---|
-| `cli` (default) | semantic; synonyms covered automatically | 1-2s/prompt | 0 (subscription quota) | no trigger keywords to write |
-| `keyword` (legacy) | depends on how complete your triggers are | <10ms | 0 | write `triggers` per rule |
+| Runtime | CLI used | Default model |
+|---|---|---|
+| Claude Code | `claude -p` | `claude-haiku-4-5` |
+| Codex | `codex exec --ephemeral` | `gpt-5.4-mini` |
 
 ### Switch back to keyword (if you want a fast, LLM-free path)
 
@@ -231,12 +242,14 @@ The default `observe` mode records to local files and reminds you — the shadow
 LLM judge is **OFF by default** (`path_config` public default `shadow=false`;
 it only runs in `full` mode / `PT_SHADOW=1`).
 
-1. **Memory retrieve** (the one default flow that spawns a CLI): on each
-   UserPromptSubmit, *if and only if you have saved rules*, the retrieve hook
-   sends your prompt (first 2000 chars) + your rule descriptions to a small
-   model via your own `claude -p` subscription to pick relevant rules. A fresh
-   install has no rules, so nothing runs. To keep retrieval 100% local:
-   `export PT_RETRIEVE_BACKEND=keyword`.
+1. **Memory retrieve**: the default `progressive` backend is **100% local and
+   makes zero model calls** — it just reads your saved rule files and injects a
+   one-line index, so nothing leaves your machine. Only the opt-in
+   `PT_RETRIEVE_BACKEND=cli` flow spawns a CLI: it then sends your prompt (first
+   2000 chars) + your rule descriptions to a small model via your own `claude -p`
+   / `codex exec` subscription to pick relevant rules. `api` is the only backend
+   that talks to a third party. A fresh install has no rules, so nothing runs
+   regardless.
 
 2. **Shadow LLM judge** (OFF by default; only in `full` mode):
    - `lib/verify_retry_shadow.py` calls a `claude -p` subprocess as a compliance

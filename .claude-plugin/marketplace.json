@@ -7,13 +7,13 @@
   },
   "metadata": {
     "description": "tellonce: records the corrections you make to your coding agent and (opt-in) enforces them. Safe-by-default observe mode.",
-    "version": "1.2.3"
+    "version": "1.3.0"
   },
   "plugins": [
     {
       "name": "tellonce",
       "description": "Automatic preference/pitfall/friction detection + memory enforcement (observe / enforce / full modes). Native Claude Code plugin: hooks auto-register on install.",
-      "version": "1.2.3",
+      "version": "1.3.0",
       "source": ".",
       "author": {
         "name": "Yujun Zhou",

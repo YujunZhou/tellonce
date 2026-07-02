@@ -34,27 +34,22 @@ This skill is more than the Iron Law + Gate Function. It installs 3 layers of in
 
 > **Path placeholder note**: in the text below, `<skill_dir>` defaults to `<skill_dir>/`, `<project_root>` is the current project root, and `<state_dir>` is `<project_root>/.copilot/tellonce-state/`. All paths are resolved at runtime by `lib/path_config.py` (a three-level fallback: env > `~/.tellonce.config.json` > auto-detect); SKILL.md does not hardcode absolute paths to avoid polluting Claude's output.
 
-### Deterministic fingerprint retrieval (SessionStart hook)
+### Rule injection (progressive full index — default)
 
-The Copilot variant **does not have** a per-prompt `memory-retrieve-inject.sh` hook (platform limitation, see the injection-timing note above). Rule injection happens **at session start**: `<plugin_root>/hooks/session-start-inject.sh` will:
-1. Read `<skill_dir>/lib/fingerprints.yaml` (**shipped empty**; put your own rules in the gitignored `fingerprints.user.yaml` overlay, and the two are merged at load time) + memory rules
-2. Inject the critical/high rules as `additionalContext` at the start of this session's context
-3. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
+The Copilot variant **does not have** a per-prompt `memory-retrieve-inject.sh` hook (platform limitation, see the injection-timing note above). Rule injection happens **at session start**: `<plugin_root>/hooks/session-start-inject.sh` injects a **one-line index of every rule** saved under my memory dir as `additionalContext`. This is the default `progressive` backend: no prompt matching, no model call, and — unlike the old critical/high-only path — it surfaces *every* saved rule, so memory-only rules are no longer dropped. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
 
 ```
-### Fingerprint retrieval — memory rules auto-matched for this turn:
-- **[fmt-pref-001]** (critical) use 4 spaces for indentation, not tabs
-    • triggered by: indent
-- **[tool-pref-002]** (critical) prefer the project's own package manager / lockfile for installing dependencies
-    • action: add dependencies via the lockfile, don't manually edit version numbers
-    • applies_when: when adding / upgrading dependencies;
+### Your saved preferences — check each against this turn and apply the ones that fit:
+- [fmt-pref-001] (tier1) use 4 spaces for indentation, not tabs
+- [tool-pref-002] (tier2) prefer the project's own package manager / lockfile for installing dependencies | when: adding / upgrading dependencies
+(These are your recorded preferences. Judge each rule against the current task; apply those that apply, skip those that do not.)
 ```
 
-Each one carrying an `applies_when` field — this is an applicability gate. I have to **judge for myself** whether applies_when holds for the current turn, and skip it if it doesn't (e.g. the user merely mentioned a trigger word in passing, but the current turn doesn't actually enter the rule's applicable scenario, so don't force it).
+Because injection is once per session, I re-read this list on **every** turn, judge each rule's `when:` hint against the current task, and skip the ones that don't apply (e.g. a preference about Go when the turn isn't touching Go).
 
 ### Applicability gate (soft, within the session-start injection)
 
-Each rule injected at session start carries `applies_when: ...` and `condition: ...` read from the memory .md frontmatter. I judge:
+Each injected rule carries a `when:` hint (read from the memory .md frontmatter's `applies_when:` or `condition:`). I judge:
 - applies_when condition holds → apply rule
 - condition doesn't hold → explicitly say "gate filter out: <reason>" then skip
 - unclear → conservatively apply

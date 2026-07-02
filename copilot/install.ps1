@@ -94,7 +94,7 @@ if (-not (Test-Path $configPath)) {
     Write-Host "Writing default config to $configPath..."
     $config = @{
         retrieve_cli = "copilot"
-        retrieve_backend = "cli"
+        retrieve_backend = "progressive"
         retrieve_model = "claude-haiku-4-5"
     } | ConvertTo-Json
     # Write UTF-8 WITHOUT BOM. PowerShell 5.1 `Set-Content -Encoding UTF8`
@@ -113,12 +113,21 @@ try:
     c = json.load(io.open(p, encoding="utf-8-sig"))
 except Exception:
     raise SystemExit(0)
+changed = []
 if "project_root" in c:
     c.pop("project_root", None)
+    changed.append("removed stale project_root")
+# Upgrade the old shipped default backend to progressive (zero-LLM full-rule
+# index; also fixes the SessionStart 0-rules gap). Only touch the value while
+# it is still the old `cli` default — leave a deliberate keyword/api choice be.
+if c.get("retrieve_backend") == "cli":
+    c["retrieve_backend"] = "progressive"
+    changed.append("retrieve_backend cli -> progressive")
+if changed:
     with open(p, "w", encoding="utf-8") as f:
         json.dump(c, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print("[OK] Migrated config: removed stale project_root")
+    print("[OK] Migrated config: " + "; ".join(changed))
 '@
     & $Py -c $migrate 2>$null
 }

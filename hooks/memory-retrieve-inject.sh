@@ -2,7 +2,7 @@
 # memory-retrieve-inject.sh — UserPromptSubmit hook (CC)
 # Part of the tellonce memory retrieve + inject flow.
 # Reads stdin JSON, dispatches to keyword or cli-backed retrieve_inject.
-# Default backend: cli + claude haiku.
+# Default backend: progressive (local full-rule index); cli/keyword/api opt-in.
 # Non-destructive: any failure → exit 0 silently.
 
 _PT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"

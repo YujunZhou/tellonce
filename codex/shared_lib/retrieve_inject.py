@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-"""Tellonce memory retrieve + inject (cli backend).
+"""Tellonce memory retrieve + inject.
 
 Reads UserPromptSubmit JSON from stdin, picks relevant atomic_ids based on
 B5_RETRIEVE_BACKEND env var:
-  - 'cli' (default): semantic match via a small model (claude
-    haiku for CC, gpt-5.4-mini for codex). Costs 1-2s latency per
-    UserPromptSubmit but uses the same subscription auth path as the
-    runtime, no API key needed and no trigger-keyword maintenance.
+  - 'progressive' (default): progressive-disclosure index. Scans the memory
+    dir and injects a one-line index of EVERY saved rule every turn, letting
+    the main model judge which apply. Zero LLM calls, zero keyword matching,
+    zero CLI cold-start latency. Also fixes Copilot's SessionStart "0 rules"
+    gap, since it does not depend on fingerprints.yaml priority tags.
+  - 'cli': semantic match via a small model (claude haiku for CC,
+    gpt-5.4-mini for codex). Costs 1-2s latency per UserPromptSubmit but
+    uses the same subscription auth path as the runtime, no API key needed
+    and no trigger-keyword maintenance. B5_RETRIEVE_BACKEND=cli reproduces
+    the pre-progressive default.
   - 'keyword': legacy fingerprints.yaml literal/regex matcher. Cheap and
     instant but only as good as the trigger lists in fingerprints.yaml.
+  - 'api': OpenAI-compatible HTTP endpoint (see backend notes below).
 
 CLI dispatch is governed by B5_RETRIEVE_CLI (default per platform via
 pt_platform.RETRIEVE_CLI_DEFAULT):
@@ -45,6 +52,7 @@ FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
 FP_USER_YAML = os.path.join(_LIB_DIR, 'fingerprints.user.yaml')
 MEMORY_DIR = path_config.get_memory_dir()
 MAX_SHOW = 10
+PROGRESSIVE_MAX = 50  # progressive backend: cap on rules injected per turn
 PROMPT_TRUNCATE = 4000
 
 
@@ -136,13 +144,14 @@ def _autoload_env_file_from_config(cfg: dict) -> None:
 _USER_CONFIG = _load_user_config()
 _autoload_env_file_from_config(_USER_CONFIG)
 
-# Backend default is 'cli' (small-model semantic match).
-# 'api' backend for OpenAI-compatible HTTP endpoints
-# (DeepInfra / OpenRouter / etc.) — fastest path because no CLI cold-start
-# and no nested-hook collision. Recommended for batch experiment runs.
-# Settings can come from ~/.tellonce.config.json so
-# the user doesn't have to `export B5_RETRIEVE_*` in every shell.
-RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _USER_CONFIG, 'cli').lower()
+# Backend default is 'progressive': inject a one-line index of every saved
+# rule each turn and let the main model self-select. Zero LLM, zero keyword,
+# zero CLI cold-start. 'cli' (small-model semantic match) is the legacy
+# default — set B5_RETRIEVE_BACKEND=cli to reproduce it. 'api' backend targets
+# OpenAI-compatible HTTP endpoints (DeepInfra / OpenRouter / etc.). Settings can
+# come from ~/.tellonce.config.json so the user doesn't have to
+# `export B5_RETRIEVE_*` in every shell.
+RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _USER_CONFIG, 'progressive').lower()
 # Backwards compat: 'haiku' alias 'cli'.
 if RETRIEVE_BACKEND == 'haiku':
     RETRIEVE_BACKEND = 'cli'
@@ -193,11 +202,11 @@ def _build_index():
             if os.path.basename(path) == 'MEMORY.md':
                 continue
             try:
-                with open(path, errors='ignore') as f:
+                with open(path, encoding='utf-8', errors='ignore') as f:
                     c = f.read()
             except Exception:
                 continue
-            m = re.search(r'atomic_id:\s*([a-z]+-[a-z]+-\d+)', c)
+            m = re.search(r'atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', c)
             if not m:
                 continue
             aw = re.search(r'^applies_when:\s*(.+)$', c, re.MULTILINE)
@@ -226,6 +235,101 @@ def read_rule_description(atomic_id: str) -> str:
     if _RULE_DESC_INDEX is None:
         _build_index()
     return (_RULE_DESC_INDEX or {}).get(atomic_id, '')
+
+
+# When a rule has no explicit priority_tier, derive an ordering tier from its
+# confidence field so higher-confidence rules sort first. The real frontmatter
+# schema (SKILL.md) uses `confidence:`, not `priority_tier:`.
+_CONFIDENCE_TIER = {'high': 1, 'medium': 2, 'low': 3}
+
+
+def _collect_all_rules():
+    """Scan the memory dir and return EVERY rule as a dict for the progressive
+    backend: {id, tier, desc, when, path}.
+
+    Pure regex over the .md frontmatter — no PyYAML, no LLM call, no keyword
+    matching. The progressive backend injects ALL of these every turn and lets
+    the model judge which apply, instead of pre-filtering by prompt. Returns []
+    on any failure so the caller emits nothing (never blocks).
+
+    Schema-tolerant across the rule sources that actually ship, which do NOT use
+    a single uniform frontmatter:
+      - CC / Copilot (SKILL.md schema): description + condition + confidence
+      - Codex promote.py (codex-memory-v1): rule_text + condition + applies_when
+        + confidence  (no `description`, no `priority_tier`)
+      - richer seed rules: description + applies_when + priority_tier
+    So the one-liner falls back description->rule_text, the applicability gate
+    falls back applies_when->condition, and ordering falls back
+    priority_tier->confidence. Tuning only to the seed schema would render real
+    promoted rules with an empty description and an inert tier sort."""
+    rules = []
+    try:
+        paths = glob.glob(os.path.join(MEMORY_DIR, '*.md'))
+    except Exception:
+        return rules
+    for path in paths:
+        if os.path.basename(path) == 'MEMORY.md':
+            continue
+        try:
+            with open(path, encoding='utf-8', errors='ignore') as f:
+                c = f.read()
+        except Exception:
+            continue
+        # Capture the whole id slug (promote.py allows [A-Za-z0-9_-]); a `\d+`
+        # tail would truncate ids like `wf-pref-3sync` to `wf-pref-3`.
+        m = re.search(r'atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', c)
+        if not m:
+            continue
+        desc_m = (re.search(r'^description:\s*(.+)$', c, re.MULTILINE)
+                  or re.search(r'^rule_text:\s*(.+)$', c, re.MULTILINE))
+        when_m = (re.search(r'^applies_when:\s*"?(.+?)"?\s*$', c, re.MULTILINE)
+                  or re.search(r'^condition:\s*"?(.+?)"?\s*$', c, re.MULTILINE))
+        tier_m = re.search(r'^priority_tier:\s*(\d+)', c, re.MULTILINE)
+        if tier_m:
+            tier = int(tier_m.group(1))
+        else:
+            conf_m = re.search(r'^confidence:\s*(\w+)', c, re.MULTILINE)
+            tier = _CONFIDENCE_TIER.get(conf_m.group(1).lower(), 3) if conf_m else 3
+        rules.append({
+            'id': m.group(1),
+            'tier': tier,
+            'desc': desc_m.group(1).strip() if desc_m else '',
+            'when': when_m.group(1).strip() if when_m else '',
+            'path': path,
+        })
+    # Stable order: tier ascending (1 = highest), then id.
+    rules.sort(key=lambda r: (r['tier'], r['id']))
+    return rules
+
+
+def _render_progressive_lines(rules):
+    """Render the progressive rule index: one compact line per saved rule, so a
+    simple rule is fully usable from its line alone; the model reads the full
+    .md only if it needs the Why / How-to-apply detail."""
+    lines = ['### Your saved preferences — check each against this turn and apply the ones that fit:']
+    for r in rules[:PROGRESSIVE_MAX]:
+        desc = r['desc'] or r['id']
+        line = f"- [{r['id']}] (tier{r['tier']}) {desc}"
+        if r['when']:
+            line += f" | when: {r['when'][:200]}"
+        lines.append(line)
+    lines.append('(These are your recorded preferences. Judge each rule against the current task; apply those that apply, skip those that do not.)')
+    return '\n'.join(lines)
+
+
+def _emit_progressive(event_name: str) -> None:
+    """Emit the progressive full-index injection as hookSpecificOutput JSON.
+    Silent (no output) when there are no rules yet."""
+    rules = _collect_all_rules()
+    if not rules:
+        return
+    out = {
+        'hookSpecificOutput': {
+            'hookEventName': event_name,
+            'additionalContext': _render_progressive_lines(rules),
+        }
+    }
+    sys.stdout.write(json.dumps(out, ensure_ascii=False))
 
 
 def _write_debug(record):
@@ -740,6 +844,12 @@ def main():
         sys.exit(0)
     prompt_scan = prompt[:PROMPT_TRUNCATE].lower()
 
+    # Progressive backend: inject the full rule index every turn and let the
+    # main model judge applicability. No prompt filtering, no LLM, no PyYAML.
+    if RETRIEVE_BACKEND == 'progressive':
+        _emit_progressive('UserPromptSubmit')
+        return
+
     try:
         import yaml  # noqa: F401  (kept so the guard below still exits cleanly if missing)
     except ImportError:
@@ -799,12 +909,18 @@ def main():
 
 
 def session_start_summary():
-    """SessionStart mode: inject top critical/high rules without prompt matching.
+    """SessionStart mode: inject saved rules without prompt matching.
 
     At session start there is no user prompt, so keyword/CLI/API matching can't
-    fire.  Instead, scan the memory dir for all rules and inject those marked
-    critical or high priority so the agent has context from turn 1.
+    fire. The default 'progressive' backend injects the full rule index (every
+    saved rule, one line each). Legacy backends fall back to scanning
+    fingerprints.yaml for critical/high rules only.
     """
+    # Progressive backend: inject the full rule index once at session start.
+    if RETRIEVE_BACKEND == 'progressive':
+        _emit_progressive('SessionStart')
+        return
+
     try:
         import yaml
     except ImportError:

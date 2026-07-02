@@ -18,8 +18,9 @@
   信号并自动记录。
 - 🛡️ **可选的强制执行**：打开后，违反你已存规则的回复会被拦下，助手在同一轮里改正。
 - 🔒 **默认私密**：所有记录只存本机；可选的 LLM 判官默认关闭，开启后也只看到
-  脱敏片段，并走你自己的订阅。（存了规则之后，「检索相关规则」这一步也走你自己
-  订阅的小模型；想完全本地可设 `PT_RETRIEVE_BACKEND=keyword`。）
+  脱敏片段，并走你自己的订阅。（「检索相关规则」这一步默认**完全本地、零模型调用**
+  ——`progressive` 后端只读你已存的规则文件；想用小模型语义匹配可设
+  `PT_RETRIEVE_BACKEND=cli`。）
 - ⚡ **支持 Claude Code、Codex、GitHub Copilot CLI**（Copilot 一键安装）——三者共享同一份记忆。
 - 🎛️ **三种模式，一个开关**：`observe` → `enforce` → `full`。
 
@@ -141,8 +142,9 @@ python "<plugin>/lib/pt_mode.py" status    # 看当前模式
 ```
 
 **隐私**：所有记录任何模式下都只存本机；只有 `full` 才把「最后一条消息 + 回复」
-（已脱敏）发给 `copilot -p` 判分，且走你自己的订阅。存了规则后「检索相关规则」也走
-你自己订阅的小模型（`PT_RETRIEVE_BACKEND=keyword` 可完全本地）。`full` 的判官还需要
+（已脱敏）发给 `copilot -p` 判分，且走你自己的订阅。「检索相关规则」默认**完全本地**
+（`progressive` 后端只读你已存的规则文件、零模型调用）；`PT_RETRIEVE_BACKEND=cli`
+才走你自己订阅的小模型。`full` 的判官还需要
 设 `PT_SHADOW_RULE_IDS` 指定要检查的规则——`pt_mode.py full` 会打印提示。
 
 ## 它怎么工作
