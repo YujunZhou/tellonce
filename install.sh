@@ -205,8 +205,10 @@ log ""
 log "[2/5] Install: update settings + copy hooks + create state"
 
 # 2.1 detect cwd / paths (PYTHONIOENCODING=utf-8 prevents stdout crashes when the user's LANG isn't utf-8)
-CWD_ESCAPED="$(PYTHONIOENCODING=utf-8 python3 -c "import sys; print(sys.argv[1].replace('/', '-'))" "${PROJECT_ROOT}")"
-MEMORY_DIR="${HOME}/.claude/projects/${CWD_ESCAPED}/memory"
+# Memory dir resolution goes through pt_platform.default_memory_dir — it owns
+# the Claude Code path-escaping rule (every non-alphanumeric -> '-') plus the
+# legacy-spelling fallback; duplicating the escape here already drifted once.
+MEMORY_DIR="$(env PT_LIB="${SKILL_DIR}/lib" PT_PR="${PROJECT_ROOT}" PYTHONIOENCODING=utf-8 python3 -c "import sys, os; sys.path.insert(0, os.environ['PT_LIB']); import pt_platform; print(pt_platform.default_memory_dir(os.environ['PT_PR']))")"
 # PT_* are the documented names; B5_* kept as legacy aliases (Python layer accepts both).
 STATE_DIR="${STATE_DIR_OVERRIDE:-${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/runtime}}}"
 OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/obs_log}}"

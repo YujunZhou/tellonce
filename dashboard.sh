@@ -13,12 +13,14 @@ SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Tellonce dashboard"
 echo "-----------------------------------------"
 echo "Recent shadow alerts (latest 3 rolling cap):"
+# `|| true`: under set -e a failing python3/import would otherwise kill the
+# dashboard right after the header with no message (stderr is discarded).
 SHADOW_ALERT_MD=$(env PT_LIB="${SKILL_DIR}/lib" PYTHONIOENCODING=utf-8 python3 -c '
 import os, sys
 sys.path.insert(0, os.environ["PT_LIB"])
 import path_config
 print(path_config.get_shadow_alert_md_path())
-' 2>/dev/null)
+' 2>/dev/null || true)
 if [[ -f "${SHADOW_ALERT_MD}" ]]; then
     head -30 "${SHADOW_ALERT_MD}"
 else

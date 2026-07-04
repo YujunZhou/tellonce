@@ -44,18 +44,22 @@ from pathlib import Path
 
 PT_HOOKS_DEFAULT_DIR = Path.home() / ".codex" / "skills" / "tellonce" / "hooks"
 
-# event_name -> ordered list of hook script basenames (run in order)
+# event_name -> ordered list of hook script basenames (run in order).
+# Outer timeouts = each script's inner _pt_timeout + ~10s headroom for
+# bash+python startup — keep in sync with codex/hooks/hooks.json (the plugin
+# registration path); outer <= inner lets the platform kill the hook just
+# before the inner subprocess finishes, silently dropping its JSON output.
 PT_HOOKS = {
     "UserPromptSubmit": [
-        ("userpromptsubmit-retrieve-inject.sh", 30),
-        ("userpromptsubmit-pending-inject.sh", 10),
-        ("userpromptsubmit-shadow-alert-inject.sh", 10),
+        ("userpromptsubmit-retrieve-inject.sh", 40),
+        ("userpromptsubmit-pending-inject.sh", 25),
+        ("userpromptsubmit-shadow-alert-inject.sh", 25),
     ],
     "PostToolUse": [
-        ("posttooluse-deterministic-block.sh", 15),
+        ("posttooluse-deterministic-block.sh", 25),
     ],
     "SessionStart": [
-        ("sessionstart-init.sh", 10),
+        ("sessionstart-init.sh", 20),
     ],
 }
 
@@ -177,7 +181,13 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
             chain.append(pt_entry)
         existing_cmds = {h.get("command", "") for h in pt_entry.get("hooks", [])}
         for basename, timeout in hook_list:
-            cmd = str(hooks_dir_p / basename)
+            # shlex.quote: codex shlex-splits the command string and execs it
+            # directly — a HOME containing a space would split a bare path
+            # into two tokens and every hook would exit 127 silently. For
+            # space-free paths quote() is a no-op, so existing installs see
+            # byte-identical commands (no re-trust churn).
+            import shlex
+            cmd = shlex.quote(str(hooks_dir_p / basename))
             if cmd in existing_cmds:
                 skipped += 1
                 continue

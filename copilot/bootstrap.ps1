@@ -117,8 +117,9 @@ try {
 }
 Write-Host "[OK] Plugin files installed to $dest" -ForegroundColor Green
 
-# 5. Optional dependency (best-effort; deterministic blocking works without it,
-# but session-start rule injection needs PyYAML). Native commands don't throw, so
+# 5. Optional dependency (best-effort; the default progressive rule injection
+# is pure regex and works without PyYAML — only the legacy keyword/cli
+# retrieval backends need it). Native commands don't throw, so
 # check $LASTEXITCODE rather than try/catch.
 & $py -m pip install --quiet --disable-pip-version-check "pyyaml>=6.0" 2>$null
 if ($LASTEXITCODE -eq 0) {

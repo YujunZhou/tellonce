@@ -118,12 +118,18 @@ def register_project(project_root: Path, allow_unsafe: bool = False) -> Registra
 
     import json as _json
 
+    # Version from the package constant — a hardcoded literal here went stale
+    # (0.1.0 recorded for 1.3.x installs) and misled version-based triage.
+    try:
+        from . import __version__ as _pkg_version
+    except Exception:
+        _pkg_version = "unknown"
     registration = {
         "project_root": str(root),
         "install_cwd": str(Path.cwd().resolve()),
         "state_root": str(state_root),
         "state_location": location,
-        "package_version": "0.1.0",
+        "package_version": _pkg_version,
         "mode": "audit_only",
     }
     secure_write_text(

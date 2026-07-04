@@ -188,6 +188,12 @@ def main():
     if path_config.is_child_session():
         sys.exit(0)
 
+    # Infinite-loop guard (Claude Code Stop contract): the streak bypass is
+    # the primary bound, but it needs a writable streak dir — on a read-only
+    # FS a firing rule would otherwise block the Stop forever.
+    if data.get('stop_hook_active') is True:
+        sys.exit(0)
+
     if B5_DETERMINISTIC_DISABLED or not path_config.enforcement_enabled():
         log_check(session_id, 'disabled', [], (time.time() - t0) * 1000)
         sys.exit(0)
@@ -218,6 +224,14 @@ def main():
             'reason': build_block_reason(violations),
         }
         print(json.dumps(decision, ensure_ascii=False))
+        # Belt-and-braces (mirrors check-observation-log.sh): per the hooks
+        # contract stdout JSON is parsed on exit 0, while on a non-zero exit
+        # stderr is what reaches the model — emit the reason on both channels
+        # so the block guidance arrives either way.
+        try:
+            sys.stderr.write(decision['reason'] + '\n')
+        except Exception:
+            pass
         sys.exit(path_config.stop_block_exit_code())
 
     log_check(session_id, 'pass', [], latency_ms)

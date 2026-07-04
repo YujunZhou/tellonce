@@ -466,7 +466,7 @@ def _render_progressive_lines(rules):
         if tier1_pinned:
             how = f'tier-1 rules are always included, the rest rotate in on later {cadence}'
         else:
-            how = f'the tier-1 rules alone exceed the cap, so all rules rotate in over {cadence}'
+            how = f'the tier-1 rules alone fill the cap, so all rules rotate in over {cadence}'
         lines.append(
             f"(Showing {len(shown)} of {len(rules)} saved rules — {how}. "
             "Set progressive_max in ~/.tellonce.config.json "

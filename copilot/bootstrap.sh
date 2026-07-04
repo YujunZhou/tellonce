@@ -74,8 +74,21 @@ fi
 # keep inside the plugin tree — carried over into the staged tree before swap.
 DEST="${COPILOT_HOME}/installed-plugins/tellonce/tellonce"
 STAGE="${DEST}.new-$$"
-# Clean any staging dirs a previously failed run left behind (any pid).
+# Crash recovery FIRST — before the overlay carry-over below reads ${DEST}:
+# if a previous run died between "old parked" and "new moved in", the park is
+# the only surviving install (and the only copy of the user's lib/*.user.yaml
+# overlays). Restore it as DEST so the carry-over can see it; ordering this
+# after the carry-over would silently destroy those overlays on recovery.
+if [ ! -d "${DEST}" ]; then
+    _ORPHAN="$(ls -dt "${DEST}".old-* 2>/dev/null | head -1)"
+    if [ -n "${_ORPHAN}" ] && [ -d "${_ORPHAN}" ]; then
+        mv "${_ORPHAN}" "${DEST}"
+        echo "[i] Restored interrupted previous install from ${_ORPHAN}"
+    fi
+fi
+# Clean any staging/park dirs a previously failed run left behind (any pid).
 rm -rf "${DEST}".new-* 2>/dev/null || true
+rm -rf "${DEST}".old-* 2>/dev/null || true
 mkdir -p "${STAGE}"
 # Copy contents, excluding caches.
 ( cd "${SRC_COPILOT}" && tar --exclude='__pycache__' --exclude='.pytest_cache' --exclude='PORT_NOTES' --exclude='PORT_DESIGN.md' --exclude='*.pyc' -cf - . ) | ( cd "${STAGE}" && tar -xf - )
@@ -92,19 +105,8 @@ fi
 # Swap via rename-aside: a failure between "old deleted" and "new moved in"
 # (ENOSPC, kill, AV lock) must not leave ZERO install. Park the old tree,
 # move the new one in, then drop the parked tree; restore it if the move fails.
+# (Orphan-park recovery already ran ABOVE, before the overlay carry-over.)
 mkdir -p "$(dirname "${DEST}")"
-# Crash recovery BEFORE park cleanup: if a previous run died between "old
-# parked" and "new moved in", the park is the only surviving install (and the
-# only copy of the user's lib/*.user.yaml overlays) — restore it as DEST so
-# the overlay carry-over below can see it, instead of deleting it as stale.
-if [ ! -d "${DEST}" ]; then
-    _ORPHAN="$(ls -dt "${DEST}".old-* 2>/dev/null | head -1)"
-    if [ -n "${_ORPHAN}" ] && [ -d "${_ORPHAN}" ]; then
-        mv "${_ORPHAN}" "${DEST}"
-        echo "[i] Restored interrupted previous install from ${_ORPHAN}"
-    fi
-fi
-rm -rf "${DEST}".old-* 2>/dev/null || true   # stale parks from crashed runs
 OLD_PARK="${DEST}.old-$$"
 if [ -d "${DEST}" ]; then
     mv "${DEST}" "${OLD_PARK}"

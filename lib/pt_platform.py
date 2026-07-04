@@ -56,12 +56,26 @@ def default_obs_log_dir(project_root: str) -> str:
 
 
 def default_memory_dir(project_root: str) -> str:
-    """Default memory-rules dir, Claude Code standard:
-    ~/.claude/projects/<cwd_escaped>/memory, where cwd_escaped = cwd.replace('/', '-').
-    e.g. /home/alice/projects/foo -> ~/.claude/projects/-home-alice-projects-foo/memory
-    """
-    escaped = project_root.replace('/', '-')
-    return os.path.expanduser(f'~/.claude/projects/{escaped}/memory')
+    """Default memory-rules dir: ~/.claude/projects/<cwd_escaped>/memory.
+
+    Claude Code escapes EVERY non-alphanumeric character to '-' (verified
+    against a live installation: /home/u/zyj/paper_v2_template ->
+    -home-u-zyj-paper-v2-template). An earlier tellonce (and possibly older
+    CC builds) escaped only '/', so for any project path containing '_' or
+    '.' the two spellings diverge and rules silently split-brain between
+    "the dir tellonce reads" and "the dir Claude Code loads". Prefer the
+    current-CC spelling; fall back to the legacy spelling only when that
+    exact dir already exists and the new one doesn't (data written by older
+    installs stays visible)."""
+    import re
+    new_escaped = re.sub(r'[^A-Za-z0-9]', '-', project_root)
+    new_dir = os.path.expanduser(f'~/.claude/projects/{new_escaped}/memory')
+    legacy_escaped = project_root.replace('/', '-')
+    if legacy_escaped != new_escaped:
+        legacy_dir = os.path.expanduser(f'~/.claude/projects/{legacy_escaped}/memory')
+        if os.path.isdir(legacy_dir) and not os.path.isdir(new_dir):
+            return legacy_dir
+    return new_dir
 
 
 def stop_block_exit_code() -> int:

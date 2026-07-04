@@ -345,6 +345,12 @@ Output strict one-line JSON in this format:
                    'CLAUDE_CODE_EXECPATH', 'COPILOT_SESSION_ID', 'AI_AGENT'):
             _child_env.pop(_k, None)
         _cmd = [pt_platform.CLI_COMMAND, '-p', prompt, '--output-format', 'text']
+        if pt_platform.CLI_COMMAND == 'claude':
+            # Keep the user-global tellonce hooks out of the nested judge
+            # session (same rationale as retrieve_inject's cli backend):
+            # without this, pending-inject prepends its reminder block to a
+            # prompt that demands one-line JSON, contaminating the verdict.
+            _cmd += ['--setting-sources', 'project']
         if B5_JUDGE_MODEL:
             # Only pass --model when set; otherwise the CLI uses its own default
             # (some runtimes reject an explicit Claude model name).
@@ -384,7 +390,7 @@ Output strict one-line JSON in this format:
             })
         return verdicts, 0.0, latency_ms, None
     except subprocess.TimeoutExpired:
-        return [], 0.0, 60000.0, 'CLI timeout 60s'
+        return [], 0.0, 25000.0, 'CLI timeout 25s'
     except FileNotFoundError:
         return [], 0.0, (time.time() - t0) * 1000, f'{pt_platform.CLI_COMMAND} CLI not in PATH'
     except Exception as e:

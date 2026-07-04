@@ -414,7 +414,6 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
     os.makedirs(os.path.dirname(obs_log_path), exist_ok=True)
 
     lock_path = obs_log_path + '.lock'
-    tmp_path = f'{obs_log_path}.tmp.{os.getpid()}.{int(time.time() * 1e6)}'
 
     fd_lock = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
@@ -424,19 +423,22 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
             # Windows: best-effort without file locking (single-writer assumption)
             import msvcrt
             msvcrt.locking(fd_lock, msvcrt.LK_LOCK, 1)
-        existing = b''
-        if os.path.exists(obs_log_path):
+        # Locked O(1) append — NOT a read-all/rewrite/replace. The agent's own
+        # RECORD step appends with plain `>>` and takes no lock, so a rewrite
+        # here had a lost-update window that silently destroyed any append
+        # landing between the read and the os.replace (and paid O(file) per
+        # fallback inside a 10s hook budget).
+        needs_nl = False
+        if os.path.exists(obs_log_path) and os.path.getsize(obs_log_path) > 0:
             with open(obs_log_path, 'rb') as f:
-                existing = f.read()
-        # Ensure existing content ends with newline so appended entry is clean
-        if existing and not existing.endswith(b'\n'):
-            existing = existing + b'\n'
-        with open(tmp_path, 'wb') as f:
-            f.write(existing)
+                f.seek(-1, os.SEEK_END)
+                needs_nl = f.read(1) != b'\n'
+        with open(obs_log_path, 'ab') as f:
+            if needs_nl:
+                f.write(b'\n')
             f.write(line.encode('utf-8'))
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_path, obs_log_path)
     finally:
         try:
             if fcntl:
@@ -450,11 +452,6 @@ def generate_auto_light_entry(session_id, age_sec, threshold_sec, obs_log_path,
             os.close(fd_lock)
         except Exception:
             pass
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
 
     return obs_log_path
 
@@ -516,6 +513,14 @@ def main():
         sys.exit(0)
 
     if path_config.is_child_session():
+        sys.exit(0)
+
+    # Infinite-loop guard (Claude Code Stop contract): stop_hook_active=true
+    # means we are already inside a continuation this hook chain forced. The
+    # retry self-disable is the primary bound, but it depends on a WRITABLE
+    # retry dir (bump_retry_state swallows write failures) — on a full or
+    # read-only project FS the B4 gate otherwise blocks the Stop forever.
+    if data.get('stop_hook_active') is True:
         sys.exit(0)
 
     session_id = transcript_adapter.get_session_id(data)
@@ -651,6 +656,13 @@ def main():
             'reason': reason,
         }
         print(json.dumps(decision, ensure_ascii=False))
+        # Belt-and-braces (mirrors check-observation-log.sh): on a non-zero
+        # exit it's stderr that reaches the model — emit the reason on both
+        # channels so the B4 guidance arrives either way.
+        try:
+            sys.stderr.write(reason + '\n')
+        except Exception:
+            pass
         sys.exit(path_config.stop_block_exit_code())
 
     # Default: log-only, exit 0
