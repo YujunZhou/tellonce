@@ -80,19 +80,19 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
-一键引导脚本（推荐——钉在不可变 tag `v1.3.0`、SHA256 已公布，可在管道前核对，见
+一键引导脚本（推荐——钉在不可变 tag `v1.3.1`、SHA256 已公布，可在管道前核对，见
 [`copilot/README.md`](copilot/README.md#verify-integrity)）：
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.1/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.1/copilot/bootstrap.sh | bash
 ```
 
 它会：下载 **Copilot 适配版插件**（`copilot/` 子插件——SessionStart 注入、
