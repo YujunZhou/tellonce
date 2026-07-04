@@ -14,6 +14,19 @@ from .memory import canonical_key, parse_memory, write_memory_atomic
 _VALID_ATOMIC_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]{0,127}$")
 
 
+def _scalar(value) -> str:
+    """Collapse a candidate field to a single frontmatter-safe line.
+
+    Frontmatter scalars are single-line by contract, but LLM-generated
+    candidate text routinely contains newlines. Unescaped, a newline lets a
+    candidate smuggle extra frontmatter keys (forging `status:` /
+    `applies_when:`) or a premature `---` fence that truncates the block —
+    the written file then fails the index's validate/hash pass and is
+    silently dropped from active_memories.json while the retrieve hook still
+    injects the forged fields. Same treatment for list items (supersedes)."""
+    return re.sub(r"[\r\n]+", " ", str(value if value is not None else "")).strip()
+
+
 class InvalidAtomicIdError(ValueError):
     """Raised when a candidate's atomic_id contains characters that could
     enable path traversal or filename-shell-meta abuse. The id is used
@@ -118,17 +131,17 @@ def promote_candidate(state_root: Path, candidate: dict, dry_run: bool = False) 
     data = {
         "schema_version": "codex-memory-v1",
         "atomic_id": atomic_id,
-        "type": candidate["type"],
-        "domain": candidate["domain"],
-        "scope": candidate["scope"],
-        "condition": candidate.get("condition", ""),
-        "rule_text": candidate["rule_text"],
-        "applies_when": candidate["applies_when"],
-        "does_not_apply_when": candidate["does_not_apply_when"],
-        "confidence": candidate.get("confidence", "medium"),
+        "type": _scalar(candidate["type"]),
+        "domain": _scalar(candidate["domain"]),
+        "scope": _scalar(candidate["scope"]),
+        "condition": _scalar(candidate.get("condition", "")),
+        "rule_text": _scalar(candidate["rule_text"]),
+        "applies_when": _scalar(candidate["applies_when"]),
+        "does_not_apply_when": _scalar(candidate["does_not_apply_when"]),
+        "confidence": _scalar(candidate.get("confidence", "medium")),
         "status": "active",
         "source_event_ids": [intent_id, commit_id],
-        "supersedes": new_supersedes,
+        "supersedes": [_scalar(s) for s in new_supersedes],
         "created": time.strftime("%Y-%m-%d", time.gmtime()),
         "updated": time.strftime("%Y-%m-%d", time.gmtime()),
     }

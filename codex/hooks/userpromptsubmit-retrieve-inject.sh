@@ -5,11 +5,18 @@
 # Codex hook stdin: JSON with `prompt`, `cwd`, `session_id`, `transcript_path`.
 # Output: JSON with hookSpecificOutput.additionalContext.
 #
-# Default backend is local `cli` (codex exec) semantic
-# retrieval, matching the other variants. No prompt data leaves the machine to
-# a third-party API by default. Opt into an external provider via
-# PT_RETRIEVE_BACKEND=api + PT_RETRIEVE_API_PROVIDER/PT_RETRIEVE_MODEL
-# (legacy B5_ names still work).
+# Default backend is `progressive` (see the export below): a local one-line
+# index of the saved rules, zero LLM calls — nothing leaves the machine.
+# Legacy backends: PT_RETRIEVE_BACKEND=cli (local `codex exec` semantic
+# retrieval) or =api (external provider via PT_RETRIEVE_API_PROVIDER /
+# PT_RETRIEVE_MODEL; legacy B5_ names still work).
+#
+# NOTE (outer vs inner timeout): hooks.json gives this hook 40s while the
+# inner _pt_timeout is 30s — the ~10s headroom covers bash+python startup so
+# the platform doesn't kill the hook just before the inner subprocess
+# finishes. Keep that margin if you change either value. Changing any hook
+# definition in hooks.json requires a one-time re-trust in Codex (hooks are
+# silently skipped until approved).
 #
 # Defensive: any failure -> exit 0 silently (never block codex turns).
 set +e

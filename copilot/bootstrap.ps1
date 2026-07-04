@@ -75,6 +75,20 @@ if (-not (Test-Path $srcCopilot)) { Fail "Download succeeded but copilot/ folder
 # lib\*.user.yaml — carried over into the staged tree before the swap.
 $dest = Join-Path $copilotHome 'installed-plugins\tellonce\tellonce'
 $stage = "$dest.new-$PID"
+# Crash recovery BEFORE park cleanup: if a previous run died between "old
+# parked" and "new moved in", the park is the only surviving install (and the
+# only copy of the user's lib\*.user.yaml overlays) — restore it as $dest so
+# the overlay carry-over below can see it, instead of deleting it as stale.
+if (-not (Test-Path $dest)) {
+    $orphan = Get-ChildItem -Path (Split-Path $dest) -Directory -Filter ((Split-Path $dest -Leaf) + '.old-*') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($orphan) {
+        Move-Item -Path $orphan.FullName -Destination $dest -ErrorAction SilentlyContinue
+        Write-Host "[i] Restored interrupted previous install from $($orphan.Name)"
+    }
+}
+# Clean stage/park dirs any previously crashed run left behind (any pid).
+Get-ChildItem -Path (Split-Path $dest) -Directory -Filter ((Split-Path $dest -Leaf) + '.new-*') -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path (Split-Path $dest) -Directory -Filter ((Split-Path $dest -Leaf) + '.old-*') -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 # robocopy exit codes 0-7 mean success/partial-success; >=8 means failure.
@@ -88,9 +102,19 @@ if (Test-Path $oldLib) {
         Write-Host "[OK] Preserved your personal rule overlay(s): $($kept.Name -join ', ')" -ForegroundColor Green
     }
 }
-if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+# Swap via rename-aside: a failure between "old deleted" and "new moved in"
+# (AV lock, kill, disk full) must not leave ZERO install. Park the old tree,
+# move the new one in, then drop the parked tree; restore on a failed move.
 New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-Move-Item -Path $stage -Destination $dest
+$oldPark = "$dest.old-$PID"
+if (Test-Path $dest) { Move-Item -Path $dest -Destination $oldPark }
+try {
+    Move-Item -Path $stage -Destination $dest -ErrorAction Stop
+    if (Test-Path $oldPark) { Remove-Item -Recurse -Force $oldPark -ErrorAction SilentlyContinue }
+} catch {
+    if (Test-Path $oldPark) { Move-Item -Path $oldPark -Destination $dest -ErrorAction SilentlyContinue }
+    Fail "install swap failed — previous install restored"
+}
 Write-Host "[OK] Plugin files installed to $dest" -ForegroundColor Green
 
 # 5. Optional dependency (best-effort; deterministic blocking works without it,
@@ -100,7 +124,7 @@ Write-Host "[OK] Plugin files installed to $dest" -ForegroundColor Green
 if ($LASTEXITCODE -eq 0) {
     Write-Host "[OK] PyYAML ready" -ForegroundColor Green
 } else {
-    Write-Host "[i] PyYAML not installed — session-start rule injection will be OFF (deterministic blocking still works). Install later: $py -m pip install pyyaml" -ForegroundColor Yellow
+    Write-Host "[i] PyYAML not installed — the default progressive rule injection still works; only the legacy keyword/cli retrieval backends need PyYAML. Install later if you switch backends: $py -m pip install pyyaml" -ForegroundColor Yellow
 }
 
 # 6. Run post-install from the installed copy. Pass the resolved python so the

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
 # sync-variants.sh — propagate shared core modules from lib/ (the single source
-# of truth) to copilot/lib/.
+# of truth) to copilot/lib/ AND codex/shared_lib/ (matching what
+# scripts/parity-check.sh verifies).
 #
-# Mechanism C: the Claude-variant lib/ holds the canonical shared core. Each
-# variant keeps its OWN pt_platform.py (platform-specific values) and its own
-# variant-specific tooling/tests; everything else is identical and generated
-# from lib/. Run this after editing any shared lib/ module, then commit both.
+# Mechanism C: the Claude-variant lib/ holds the canonical shared core. The
+# copilot variant keeps its OWN pt_platform.py (platform-specific values) and
+# its own variant-specific tooling/tests; codex/shared_lib/ is a full
+# byte-identical copy (pt_platform included). Run this after editing any
+# shared lib/ module, then commit all copies.
 #
 # Idempotent. Safe to re-run.
 #

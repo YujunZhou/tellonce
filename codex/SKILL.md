@@ -20,6 +20,21 @@ PostToolUse only sees tool inputs/outputs).
 - **Record** durable evidence through `tellonce_codex scan` when installed.
 - **Wrap** any subprocess that produces user-facing output via `tellonce_codex exec -- <cmd>` so its stdout is verified and audited.
 
+## Rule injection (progressive full index — default)
+
+Each time the user submits a message, `userpromptsubmit-retrieve-inject.sh` injects a **one-line index of the rules** saved under the project memory dir as `additionalContext`, and I judge which apply. If the library exceeds the per-turn cap (default 50 — `progressive_max` in `~/.tellonce.config.json` or `PT_PROGRESSIVE_MAX`, `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across turns, and the block states how many of the total are shown. This is the default `progressive` backend: it just reads the saved rule files — no prompt matching, no model call, no CLI cold-start. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
+
+```
+### Your saved preferences — check each against this turn and apply the ones that fit:
+- [fmt-pref-001] (tier1) use 4 spaces for indentation, not tabs
+- [tool-pref-002] (tier2) prefer the project's own package manager / lockfile for installing dependencies | when: adding / upgrading dependencies
+(These are your recorded preferences. Judge each rule against the current task; apply those that apply, skip those that do not.)
+```
+
+Each line carries the rule's `rule_text`/`description` and (when present) a `when:` applicability hint. I **judge for myself** whether it holds for the current turn, and skip rules that don't apply.
+
+> Legacy backends (`PT_RETRIEVE_BACKEND=cli` / `keyword` / `api`) instead inject only the rules matched for the current prompt, under a `### Fingerprint retrieval — ...` header. The judgement I apply is the same.
+
 ```
 audit_only  ──first wrapper run──▶  wrapper  ──opt-in──▶  blocking
 ```
@@ -59,7 +74,7 @@ Without `--`, argparse may swallow flags meant for the wrapped binary. The CLI p
 
 ## Whitelist for inline-English check
 
-Codex's `verify_output` flags inline English tokens in mostly-Chinese responses (rule `lang-pit-130`). To avoid false positives:
+Codex's `verify_output` flags inline English tokens in mostly-Chinese responses (rule `lang-pit-130`). **Both built-in verify rules are env-gated OFF by default** — enable with `CODEX_PT_LANG_RULE=1` (inline-English) and `CODEX_PT_TMP_RULE=1` (`/tmp` paths); without those flags the wrapper only audits/redacts. To avoid false positives once enabled:
 
 - A small base whitelist (programming terms like `api`, `json`, `http`, model names like `claude`, `gpt`) is built in.
 - Add project-specific tokens to `<state_root>/whitelist.txt` (one per line, `#` for comments).
@@ -73,7 +88,7 @@ Codex's `verify_output` flags inline English tokens in mostly-Chinese responses 
 
 - Subprocess stdout/stderr go through `sanitize()` before disk (redacts API keys, DB URIs, JWT, SSH private-key blocks, etc.).
 - Files under `<state_root>` are written with mode `0o600` (user-only), and `<state_root>` itself is `0o700`.
-- The wrapped subprocess gets a filtered env: anything matching `*_TOKEN` / `*_SECRET` / `*PASSWORD*` / `*_API_KEY` / `*_AUTH` is dropped before the subprocess starts.
+- The wrapped subprocess gets a filtered env: anything matching `*TOKEN*` / `*SECRET*` / `*PASSWORD*` / `*API_KEY*` / `*AUTH*` etc. is dropped before the subprocess starts, **except** an explicit allowlist of standard LLM/dev-tool credentials (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GH_TOKEN`, ... — see `wrapper._ENV_ALLOW_NAMES`) that the wrapped CLIs need to function. `CODEX_PT_STRICT_ENV=1` disables that allowlist for a pure deny-list.
 - See `tellonce_codex.ledger.SECRET_PATTERNS` for the redaction patterns; extend via PR if your stack has a key prefix not yet covered.
 
 ## Setup
@@ -81,7 +96,8 @@ Codex's `verify_output` flags inline English tokens in mostly-Chinese responses 
 ```bash
 # From the project root. Installs:
 #   1. global runtime — tellonce_codex/ + shared_lib/ (CC lib copy)
-#      + hooks/ + seed_memory/ + SKILL.md. Default target is
+#      + hooks/ + seed_memory/ (reference rule examples only — nothing
+#      auto-loads them) + SKILL.md. Default target is
 #      ~/.codex/skills/tellonce/; if your git clone occupies that
 #      path, the runtime goes to ~/.codex/skills/tellonce-runtime/
 #      (keeps the clone clean).
@@ -96,11 +112,23 @@ PYTHONPATH=~/.codex/skills/tellonce-runtime python3 -m tellonce_codex doctor  # 
 PYTHONPATH=~/.codex/skills/tellonce python3 -m tellonce_codex doctor          # plain layout
 ```
 
+### One-time hook trust approval (required — hooks are silently skipped until then)
+
+Codex trusts hooks by a hash of their exact definition. **Newly installed or
+changed hooks do not run** — no error, no log, they are simply skipped —
+until you review and approve them once in an interactive Codex session
+(Codex prompts on the next session start; accept the tellonce entries).
+This applies after first install AND after any upgrade that touches
+`hooks.json` (including re-running `install.sh`, whose remove-then-add
+re-orders the definitions). If hooks seem dead ("installed but nothing
+happens"), a missing trust approval is the first thing to check. One-off
+verification without trust: `codex exec --dangerously-bypass-hook-trust ...`.
+
 ### Hook flow
 
 | Hook event | Script | Purpose |
 |---|---|---|
-| UserPromptSubmit | `userpromptsubmit-retrieve-inject.sh` | match user prompt against fingerprints + memory rules, inject `additionalContext` |
+| UserPromptSubmit | `userpromptsubmit-retrieve-inject.sh` | inject a one-line index of the saved rules (default `progressive` backend; legacy backends match the prompt via fingerprints/CLI/API instead) as `additionalContext` |
 | UserPromptSubmit | `userpromptsubmit-pending-inject.sh` | warn about pending memory entries from prior session crashes |
 | UserPromptSubmit | `userpromptsubmit-shadow-alert-inject.sh` | inject "last turn violated rule X" reminder so this turn fixes it |
 | PostToolUse | `posttooluse-deterministic-block.sh` | regex/fingerprint scan agent's tool input (Write content / Edit / Bash); audit_only logs, blocking mode exits 2 + decision:block |

@@ -23,7 +23,16 @@ if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SI
     if [ "${_LAST_SID_SC}" = "${_CUR_SID_SC}" ]; then
       _LAST_DETECTED_SC=$(echo "${_LAST_LINE_SC}" | jq -r '.detection.detected // empty' 2>/dev/null)
       if [ "${_LAST_DETECTED_SC}" = "false" ]; then
-        exit 0
+        # Pending-safety: the B4 gate this hook hosts is SESSION-scoped —
+        # pendings flagged on EARLIER turns must still be finalized even when
+        # THIS turn detected nothing. A bare exit here let the base-rate
+        # detected=false turn skip the gate forever. Cheap grep over the obs
+        # tail: any pending marker → fall through to the full hook.
+        # (2000 = pending_queue_manager.SCAN_TAIL_LINES — keep in sync.)
+        if ! tail -2000 "${_OBS_LOG_FOR_SC}" 2>/dev/null \
+             | grep -qiE '"saved_to_memory"[[:space:]]*:[[:space:]]*"pending"'; then
+          exit 0
+        fi
       fi
     fi
   fi

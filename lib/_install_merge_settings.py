@@ -20,9 +20,10 @@ from datetime import datetime
 
 
 # Hooks definition (name → (event, timeout, desc)).
-# Order matches the README architecture diagram. Claude Code Stop hooks run
-# sequentially; if an earlier hook returns exit 2, later ones don't run. The
-# README declared:
+# Order matches the README architecture diagram. NOTE: Claude Code runs the
+# matching hooks of an event in PARALLEL — the registration order below is
+# documentation/diagram order, not an execution guarantee, and no hook may
+# assume an earlier sibling's output landed first. The README declared:
 #
 #   Stop chain: check-observation-log → deterministic-block → verify-compliance
 #               → shadow-judge → pending-promote
@@ -97,7 +98,10 @@ def _versioned_backup(settings_path: str) -> str:
 def _load_settings(settings_path: str) -> dict:
     """Load settings.local.json (empty file / missing → default dict)."""
     if not os.path.exists(settings_path):
-        return {'permissions': {'allow': [], 'defaultMode': 'auto'}, 'hooks': {}}
+        # Fresh file: hooks only. Do NOT write a permissions block — 'auto'
+        # is not a valid Claude Code defaultMode, and imposing any permission
+        # mode is not this installer's business.
+        return {'hooks': {}}
     try:
         with open(settings_path) as f:
             return json.load(f)

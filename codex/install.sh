@@ -166,7 +166,8 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         fi
     fi
 
-    # 1c. seed_memory (used by sessionstart-init when project memory is empty)
+    # 1c. seed_memory (reference rule examples shipped alongside the runtime;
+    # NOTE: nothing auto-loads these — sessionstart-init does not read them)
     if [[ "${SELF_INSTALL}" != true ]]; then
         if [[ -n "${SEED_MEMORY_SRC}" && -d "${SEED_MEMORY_SRC}" ]]; then
             SEED_SRC_REAL="$(cd "${SEED_MEMORY_SRC}" && pwd -P)"
@@ -289,5 +290,13 @@ echo "  global: ${GLOBAL_DIR}"
 echo "  hooks:  ${HOOKS_JSON}"
 echo "  project state: $(pwd)/.codex/tellonce/"
 echo ""
-echo "Next step: trigger a prompt in a new codex session, then check whether"
+echo "⚠ REQUIRED next step — one-time hook trust approval:"
+echo "  Codex silently SKIPS hooks whose definition it has not been asked to"
+echo "  trust (no error, no log). Start an interactive codex session; when it"
+echo "  prompts you to review the tellonce hook entries, approve them."
+echo "  This repeats after ANY change to the hook definitions (including"
+echo "  re-running this installer, which re-orders them)."
+echo ""
+echo "Then verify: trigger a prompt in a new codex session and check whether"
 echo "  $(pwd)/.codex/tellonce/runtime/posttooluse_log.jsonl gets written to."
+echo "  (One-off check without trust: codex exec --dangerously-bypass-hook-trust ...)"

@@ -38,6 +38,12 @@ RETRIEVE_CLI_DEFAULT = 'copilot'
 # Claude model name).
 JUDGE_MODEL_DEFAULT = ''
 
+# How often the rule index is injected on this platform — used in user-facing
+# wording (the progressive backend's truncation note says rules "rotate in on
+# later <cadence>"). Copilot has no per-prompt hook; injection happens once
+# per session at SessionStart.
+INJECT_CADENCE = 'sessions'
+
 
 def default_state_dir(project_root: str) -> str:
     """Default runtime state dir: <project_root>/.copilot/tellonce-state/runtime."""

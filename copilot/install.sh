@@ -58,6 +58,13 @@ if [ -z "${PY}" ]; then
     echo "❌ Python 3.7+ not found in PATH. Please install it."
     exit 1
 fi
+# The POSIX runtime hooks invoke `python3` by name — a python-only box would
+# install green and then every hook would silently fail with exit 127.
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "❌ 'python3' not on PATH (only '${PY}'). The runtime hooks invoke python3;"
+    echo "   add a python3 symlink or install the python3 package, then re-run."
+    exit 1
+fi
 PYTHON_VER=$("${PY}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 echo "✅ Python ${PYTHON_VER} ($(command -v "${PY}" || echo "${PY}"))"
 
@@ -111,11 +118,14 @@ CONFIG_PATH="${HOME}/.tellonce.config.json"
 if [ ! -f "${CONFIG_PATH}" ]; then
     echo ""
     echo "Writing default config to ${CONFIG_PATH}..."
+    # retrieve_model stays EMPTY on copilot: config beats the platform
+    # default, and `copilot -p` rejects an explicit Claude model name — a
+    # pinned model here silently broke the cli retrieval backend every turn.
     cat > "${CONFIG_PATH}" <<EOF
 {
   "retrieve_cli": "copilot",
   "retrieve_backend": "progressive",
-  "retrieve_model": "claude-haiku-4-5"
+  "retrieve_model": ""
 }
 EOF
     echo "✅ Config written"

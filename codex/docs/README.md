@@ -16,6 +16,14 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 > The Codex installer lives under `codex/` — the repo-root `install.sh` is the
 > Claude Code variant and would register Claude Code hooks instead.
 
+**One-time hook trust approval (required).** Codex trusts hooks by a hash of
+their exact definition and **silently skips** untrusted ones — no error, no
+log. After install (and after ANY later change to the hook definitions,
+including re-running `install.sh`, which rewrites/re-orders them), start an
+interactive Codex session and approve the tellonce hook entries when Codex
+prompts for review. Until then the hooks do not fire at all. For one-off
+non-interactive verification: `codex exec --dangerously-bypass-hook-trust ...`.
+
 Internally the package records a project-local audit ledger and uses wrapper-based verification where possible. Users do not need to choose internal modes during normal install.
 
 ## Modes

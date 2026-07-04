@@ -47,6 +47,19 @@ function Resolve-Python {
 
 $py = Resolve-Python
 
+# UTF-8 end to end: Windows PowerShell 5.1 defaults $OutputEncoding to ASCII,
+# so piping non-ASCII hook JSON (CJK excerpts, non-ASCII paths) to Python
+# mangled it to '?' before Python ever saw it — and Python then decoded stdin
+# with the legacy code page. Force both sides.
+$env:PYTHONIOENCODING = 'utf-8'
+$env:PYTHONUTF8 = '1'
+try { $OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch {}
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch {}
+# Input side too: [Console]::In.ReadToEnd() below decodes with InputEncoding,
+# which defaults to the OEM code page on PS 5.1 — without this, CJK hook JSON
+# is mojibake'd BEFORE we re-encode it as UTF-8 for Python.
+try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false) } catch {}
+
 # Forward stdin (hook event JSON) to the Python process. Reading to EOF is safe
 # because Copilot pipes the event and closes stdin; an empty read is also fine.
 $stdinData = ''

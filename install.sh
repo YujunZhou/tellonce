@@ -427,9 +427,16 @@ log ""
 log "[4/5] Execute: run doctor.sh self-check"
 if [[ -x "${SKILL_DIR}/doctor.sh" ]]; then
     run bash "${SKILL_DIR}/doctor.sh"
+elif [[ -f "${SKILL_DIR}/doctor.sh" ]]; then
+    # zip/tarball downloads lose exec bits — run via bash instead of failing.
+    log "  ⚠ doctor.sh present but not executable (zip download?). Running via bash:"
+    run bash "${SKILL_DIR}/doctor.sh"
 else
-    log "  ⚠ doctor.sh missing / not executable (incomplete skill package). Running basic tests:"
-    run python3 "${SKILL_DIR}/lib/test_path_config.py"
+    # No doctor.sh at all. NOTE: do not reference lib/test_*.py here — tests
+    # are kept out of the public tree (.gitignore), so that fallback crashed
+    # the ERR trap on exactly the incomplete-package case it was meant to save.
+    log "  ⚠ doctor.sh missing (incomplete skill package). Running minimal inline check:"
+    run env PT_LIB="${SKILL_DIR}/lib" python3 -c 'import os, sys; sys.path.insert(0, os.environ["PT_LIB"]); import path_config; print("  path_config OK — state dir:", path_config.get_state_dir())'
 fi
 
 # ============================================================

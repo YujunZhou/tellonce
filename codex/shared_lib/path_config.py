@@ -114,6 +114,25 @@ def pt_env(suffix, default=None):
     return default
 
 
+def pt_env_int(suffix, default):
+    """pt_env + defensive int parse. Hook modules read these at import time,
+    before any try/except around main(), so a typo'd env var
+    (e.g. PT_STREAK_BYPASS=abc) must fall back to the default instead of
+    tracebacking the hook on every turn."""
+    try:
+        return int(str(pt_env(suffix, str(default))).strip())
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def pt_env_float(suffix, default):
+    """pt_env + defensive float parse (see pt_env_int)."""
+    try:
+        return float(str(pt_env(suffix, str(default))).strip())
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def _read_env(env_var: str):
     """Read an env var honoring the PT_/B5_ alias pair. When env_var starts with
     'B5_', both PT_<X> and B5_<X> are honored (PT_ wins); otherwise the name is

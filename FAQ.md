@@ -1,6 +1,6 @@
 # FAQ — Tellonce
 
-12 common questions. For the full architecture see
+11 common questions. For the full architecture see
 [`docs/claude-code.md`](docs/claude-code.md) + `SKILL.md`.
 
 ---
@@ -134,9 +134,19 @@ PT_PROJECT_ROOT=/custom/project bash uninstall.sh
 
 > Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
 
-Or write `~/.tellonce.config.json` (schema:
-`{"project_root":"...","state_dir":"...","obs_log_dir":"...","memory_dir":"..."}`;
-any field left unset falls back to auto-detect).
+Or write `~/.tellonce.config.json`. Full key reference (every key optional;
+env vars beat config; unset falls back to auto-detect / built-in default):
+
+| Key | What it does | Default |
+|-----|--------------|---------|
+| `project_root` / `state_dir` / `obs_log_dir` / `memory_dir` | path anchors overriding auto-detection | auto from cwd |
+| `retrieve_backend` | rule retrieval backend: `progressive` / `cli` / `keyword` / `api` | `progressive` |
+| `retrieve_cli` | CLI used by the `cli` backend: `claude` / `codex` / `copilot` | per platform |
+| `retrieve_model` | model for the `cli` backend (empty = let the CLI pick; keep empty on Copilot) | per CLI |
+| `progressive_max` | per-turn/-session cap on injected rules for `progressive` (`0` = no cap; overflow rotates in) | `50` |
+| `retrieve_timeout_s` | seconds before the `cli`/`api` retrieval subprocess is cut off | `12` |
+| `retrieve_api_provider` | provider for the `api` backend: `openrouter` / `deepinfra` | `openrouter` |
+| `retrieve_env_file` | ⚠ path to a `.env` file whose `*_API_KEY` lines (only — other keys are ignored) are loaded into the hook's environment, never overriding an already-set env var — only needed for the `api` backend; **point it only at a file you control**, since its keys flow to the configured provider | unset |
 
 ---
 

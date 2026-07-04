@@ -33,6 +33,19 @@ _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(_LIB_DIR)  # <plugin> = parent of lib/
 
 
+def _plugin_version() -> str:
+    """Version from the shipped .claude-plugin/plugin.json — a hardcoded
+    literal here went stale (recorded 1.2.3 for a 1.3.0 install) and misled
+    any version-based upgrade/triage logic reading Copilot's config."""
+    try:
+        with open(os.path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'),
+                  encoding='utf-8-sig') as f:
+            v = json.load(f).get('version')
+        return v if isinstance(v, str) and v else 'unknown'
+    except Exception:
+        return 'unknown'
+
+
 def _split_header(text):
     """Return (header_lines, body_text). Header = consecutive leading // comment
     lines (and blank lines) before the JSON starts."""
@@ -121,7 +134,7 @@ def register():
     plugins.append({
         'name': PLUGIN_NAME,
         'marketplace': PLUGIN_NAME,
-        'version': '1.2.3',
+        'version': _plugin_version(),
         'installed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         'enabled': True,
         'cache_path': PLUGIN_ROOT,

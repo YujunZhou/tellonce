@@ -29,7 +29,7 @@ B5_DETERMINISTIC_DISABLED = path_config.pt_env('DETERMINISTIC_DISABLED', '').low
 # Safety valve: once the same atomic_id fires >= STREAK_BYPASS times in a row
 # within a session, that atomic_id is auto-bypassed for the rest of the session
 # (logs a warning but does not block). Prevents cascading transcript disasters.
-STREAK_BYPASS = int(path_config.pt_env('STREAK_BYPASS', '3'))
+STREAK_BYPASS = path_config.pt_env_int('STREAK_BYPASS', 3)
 
 
 def _extract_response_and_transcript_lines(stdin_data):

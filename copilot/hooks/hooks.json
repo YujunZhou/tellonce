@@ -38,7 +38,7 @@
         "type": "command",
         "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-inject.sh",
         "powershell": "& \"${CLAUDE_PLUGIN_ROOT}\\hooks\\run.ps1\" session_start_inject.py",
-        "timeoutSec": 15
+        "timeoutSec": 25
       }
     ]
   }

@@ -41,7 +41,9 @@ $py = Resolve-Python
 # 1. Remove the hook registration (+ optional purge) WHILE the files still exist.
 $unregistered = $false
 if ($py -and (Test-Path (Join-Path $plugin 'lib\uninstall.py'))) {
-    $flags = if ($Purge) { @('--all') } else { @('--unregister','--reset-config') }
+    # Non-purge keeps the user's mode keys (enforce/full) so a reinstall picks
+    # them back up — README documents config reset as purge-only.
+    $flags = if ($Purge) { @('--all') } else { @('--unregister') }
     Note "Removing hook registration$(if($Purge){' + state + memory'})..."
     & $py (Join-Path $plugin 'lib\uninstall.py') @flags
     $unregistered = $true

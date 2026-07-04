@@ -31,7 +31,7 @@ This skill is more than the Iron Law + Gate Function. It installs 3 layers of in
 
 ### Rule injection (progressive full index — default)
 
-Each time the user submits a message, `<skill_dir>/hooks/memory-retrieve-inject.sh` injects a **one-line index of the rules** saved under my memory dir as `additionalContext`, and I judge which apply. If the library exceeds the per-turn cap (default 50 — `progressive_max` in `~/.tellonce.config.json` or `B5_PROGRESSIVE_MAX`, `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across turns, and the block states how many of the total are shown. This is the default `progressive` backend: it just reads the saved rule files — no prompt matching, no model call, no CLI cold-start. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
+Each time the user submits a message, `<skill_dir>/hooks/memory-retrieve-inject.sh` injects a **one-line index of the rules** saved under my memory dir as `additionalContext`, and I judge which apply. If the library exceeds the per-turn cap (default 50 — `progressive_max` in `~/.tellonce.config.json` or env `PT_PROGRESSIVE_MAX` (legacy `B5_` alias works), `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across turns, and the block states how many of the total are shown. This is the default `progressive` backend: it just reads the saved rule files — no prompt matching, no model call, no CLI cold-start. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
 
 ```
 ### Your saved preferences — check each against this turn and apply the ones that fit:
@@ -128,16 +128,19 @@ Skip any step = compliance failure.
 
 ### Gate mechanics
 
-**Only HARD check is active**: the observation log file must be appended within the staleness threshold at Stop (default 1800s, tunable via env `OBSERVATION_LOG_AGE_THRESHOLD_SEC`). That's the entire gate.
+Two HARD checks are active (both block only under enforce mode, `PT_ENFORCE=1`):
+
+1. **Staleness**: the observation log file must be appended within the staleness threshold at Stop (default 1800s, tunable via env `OBSERVATION_LOG_AGE_THRESHOLD_SEC`). With the default `OBSERVATION_LOG_AUTO_FALLBACK=1`, a stale/missing log is auto-healed with a synthetic full-schema entry and only a *failed* fallback blocks; set it to `0` for a strict block on staleness itself.
+2. **Structured-entry quality** (checked on the newest entry): `detection.detected` must be a boolean; `trigger.user_message_excerpt` and `self_observations.uncertainty_notes` must be non-empty. When `detected=true`, additionally: `signal_type` ∈ preference/pitfall/friction, `detection.content` ≥ 30 chars, and `action.confirmation_text` non-empty.
 
 **SOFT text-marker scans are DISABLED** (caused spurious blocks because my response text wording varies each turn). The structured log entry itself carries the scan result — that's sufficient audit trail.
 
 **Practical rule for every turn**:
-- Append **one** entry to `observations.jsonl` before stopping. Any entry. detected=true or detected=false, doesn't matter for the gate.
-- Keep doing rich structured entries (detection fields, root_cause notes, confirmation_text) — they make the local memory/audit trail more useful, even though the gate doesn't check them. Truncate any user-message excerpt to ~200 chars and never copy secrets/credentials into the log.
+- Append **one full-schema entry** to `observations.jsonl` before stopping — detected=true or false both satisfy the gate, but the quality fields above must be filled either way. A skeleton entry with empty excerpt/uncertainty_notes gets blocked under enforce.
+- Truncate any user-message excerpt to ~200 chars and never copy secrets/credentials into the log.
 - No need to paste SCAN markers in response text.
 
-**Why it matters**: the gate blocks only when the log genuinely wasn't written (a real miss), not when response wording fails a text regex — this avoids spurious blocks.
+**Why it matters**: the gate blocks on a genuinely missing log append or a hollowed-out entry (the schema-shortcut failure mode), not on response wording failing a text regex — this avoids spurious blocks while keeping the audit trail meaningful.
 
 ---
 
@@ -528,18 +531,7 @@ Executed when writing a new memory:
 1. **Explicit pre-declaration in a multi-step audit**: only when a candidates list explicitly enumerated earlier in this turn **covers the atomic_id about to be written** — the list explicitly contains "X-pref-NNN: NEW because Y". Otherwise **each new file must be gone through individually**. A vague "I audited earlier" does not count as an override.
 2. **Explicit user disable wording**: the user explicitly says "no need to check" / "just save it, don't verify" / "skip conflict resolution" — an explicit disable. Implicit OK ("save it" / "go ahead" / "note it down") **does not count as an override**; still go through the checklist.
 
-**Stop hook verification** (optional, advisory by default):
-
-The current stop hook (`memory-verify-compliance.sh`) scans the transcript at the end of the turn. If `memory/*.md` was written that turn but the Pre-write two lines don't appear in the response text → log a warning into `compliance_log.jsonl` (advisory, doesn't block). After collecting 1 week of data, decide whether to upgrade to blocking exit-2.
-
-**The optional Stop-hook regex** (only when enforcement mode is on, the hook uses it to recognize the example format above):
-
-```regex
-^\*\*I checked\*\*:.*candidates considered = \[.*\]$
-^\*\*Decision\*\*: (NOOP|UPDATE|SUPERSEDE|NEW)\b.*— because .+$
-```
-
-The two lines must form a **consecutive pair** (adjacent or separated by only 1 blank line) to count as a valid verdict. If ≥2 matching pairs appear within a turn, take the last pair as the verdict (quoting in handoff/explain text doesn't count). False-positive defense: handoff/skill-content/code-review-paste and other quoting scenarios can't produce a concrete pair like "**I checked**: ... candidates = [actual_atomic_ids_with_concrete_reason]"; rely solely on regex + concrete-id structure to distinguish.
+**Stop hook verification**: none — the Pre-write checklist is a discipline I follow, not something any shipped hook verifies. (`memory-verify-compliance.sh` tracks rule compliance and the pending-finalize gate; it does not scan response text for the two checklist lines. An earlier draft of this section described a planned transcript-scan check that was never implemented — treat the checklist as self-enforced.)
 
 ### SUPERSEDE protocol
 

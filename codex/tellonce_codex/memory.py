@@ -86,15 +86,22 @@ def parse_memory(path: Path) -> ParsedMemory:
     return ParsedMemory(path=path, data=data, body=body)
 
 
+def _fm_safe(value) -> str:
+    """Frontmatter values must stay on one line — a stray newline forges
+    extra keys or a premature `---` fence (defense-in-depth behind
+    promote._scalar; render is the last writer before disk)."""
+    return str(value).replace("\r", " ").replace("\n", " ")
+
+
 def render_memory(data: dict, body: str) -> str:
     lines = ["---"]
     for key, value in data.items():
         if isinstance(value, list):
             lines.append(f"{key}:")
             for item in value:
-                lines.append(f"  - {item}")
+                lines.append(f"  - {_fm_safe(item)}")
         else:
-            lines.append(f"{key}: {value}")
+            lines.append(f"{key}: {_fm_safe(value)}")
     lines.extend(["---", body.rstrip(), ""])
     return "\n".join(lines)
 

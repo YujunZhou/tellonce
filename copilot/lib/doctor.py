@@ -133,9 +133,25 @@ def check_memory(md):
                  if f.endswith('.md') and f != 'MEMORY.md' and not f.startswith('_archived')]
         has_index = os.path.exists(os.path.join(md, 'MEMORY.md'))
         detail = f'{len(rules)} rule files; MEMORY.md index {"present" if has_index else "MISSING"}'
-        # Scale advisory tied to the known retrieval cap.
-        if len(rules) > 40:
-            _record('WARN', 'memory size', detail + ' — >40 rules: retrieval cap may drop some (see docs)')
+        # Scale advisory tied to the progressive per-session cap. Read the
+        # EFFECTIVE cap (env / config / default 50) — a hardcoded 50 nagged
+        # users who had already raised progressive_max.
+        cap = 50
+        try:
+            import path_config
+            raw = path_config.pt_env('PROGRESSIVE_MAX')
+            if raw is None:
+                import json as _json
+                with open(os.path.expanduser('~/.tellonce.config.json'), encoding='utf-8-sig') as _f:
+                    raw = _json.load(_f).get('progressive_max')
+            if raw is not None:
+                cap = int(str(raw).strip())
+        except Exception:
+            pass
+        # Nothing is permanently dropped — overflow rotates in across sessions
+        # and the injected block discloses how many of the total are shown.
+        if cap > 0 and len(rules) > cap:
+            _record('WARN', 'memory size', detail + f' — above the per-session progressive cap ({cap}): overflow rules rotate in across sessions; raise progressive_max in ~/.tellonce.config.json to widen')
         else:
             _record('PASS', 'memory size', detail)
     except Exception as e:

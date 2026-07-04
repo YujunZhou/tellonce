@@ -73,6 +73,10 @@ _ENV_ALLOW_NAMES: frozenset[str] = frozenset({
     "SSH_AUTH_SOCK", "SSH_AGENT_PID",  # ssh
     "GIT_ASKPASS", "GIT_SSH",
     "GPG_AGENT_INFO", "GNUPGHOME",
+    # X11: "XAUTHORITY" contains the deny substring "AUTH", so with the
+    # deny-aware prefix pass it can only survive via this explicit list —
+    # without it, any X11-dependent wrapped command loses its display auth.
+    "XAUTHORITY",
 })
 
 _ENV_DENY_SUBSTRINGS: tuple[str, ...] = (
@@ -85,9 +89,15 @@ def _filter_env(parent: dict[str, str]) -> dict[str, str]:
     """Build a child-process env per the policy above.
 
     Order: start empty → deny-pass (drop anything matching deny substring)
-    → allow-prefix pass (re-add anything starting with PATH/HOME/PYTHON/...)
+    → allow-prefix pass (re-add non-denied names starting with PATH/HOME/...)
     → allow-name pass (re-add specific LLM/dev tool credential vars by name).
     Strict mode skips the third pass.
+
+    Deny beats prefix: a name that matched a deny substring can only come
+    back via the explicit allow-NAME set. A bare startswith() here re-added
+    USER_API_KEY / TEMP_TOKEN / HOME_SECRET (prefixes USER / TEMP / HOME),
+    silently leaking secrets into the child — including in strict mode,
+    which is documented as a pure deny-list.
     """
     strict = os.environ.get("CODEX_PT_STRICT_ENV", "").lower() in ("1", "true", "yes")
     out: dict[str, str] = {}
@@ -96,8 +106,11 @@ def _filter_env(parent: dict[str, str]) -> dict[str, str]:
         if any(deny in upper for deny in _ENV_DENY_SUBSTRINGS):
             continue
         out[k] = v
-    # Allow-prefix pass.
+    # Allow-prefix pass (deny-aware — see docstring).
     for k, v in parent.items():
+        upper = k.upper()
+        if any(deny in upper for deny in _ENV_DENY_SUBSTRINGS):
+            continue
         if any(k.startswith(p) for p in _ENV_ALLOW_PREFIXES):
             out[k] = v
     # Allow-name pass (skip in strict mode).
@@ -263,6 +276,9 @@ def run_wrapped(
         stdout = ""
         stderr = msg
         rc = 3
+        spawned = False
+    else:
+        spawned = True
 
     # Sanitize before persisting (the central reason all this exists).
     safe_stdout = sanitize(stdout)
@@ -281,14 +297,21 @@ def run_wrapped(
         {
             "event_type": "wrapper_run_completed",
             "session_id": "codex-current",
-            "payload": {"run_id": run_id, "exit_code": rc, "verdict": verdict.verdict},
+            "payload": {
+                "run_id": run_id, "exit_code": rc, "verdict": verdict.verdict,
+                "spawned": spawned,
+            },
         },
     )
 
-    current_mode = load_mode(state_root)
-    write_mode(
-        state_root,
-        mode="wrapper" if current_mode.mode == "audit_only" else current_mode.mode,
-        wrapper_seen=True,
-    )
+    # Only a run that actually executed counts as "wrapper seen" — latching on
+    # a command-not-found run made doctor report wrapper=PASS off a run that
+    # never produced output to verify.
+    if spawned:
+        current_mode = load_mode(state_root)
+        write_mode(
+            state_root,
+            mode="wrapper" if current_mode.mode == "audit_only" else current_mode.mode,
+            wrapper_seen=True,
+        )
     return WrappedRun(run_id=run_id, exit_code=rc)

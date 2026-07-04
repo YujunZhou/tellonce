@@ -49,7 +49,12 @@ MEMORY_DIR = path_config.get_memory_dir()
 # obs as "from prior session". Cross-session crashes still surface via inject hook
 # (which runs on next UserPromptSubmit after the crash regardless of age).
 PROMOTE_AGE_MIN = 60          # pending obs older than this → eligible for promotion
-SCAN_TAIL_LINES = 200         # how many obs lines to consider per promote pass
+# How many obs lines to consider per promote pass. Each turn appends >=1 line,
+# so this window is the survival budget for a crashed session's pendings: at
+# 200, ~200 base-rate turns scrolled them out of reach forever. 2000 lines is
+# still a trivial parse per Stop (and the wrapper short-circuits the common
+# no-pending case before we even get here).
+SCAN_TAIL_LINES = 2000
 ALERT_LEN_THRESHOLD = 3       # queue length triggering PENDING_ALERT (advisory)
 INJECT_TOPN_CAP = 12          # cap inject text to top N entries (newest first); overflow shows count
 
@@ -577,10 +582,13 @@ def main():
             'alert_threshold': ALERT_LEN_THRESHOLD,
             'alert_active': len(queue) >= ALERT_LEN_THRESHOLD,
             'alert_file_exists': os.path.exists(ALERT),
+            # Match the id pattern _atomic_ids_in_memory actually accepts —
+            # a stricter aaa-bbb-123 canonical pattern here miscounted real
+            # ids like `wf-pref-3sync` as unpruneable.
             'unprune_able_count': sum(
                 1 for e in queue
                 if not (e.get('proposed_atomic_id') or '').strip()
-                or not re.match(r'^[a-z]+-[a-z]+-\d+$', (e.get('proposed_atomic_id') or '').strip())
+                or not re.match(r'^[A-Za-z0-9][A-Za-z0-9_-]*$', (e.get('proposed_atomic_id') or '').strip())
             ),
         }, ensure_ascii=False, indent=2))
     else:

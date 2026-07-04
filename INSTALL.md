@@ -180,10 +180,11 @@ The UserPromptSubmit / SessionStart hook defaults to **`progressive`**: it scans
 your memory dir and injects a one-line index of your saved rules each turn
 (Claude Code) or at session start (Copilot), and lets the main model judge which
 apply. When the library exceeds the per-turn cap (default 50 — set
-`progressive_max` in `~/.tellonce.config.json` or `B5_PROGRESSIVE_MAX`, `0` =
-no cap), tier-1 rules are pinned when they fit under the cap (if tier-1 alone
-overflows it, the whole library rotates instead), the remainder rotates in
-across turns, and the injected block discloses how many of the total are shown. Zero LLM calls, zero keyword matching, zero CLI cold-start — and because
+`progressive_max` in `~/.tellonce.config.json` or env `PT_PROGRESSIVE_MAX`
+(legacy `B5_` alias works), `0` = no cap), tier-1 rules are pinned when they
+fit under the cap (if tier-1 alone overflows it, the whole library rotates
+instead), the remainder rotates in across turns, and the injected block
+discloses how many of the total are shown. Zero LLM calls, zero keyword matching, zero CLI cold-start — and because
 it doesn't depend on `fingerprints.yaml` priority tags, it also closes Copilot's
 old SessionStart "0 rules" gap.
 

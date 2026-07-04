@@ -57,14 +57,14 @@ B5_SHADOW_DISABLED = path_config.pt_env('SHADOW_DISABLED', '').lower() in ('1', 
 # Legacy credit gate (only consulted on the SDK path). The real send-gate is
 # path_config.shadow_enabled() (PUBLIC DEFAULT = False).
 ANTHROPIC_CREDIT_OK = os.environ.get('ANTHROPIC_CREDIT_OK', '1').lower() in ('1', 'true', 'yes')
-B5_DAILY_COST_CAP = float(path_config.pt_env('DAILY_COST_CAP', '0.50'))
+B5_DAILY_COST_CAP = path_config.pt_env_float('DAILY_COST_CAP', 0.50)
 B5_USE_DEEPINFRA = path_config.pt_env('USE_DEEPINFRA', '').lower() in ('1', 'true', 'yes')
 B5_USE_SDK = path_config.pt_env('USE_SDK', '').lower() in ('1', 'true', 'yes')  # default False = use the CLI channel
 B5_JUDGE_MODEL = path_config.pt_env('JUDGE_MODEL', pt_platform.JUDGE_MODEL_DEFAULT)  # empty = let the CLI pick its own (auto)
-B5_CONFIDENCE_THRESHOLD = float(path_config.pt_env('CONFIDENCE_THRESHOLD', '0.85'))
-ALERT_ROLLING_CAP = int(path_config.pt_env('ALERT_ROLLING_CAP', '3'))
-RATE_LIMIT_HOURS = float(path_config.pt_env('RATE_LIMIT_HOURS', '24'))
-TTL_HOURS = float(path_config.pt_env('TTL_HOURS', '24'))
+B5_CONFIDENCE_THRESHOLD = path_config.pt_env_float('CONFIDENCE_THRESHOLD', 0.85)
+ALERT_ROLLING_CAP = path_config.pt_env_int('ALERT_ROLLING_CAP', 3)
+RATE_LIMIT_HOURS = path_config.pt_env_float('RATE_LIMIT_HOURS', 24)
+TTL_HOURS = path_config.pt_env_float('TTL_HOURS', 24)
 
 # Test mock — when set, skip real LLM call, return canned verdict from env
 B5_TEST_MOCK_VERDICT = os.environ.get('B5_TEST_MOCK_VERDICT', '')
@@ -83,28 +83,42 @@ def _today_str():
     return _now().strftime('%Y-%m-%d')
 
 
-def _read_rule_text(atomic_id):
-    """Find memory file with given atomic_id, return rule_text (description + body excerpt)."""
+def _find_rule_parts(atomic_id):
+    """Locate the memory file for `atomic_id`; return (description, body_excerpt).
+
+    The id match is line-anchored and indent-tolerant: a bare substring test
+    would let `wf-pref-1` match a file whose id is `wf-pref-10`, judging the
+    wrong rule's text; the indent tolerance covers the nested-under-`metadata:`
+    schema Claude Code's memory normalizer writes."""
     try:
         import glob
+        id_re = re.compile(
+            r'^\s*atomic_id:\s*' + re.escape(atomic_id) + r'\s*$', re.MULTILINE)
         for path in glob.glob(os.path.join(MEMORY_DIR, '*.md')):
             try:
                 with open(path, errors='ignore') as f:
                     c = f.read()
             except Exception:
                 continue
-            if f'atomic_id: {atomic_id}' not in c:
+            if not id_re.search(c):
                 continue
-            # Extract description from frontmatter
-            desc_m = re.search(r'^description:\s*(.+)$', c, re.MULTILINE)
+            desc_m = re.search(r'^\s*description:\s*(.+)$', c, re.MULTILINE)
             desc = desc_m.group(1).strip() if desc_m else ''
-            # Extract first 500 chars of body (after frontmatter close)
+            # First 500 chars of body (after frontmatter close)
             body_m = re.split(r'^---\s*$', c, maxsplit=2, flags=re.MULTILINE)
             body = body_m[2][:500].strip() if len(body_m) >= 3 else ''
-            return f'{desc}\n\n{body}'
+            return desc, body
     except Exception:
         pass
-    return ''
+    return '', ''
+
+
+def _read_rule_text(atomic_id):
+    """Find memory file with given atomic_id, return rule_text (description + body excerpt)."""
+    desc, body = _find_rule_parts(atomic_id)
+    if not desc and not body:
+        return ''
+    return f'{desc}\n\n{body}'
 
 
 def _read_response_and_last_user(stdin_data):
@@ -337,7 +351,10 @@ Output strict one-line JSON in this format:
             _cmd += ['--model', B5_JUDGE_MODEL]
         proc = subprocess.run(
             _cmd,
-            capture_output=True, text=True, encoding='utf-8', timeout=60,
+            # Must stay below the Stop-hook timeout (30s in hooks.json /
+            # _install_merge_settings): with 60 here the harness killed the
+            # whole hook first and a slow judge produced no log entry at all.
+            capture_output=True, text=True, encoding='utf-8', timeout=25,
             env=_child_env,
         )
         latency_ms = (time.time() - t0) * 1000
@@ -604,9 +621,10 @@ def evaluate(stdin_data):
                 'reason_no_alert': 'rate_limited',
             })
             continue
-        # Alert-worthy violation
-        rule_desc_m = re.search(r'^description:\s*(.+)$', _read_rule_text(rid) or '', re.MULTILINE)
-        rule_desc = rule_desc_m.group(1).strip() if rule_desc_m else ''
+        # Alert-worthy violation. (_read_rule_text strips the `description:`
+        # prefix, so regexing it back out of that string always came up empty —
+        # take the description straight from the rule file instead.)
+        rule_desc = _find_rule_parts(rid)[0]
         _append_shadow_log({
             **log_entry,
             'rule_id': rid,

@@ -23,7 +23,17 @@ if [ -n "${_OBS_LOG_FOR_SC}" ] && [ -f "${_OBS_LOG_FOR_SC}" ] && [ -n "${_CUR_SI
     if [ "${_LAST_SID_SC}" = "${_CUR_SID_SC}" ]; then
       _LAST_DETECTED_SC=$(echo "${_LAST_LINE_SC}" | jq -r '.detection.detected // empty' 2>/dev/null)
       if [ "${_LAST_DETECTED_SC}" = "false" ]; then
-        exit 0
+        # Pending-safety: promote's whole job is rescuing pendings from
+        # EARLIER turns / crashed sessions; the tail entry being a base-rate
+        # detected=false says nothing about those. A bare exit here skipped
+        # promote turn after turn until crashed pendings scrolled out of the
+        # scan tail — silent, unrecoverable loss. Any pending marker in the
+        # tail window → fall through to the full promote pass.
+        # (2000 = pending_queue_manager.SCAN_TAIL_LINES — keep in sync.)
+        if ! tail -2000 "${_OBS_LOG_FOR_SC}" 2>/dev/null \
+             | grep -qiE '"saved_to_memory"[[:space:]]*:[[:space:]]*"pending"'; then
+          exit 0
+        fi
       fi
     fi
   fi

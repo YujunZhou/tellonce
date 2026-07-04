@@ -40,8 +40,10 @@ if [ -n "$PY" ] && [ -f "${PLUGIN}/lib/uninstall.py" ]; then
         echo "Removing hook registration + state + memory..."
         "$PY" "${PLUGIN}/lib/uninstall.py" --all || true
     else
+        # Non-purge keeps the user's mode keys (enforce/full) so a reinstall
+        # picks them back up — README documents config reset as purge-only.
         echo "Removing hook registration..."
-        "$PY" "${PLUGIN}/lib/uninstall.py" --unregister --reset-config || true
+        "$PY" "${PLUGIN}/lib/uninstall.py" --unregister || true
     fi
     UNREG=1
 elif [ -n "$PY" ] && [ -f "${PLUGIN}/lib/register_plugin.py" ]; then

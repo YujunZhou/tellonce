@@ -75,8 +75,16 @@ def _versioned_backup(path: str) -> str | None:
     p = Path(path)
     if not p.is_file():
         return None
+    # Timestamp + pid: install.sh runs --remove then --add back-to-back, and
+    # with second-granularity names the --add backup (post-remove, stripped)
+    # overwrote the --remove backup — destroying the true pre-install rollback
+    # anchor. Matches shared_lib/_install_merge_settings.py's fix.
     ts = time.strftime("%Y%m%d-%H%M%S")
-    backup = f"{path}.v3_pre_pt_{ts}.json"
+    backup = f"{path}.v3_pre_pt_{ts}-{os.getpid()}.json"
+    # Same-process remove+add within one second would still collide — bump
+    # a suffix rather than overwrite (mirrors _install_merge_settings.py).
+    while Path(backup).exists():
+        backup = backup[: -len(".json")] + "b.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     Path(backup).write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
     # GC: every install/uninstall writes one backup; without pruning they

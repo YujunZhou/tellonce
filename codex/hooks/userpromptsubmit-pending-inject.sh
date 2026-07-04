@@ -39,6 +39,15 @@ if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
     export B5_PROJECT_ROOT="${CODEX_CWD}"
 fi
 
+# Same memory-dir bridge as userpromptsubmit-retrieve-inject.sh: shared_lib's
+# pt_platform is CC's copy and resolves the memory dir to ~/.claude/... —
+# without the bridge, pending_queue_manager's promoted-rule dedup/prune never
+# sees rules promoted under .codex, so a queue entry re-nags on every prompt
+# forever on mixed CC+Codex projects.
+if [[ -z "${B5_MEMORY_DIR:-}" && -n "${B5_PROJECT_ROOT:-}" ]]; then
+    export B5_MEMORY_DIR="${B5_PROJECT_ROOT}/.codex/tellonce/memories/active"
+fi
+
 PT_TEXT="$(PYTHONIOENCODING=utf-8 PYTHONPATH="${SHARED_LIB}" \
     _pt_timeout 15 python3 "${SHARED_LIB}/pending_queue_manager.py" inject 2>/dev/null)"
 if [ -n "${PT_TEXT}" ]; then

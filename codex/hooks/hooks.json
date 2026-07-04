@@ -3,23 +3,23 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-retrieve-inject.sh\"'", "timeout": 30 },
-          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-pending-inject.sh\"'", "timeout": 10 },
-          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-shadow-alert-inject.sh\"'", "timeout": 10 }
+          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-retrieve-inject.sh\"'", "timeout": 40 },
+          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-pending-inject.sh\"'", "timeout": 25 },
+          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-shadow-alert-inject.sh\"'", "timeout": 25 }
         ]
       }
     ],
     "PostToolUse": [
       {
         "hooks": [
-          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/posttooluse-deterministic-block.sh\"'", "timeout": 15 }
+          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/posttooluse-deterministic-block.sh\"'", "timeout": 25 }
         ]
       }
     ],
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/sessionstart-init.sh\"'", "timeout": 10 }
+          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/sessionstart-init.sh\"'", "timeout": 20 }
         ]
       }
     ]

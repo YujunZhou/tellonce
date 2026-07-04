@@ -144,6 +144,12 @@ def _autoload_env_file_from_config(cfg: dict) -> None:
                 v = v.strip().strip('"').strip("'")
                 if not k or not v:
                     continue
+                # Enforce the documented contract: only *_API_KEY entries are
+                # loaded. The api backend is the sole consumer of this file;
+                # slurping EVERY key would drag unrelated secrets (DB URLs,
+                # tokens) from a shared .env into the hook environment.
+                if not k.upper().endswith('_API_KEY'):
+                    continue
                 if k in os.environ:
                     continue  # respect existing env
                 os.environ[k] = v
@@ -198,7 +204,10 @@ if RETRIEVE_BACKEND == 'api':
 else:
     _backend_default_model = _DEFAULT_MODEL_BY_CLI.get(RETRIEVE_CLI, 'claude-haiku-4-5')
 RETRIEVE_MODEL = _config_setting('B5_RETRIEVE_MODEL', 'retrieve_model', _USER_CONFIG, _backend_default_model)
-RETRIEVE_TIMEOUT_S = int(_config_setting('B5_RETRIEVE_TIMEOUT', 'retrieve_timeout_s', _USER_CONFIG, '12'))
+try:
+    RETRIEVE_TIMEOUT_S = int(str(_config_setting('B5_RETRIEVE_TIMEOUT', 'retrieve_timeout_s', _USER_CONFIG, '12')).strip())
+except (TypeError, ValueError):
+    RETRIEVE_TIMEOUT_S = 12  # malformed env/config value → default, never crash at import
 RETRIEVE_HAIKU_PROMPT_BUDGET = 2000  # truncate user prompt
 RETRIEVE_HAIKU_RULE_LIMIT = 40       # max rules to show backend
 
@@ -450,14 +459,18 @@ def _render_progressive_lines(rules):
             line += f" | when: {r['when'][:200]}"
         lines.append(line)
     if len(shown) < len(rules):
+        # 'turns' on Claude Code / Codex (per-prompt injection); 'sessions' on
+        # Copilot, whose only injection point is SessionStart — telling that
+        # model "later turns" would promise rules that never arrive.
+        cadence = getattr(pt_platform, 'INJECT_CADENCE', 'turns')
         if tier1_pinned:
-            how = ('tier-1 rules are always included, the rest rotate in on later turns')
+            how = f'tier-1 rules are always included, the rest rotate in on later {cadence}'
         else:
-            how = ('the tier-1 rules alone exceed the cap, so all rules rotate in over turns')
+            how = f'the tier-1 rules alone exceed the cap, so all rules rotate in over {cadence}'
         lines.append(
             f"(Showing {len(shown)} of {len(rules)} saved rules — {how}. "
             "Set progressive_max in ~/.tellonce.config.json "
-            "or B5_PROGRESSIVE_MAX to widen the window; 0 = show all.)"
+            "or PT_PROGRESSIVE_MAX to widen the window; 0 = show all.)"
         )
     lines.append('(These are your recorded preferences. Judge each rule against the current task; apply those that apply, skip those that do not.)')
     return '\n'.join(lines)
@@ -1106,7 +1119,7 @@ def session_start_summary():
 
     candidates.sort(key=lambda h: priority_order.get(h['priority'], 3))
 
-    lines = ['### Session-start memory rules summary (all critical/high + memory-dir rules):']
+    lines = ['### Session-start memory rules summary (critical/high fingerprint rules):']
     lines.append('(Verify applies_when/condition against context before applying. Skip inapplicable rules.)')
     lines.append('')
     for h in candidates[:MAX_SHOW]:

@@ -90,21 +90,9 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-Native marketplace (matches Claude Code / Codex):
-
-```bash
-copilot plugin marketplace add YujunZhou/tellonce
-copilot plugin install tellonce@tellonce
-```
-
-Restart Copilot to load the hooks. Starts in the safe `observe` mode.
-
-<details>
-<summary>Or the one-command bootstrap (a verified <code>curl | bash</code>)</summary>
-
-The bootstrap is pinned to the immutable tag `v1.3.0` and its SHA256 is
-published, so you can verify it before piping to a shell (see
-[`copilot/README.md`](copilot/README.md#verify-integrity)).
+One-command bootstrap (recommended — pinned to the immutable tag `v1.3.0`, SHA256
+published for pre-verification, see
+[`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
@@ -118,10 +106,19 @@ powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.c
 curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.sh | bash
 ```
 
-It downloads the plugin, copies it into Copilot's plugin directory, installs the
-optional dependency, registers it (so the hooks load), sets the safe `observe`
-mode, and records your Python path. Then restart Copilot.
-</details>
+It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with
+SessionStart injection, the Copilot Stop-block contract and Windows `run.ps1`
+shims), copies it into Copilot's plugin directory, installs the optional
+dependency, registers it, sets the safe `observe` mode, and records your Python
+path. **Restart Copilot when it's done.**
+
+> ⚠ Do **not** `copilot plugin install tellonce@tellonce` from this repo's
+> marketplace — that entry is the Claude Code variant (repo root) and does not
+> fit Copilot's hook surface (no per-prompt injection, different block
+> contract, `.claude/` state paths). If you prefer a native plugin install of
+> the sub-plugin, use `copilot plugin install YujunZhou/tellonce:copilot`, then
+> run `bash <plugin_root>/install.sh` once (see
+> [`copilot/README.md`](copilot/README.md)).
 
 ## Supported platforms
 
@@ -164,8 +161,9 @@ prints a reminder.
 
 ## How it works
 
-1. **Session start** — your saved rules relevant to the current project are
-   injected into the agent's context.
+1. **Rule injection** — on Claude Code and Codex your saved rules are injected
+   on every prompt (UserPromptSubmit); on Copilot once per session at
+   SessionStart (its only injection point).
 2. **Each turn ends (`Stop`)** — the turn is scanned for new preference / pitfall
    / friction signals, which are recorded to an observation log.
 3. **In `full`** — a small-model LLM judge checks each reply against the rules

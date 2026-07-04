@@ -81,7 +81,11 @@ if ((Test-Path $memoryDir) -and (Get-ChildItem $memoryDir -Filter "*.md" -ErrorA
     New-Item -ItemType Directory -Path $memoryDir -Force | Out-Null
     $seedDir = Join-Path $ScriptDir "seed_memory"
     if (Test-Path $seedDir) {
-        Copy-Item "$seedDir\*.md" $memoryDir -Force -ErrorAction SilentlyContinue
+        # Exclude README.md — it documents the seed dir and must not be copied
+        # into the user's memory as a "rule" (mirrors install.sh).
+        Get-ChildItem $seedDir -Filter "*.md" |
+            Where-Object { $_.Name -ne "README.md" } |
+            Copy-Item -Destination $memoryDir -Force -ErrorAction SilentlyContinue
         $count = (Get-ChildItem $memoryDir -Filter "*.md" | Measure-Object).Count
         Write-Host "[OK] Seeded $count rules" -ForegroundColor Green
     }
@@ -92,10 +96,13 @@ $configPath = Join-Path $env:USERPROFILE ".tellonce.config.json"
 if (-not (Test-Path $configPath)) {
     Write-Host ""
     Write-Host "Writing default config to $configPath..."
+    # retrieve_model stays EMPTY on copilot: config beats the platform
+    # default, and `copilot -p` rejects an explicit Claude model name — a
+    # pinned model here silently broke the cli retrieval backend every turn.
     $config = @{
         retrieve_cli = "copilot"
         retrieve_backend = "progressive"
-        retrieve_model = "claude-haiku-4-5"
+        retrieve_model = ""
     } | ConvertTo-Json
     # Write UTF-8 WITHOUT BOM. PowerShell 5.1 `Set-Content -Encoding UTF8`
     # prepends a BOM, which makes json.load choke on the reader side.
@@ -134,9 +141,12 @@ if changed:
 
 # Set the on/off switch for the user automatically — no hand-editing needed.
 # pt_mode merges into the config and preserves all other keys.
+# Do NOT pipe to Out-Null: pt_mode prints operator-critical warnings (e.g.
+# "-Mode full but PT_SHADOW_RULE_IDS unset — the judge has no rules to
+# check"); swallowing them left Windows users believing they were protected.
 Write-Host ""
 Write-Host "Setting mode = $Mode ..."
-& $Py "$PTLib\pt_mode.py" $Mode | Out-Null
+& $Py "$PTLib\pt_mode.py" $Mode
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] Mode set to $Mode" -ForegroundColor Green }
 
 # Register the plugin in Copilot's config so its hooks actually load. Required

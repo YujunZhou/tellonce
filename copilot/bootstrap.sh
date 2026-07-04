@@ -39,6 +39,10 @@ for c in python3 python; do
     fi
 done
 [ -n "${PY}" ] || fail "Python 3.7+ not found. Install it, then re-run."
+# The POSIX runtime hooks invoke `python3` by name — a python-only box would
+# install green and then every hook would silently fail with exit 127.
+command -v python3 >/dev/null 2>&1 \
+    || fail "'python3' not on PATH (only '${PY}'). The runtime hooks invoke python3; add a python3 symlink or install the python3 package, then re-run."
 echo "[OK] Python: $(command -v "${PY}")"
 
 # 3. Download repo (git if available, else tarball).
@@ -85,18 +89,41 @@ if [ -d "${DEST}/lib" ]; then
         echo "[OK] Preserved your personal rule overlay(s) from the previous install"
     fi
 fi
-# Swap: the old tree is gone only after the new one is fully staged.
-rm -rf "${DEST}"
+# Swap via rename-aside: a failure between "old deleted" and "new moved in"
+# (ENOSPC, kill, AV lock) must not leave ZERO install. Park the old tree,
+# move the new one in, then drop the parked tree; restore it if the move fails.
 mkdir -p "$(dirname "${DEST}")"
-mv "${STAGE}" "${DEST}"
+# Crash recovery BEFORE park cleanup: if a previous run died between "old
+# parked" and "new moved in", the park is the only surviving install (and the
+# only copy of the user's lib/*.user.yaml overlays) — restore it as DEST so
+# the overlay carry-over below can see it, instead of deleting it as stale.
+if [ ! -d "${DEST}" ]; then
+    _ORPHAN="$(ls -dt "${DEST}".old-* 2>/dev/null | head -1)"
+    if [ -n "${_ORPHAN}" ] && [ -d "${_ORPHAN}" ]; then
+        mv "${_ORPHAN}" "${DEST}"
+        echo "[i] Restored interrupted previous install from ${_ORPHAN}"
+    fi
+fi
+rm -rf "${DEST}".old-* 2>/dev/null || true   # stale parks from crashed runs
+OLD_PARK="${DEST}.old-$$"
+if [ -d "${DEST}" ]; then
+    mv "${DEST}" "${OLD_PARK}"
+fi
+if mv "${STAGE}" "${DEST}"; then
+    rm -rf "${OLD_PARK}" 2>/dev/null || true
+else
+    [ -d "${OLD_PARK}" ] && mv "${OLD_PARK}" "${DEST}"
+    fail "install swap failed — previous install restored"
+fi
 echo "[OK] Plugin files installed to ${DEST}"
 
-# 5. Optional dependency (best-effort; deterministic blocking works without it,
-# but session-start rule injection needs PyYAML).
+# 5. Optional dependency (best-effort; the default progressive rule injection
+# is pure regex and works without PyYAML — only the legacy keyword/cli
+# retrieval backends need it).
 if "${PY}" -m pip install --quiet --disable-pip-version-check "pyyaml>=6.0" >/dev/null 2>&1; then
     echo "[OK] PyYAML ready"
 else
-    echo "[i] PyYAML not installed — session-start rule injection will be OFF (deterministic blocking still works). Install later: ${PY} -m pip install pyyaml"
+    echo "[i] PyYAML not installed — the default progressive rule injection still works; only the legacy keyword/cli retrieval backends need PyYAML. Install later if you switch backends: ${PY} -m pip install pyyaml"
 fi
 
 # 6. Run post-install from installed copy. Pass the resolved python through.

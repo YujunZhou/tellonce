@@ -210,16 +210,44 @@ else
     echo "  Full delete: bash ${SKILL_DIR}/uninstall.sh --purge-state"
 fi
 
-# 5. ~/.tellonce.config.json (cleanup so a reinstall on a different
-# project doesn't reuse stale paths). --keep-config to preserve it.
+# 5. ~/.tellonce.config.json: strip only the PATH-ANCHOR keys (so a reinstall
+# on a different project doesn't reuse stale paths). The same file also holds
+# cross-project user settings (retrieve_backend / retrieve_model /
+# retrieve_env_file / progressive_max / enforce / shadow ...) that OTHER
+# projects' still-active installs depend on — deleting the whole file here
+# silently broke them. install.sh already preserves non-anchor keys; mirror it.
+# --keep-config preserves the file untouched.
 echo ""
 echo "[5/5] ~/.tellonce.config.json:"
 if [[ "${KEEP_CONFIG}" == true ]]; then
     echo "  - keeping ${CONFIG_FILE} (--keep-config)"
 elif [[ -f "${CONFIG_FILE}" ]]; then
-    rm -f "${CONFIG_FILE}"
-    echo "  - deleted ${CONFIG_FILE}"
-    echo "    (a reinstall rewrites it; to keep the old path anchor, run uninstall.sh --keep-config next time)"
+    env PT_CONFIG_FILE="${CONFIG_FILE}" python3 - <<'PYEOF' || echo "  ⚠ config cleanup failed (left as is)"
+import json, os
+p = os.environ['PT_CONFIG_FILE']
+try:
+    with open(p, encoding='utf-8-sig') as f:
+        cfg = json.load(f)
+except Exception:
+    cfg = None
+if isinstance(cfg, dict):
+    anchors = ('project_root', 'state_dir', 'obs_log_dir', 'memory_dir')
+    removed = [k for k in anchors if k in cfg]
+    for k in removed:
+        del cfg[k]
+    if cfg:
+        with open(p, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            f.write('\n')
+        print(f"  - removed path-anchor keys {removed} from {p}")
+        print(f"    (kept cross-project settings: {sorted(cfg.keys())})")
+    else:
+        os.remove(p)
+        print(f"  - deleted {p} (only path anchors were present)")
+else:
+    # Unparseable / non-dict config: refuse to guess, keep the file.
+    print(f"  - {p} unparseable; left untouched")
+PYEOF
 else
     echo "  - ${CONFIG_FILE} does not exist, skip"
 fi

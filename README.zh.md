@@ -80,20 +80,8 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
-原生市场（和 Claude Code / Codex 一致）：
-
-```bash
-copilot plugin marketplace add YujunZhou/tellonce
-copilot plugin install tellonce@tellonce
-```
-
-重启 Copilot 加载 hooks。默认进安全的 `observe` 模式。
-
-<details>
-<summary>或一键引导脚本（已验证的 <code>curl | bash</code>）</summary>
-
-引导脚本钉在不可变 tag `v1.3.0`、SHA256 已公布，可在管道前核对（见
-[`copilot/README.md`](copilot/README.md#verify-integrity)）。
+一键引导脚本（推荐——钉在不可变 tag `v1.3.0`、SHA256 已公布，可在管道前核对，见
+[`copilot/README.md`](copilot/README.md#verify-integrity)）：
 
 **Windows (PowerShell)**
 
@@ -107,9 +95,16 @@ powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.c
 curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.0/copilot/bootstrap.sh | bash
 ```
 
-它会：下载插件 → 放进 Copilot 插件目录 → 装可选依赖 → 注册（hook 才加载）→ 设
-`observe` 模式 → 记录 Python 路径。然后重启 Copilot。
-</details>
+它会：下载 **Copilot 适配版插件**（`copilot/` 子插件——SessionStart 注入、
+Copilot 的 Stop 拦截约定、Windows `run.ps1` 垫片）→ 放进 Copilot 插件目录 →
+装可选依赖 → 注册（hook 才加载）→ 设 `observe` 模式 → 记录 Python 路径。
+**装完重启 Copilot。**
+
+> ⚠ 不要用 `copilot plugin install tellonce@tellonce` 从本仓库市场安装——那个
+> 条目是 Claude Code 变体（仓库根目录），不适配 Copilot 的 hook 面（没有逐轮注
+> 入、拦截约定不同、状态写在 `.claude/` 下）。想走原生插件安装的话，用
+> `copilot plugin install YujunZhou/tellonce:copilot` 装子插件，然后跑一次
+> `bash <plugin_root>/install.sh`（见 [`copilot/README.md`](copilot/README.md)）。
 
 ## 支持的平台
 
@@ -149,7 +144,8 @@ python "<plugin>/lib/pt_mode.py" status    # 看当前模式
 
 ## 它怎么工作
 
-1. **会话开始**——把与当前项目相关的已存规则注入助手的上下文。
+1. **规则注入**——Claude Code / Codex 上每次提交消息（UserPromptSubmit）都注入
+   已存规则；Copilot 上每个会话开始时注入一次（它唯一的注入点）。
 2. **每轮结束（`Stop`）**——扫描该轮中新的 preference / pitfall / friction 信号，
    记录到观察日志。
 3. **在 `full` 下**——小模型 LLM 判官按你在 `PT_SHADOW_RULE_IDS` 里列出的规则逐条
