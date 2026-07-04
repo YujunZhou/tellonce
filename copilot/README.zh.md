@@ -13,18 +13,18 @@
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。装完**重启 Copilot**。
-> 命令钉在不可变的 release tag `v1.3.1`（不会因 `main` 变动而改），更安全。
+> 命令钉在不可变的 release tag `v1.3.2`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -34,18 +34,18 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.1/copilot/b
 
 ### 核对脚本完整性
 
-如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.3.1`
+如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.3.2`
 公布的值）：
 
 ```bash
-# Windows: irm ".../v1.3.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.3.1/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.3.2/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.3.2/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| 文件 | SHA256 (v1.3.1) |
+| 文件 | SHA256 (v1.3.2) |
 |------|------------------|
-| `bootstrap.ps1` | `9be0460af1521bc2f33f2ee268ab27fd8275eb2bdd4efe72b9544a937032426e` |
-| `bootstrap.sh`  | `ed64ccff417a7a6f82efbef76dfaf780e851d77b0389e5d6d0e0947468aef9ca` |
+| `bootstrap.ps1` | `baac343b746efca7995c78c44ba20d3c8241b2b36bddb04e77e85d8138af8d6e` |
+| `bootstrap.sh`  | `0ed5db4145af64862b2e1c3ec2e054b51436d81210c9be2221af3423cd58b7c1` |
 
 ---
 
@@ -81,11 +81,11 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.1/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.1/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.sh | bash
 ```
 **卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
 `-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是
