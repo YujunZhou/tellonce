@@ -4,8 +4,13 @@
 Reads UserPromptSubmit JSON from stdin, picks relevant atomic_ids based on
 B5_RETRIEVE_BACKEND env var:
   - 'progressive' (default): progressive-disclosure index. Scans the memory
-    dir and injects a one-line index of EVERY saved rule every turn, letting
-    the main model judge which apply. Zero LLM calls, zero keyword matching,
+    dir and injects a one-line index of the saved rules every turn, letting
+    the main model judge which apply. When the library exceeds PROGRESSIVE_MAX
+    (default 50, configurable via B5_PROGRESSIVE_MAX / config
+    `progressive_max`, 0 = no cap), tier-1 rules are pinned when they fit
+    under the cap (if tier-1 alone overflows it, the whole library rotates)
+    and the remainder rotates in across turns via a persisted cursor; the
+    truncation is disclosed in the injected block. Zero LLM calls, zero keyword matching,
     zero CLI cold-start latency. Also fixes Copilot's SessionStart "0 rules"
     gap, since it does not depend on fingerprints.yaml priority tags.
   - 'cli': semantic match via a small model (claude haiku for CC,
@@ -52,7 +57,12 @@ FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
 FP_USER_YAML = os.path.join(_LIB_DIR, 'fingerprints.user.yaml')
 MEMORY_DIR = path_config.get_memory_dir()
 MAX_SHOW = 10
-PROGRESSIVE_MAX = 50  # progressive backend: cap on rules injected per turn
+# progressive backend: default cap on rules injected per turn. The effective
+# value (PROGRESSIVE_MAX below, after _USER_CONFIG loads) is configurable via
+# B5_PROGRESSIVE_MAX / config `progressive_max`; 0 disables the cap. When the
+# library exceeds the cap, tier-1 rules are always included and the remainder
+# rotates in across turns (persisted cursor) so no rule is permanently starved.
+_PROGRESSIVE_MAX_DEFAULT = 50
 PROMPT_TRUNCATE = 4000
 
 
@@ -144,14 +154,30 @@ def _autoload_env_file_from_config(cfg: dict) -> None:
 _USER_CONFIG = _load_user_config()
 _autoload_env_file_from_config(_USER_CONFIG)
 
-# Backend default is 'progressive': inject a one-line index of every saved
-# rule each turn and let the main model self-select. Zero LLM, zero keyword,
+# Backend default is 'progressive': inject a one-line index of the saved
+# rules each turn (tier-1 first, remainder rotating under PROGRESSIVE_MAX)
+# and let the main model self-select. Zero LLM, zero keyword,
 # zero CLI cold-start. 'cli' (small-model semantic match) is the legacy
 # default — set B5_RETRIEVE_BACKEND=cli to reproduce it. 'api' backend targets
 # OpenAI-compatible HTTP endpoints (DeepInfra / OpenRouter / etc.). Settings can
 # come from ~/.tellonce.config.json so the user doesn't have to
 # `export B5_RETRIEVE_*` in every shell.
 RETRIEVE_BACKEND = _config_setting('B5_RETRIEVE_BACKEND', 'retrieve_backend', _USER_CONFIG, 'progressive').lower()
+# Effective per-turn cap for the progressive backend (see the note at
+# _PROGRESSIVE_MAX_DEFAULT). Config JSON may hold it as an int or a string;
+# _config_setting only passes strings through, so check the raw config value
+# too. Falls back to the default on any non-integer value.
+def _resolve_progressive_max() -> int:
+    raw = _config_setting('B5_PROGRESSIVE_MAX', 'progressive_max', _USER_CONFIG, '')
+    if not raw and isinstance(_USER_CONFIG.get('progressive_max'), (int, float)):
+        raw = str(_USER_CONFIG.get('progressive_max'))
+    try:
+        return int(str(raw).strip()) if raw else _PROGRESSIVE_MAX_DEFAULT
+    except (TypeError, ValueError):
+        return _PROGRESSIVE_MAX_DEFAULT
+
+
+PROGRESSIVE_MAX = _resolve_progressive_max()
 # Backwards compat: 'haiku' alias 'cli'.
 if RETRIEVE_BACKEND == 'haiku':
     RETRIEVE_BACKEND = 'cli'
@@ -185,6 +211,28 @@ RETRIEVE_RECURSION_GUARD = os.environ.get('B5_RETRIEVE_RECURSION_GUARD') == '1'
 _RULE_INDEX = None
 _RULE_DESC_INDEX = None
 
+# Leading '---' fenced YAML block. DOTALL so the block may span lines; the
+# closing fence must start a line.
+_FRONTMATTER_RE = re.compile(r'\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)', re.DOTALL)
+
+
+def _frontmatter_of(content: str) -> str:
+    """Return the YAML frontmatter block (text between the leading `---`
+    fences), or the whole content when there is no frontmatter (legacy
+    tolerance: earlier versions scanned the full file, and promote paths
+    always write a proper frontmatter anyway).
+
+    Scoping the field regexes to this block matters twice over:
+      - a rule whose *body* happens to mention `atomic_id: foo` must not be
+        indexed under foo;
+      - Claude Code's memory normalizer rewrites agent-written rule files
+        with the tellonce fields nested (indented) under `metadata:`, so the
+        field regexes tolerate leading whitespace instead of anchoring to
+        column 0 — a column-0 anchor silently mis-tiers those rules.
+    """
+    m = _FRONTMATTER_RE.match(content)
+    return m.group(1) if m else content
+
 
 def _build_index():
     """One-pass scan of memory dir → {atomic_id: (applies_when, condition)}.
@@ -202,16 +250,18 @@ def _build_index():
             if os.path.basename(path) == 'MEMORY.md':
                 continue
             try:
-                with open(path, encoding='utf-8', errors='ignore') as f:
+                # utf-8-sig: a BOM would defeat the \A--- frontmatter fence.
+                with open(path, encoding='utf-8-sig', errors='ignore') as f:
                     c = f.read()
             except Exception:
                 continue
-            m = re.search(r'atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', c)
+            fm = _frontmatter_of(c)
+            m = re.search(r'^\s*atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', fm, re.MULTILINE)
             if not m:
                 continue
-            aw = re.search(r'^applies_when:\s*(.+)$', c, re.MULTILINE)
-            cond = re.search(r'^condition:\s*"?([^\n"]+)"?', c, re.MULTILINE)
-            d = re.search(r'^description:\s*(.+)$', c, re.MULTILINE)
+            aw = re.search(r'^\s*applies_when:\s*(.+)$', fm, re.MULTILINE)
+            cond = re.search(r'^\s*condition:\s*"?([^\n"]+)"?', fm, re.MULTILINE)
+            d = re.search(r'^\s*description:\s*(.+)$', fm, re.MULTILINE)
             idx[m.group(1)] = (
                 aw.group(1).strip() if aw else '',
                 cond.group(1).strip() if cond else '',
@@ -248,9 +298,16 @@ def _collect_all_rules():
     backend: {id, tier, desc, when, path}.
 
     Pure regex over the .md frontmatter — no PyYAML, no LLM call, no keyword
-    matching. The progressive backend injects ALL of these every turn and lets
-    the model judge which apply, instead of pre-filtering by prompt. Returns []
-    on any failure so the caller emits nothing (never blocks).
+    matching. The progressive backend injects a one-line index of these every
+    turn (tier-1 always; when the library exceeds PROGRESSIVE_MAX the rest
+    rotate in across turns — see _select_progressive_rules) and lets the model
+    judge which apply, instead of pre-filtering by prompt. Returns [] on any
+    failure so the caller emits nothing (never blocks).
+
+    Files without an `atomic_id:` in their frontmatter are skipped on purpose:
+    those are the host runtime's own memory notes (e.g. Claude Code loads them
+    each session via its MEMORY.md index), so re-injecting them here would
+    duplicate context. tellonce indexes only its own atomic rules.
 
     Schema-tolerant across the rule sources that actually ship, which do NOT use
     a single uniform frontmatter:
@@ -271,24 +328,29 @@ def _collect_all_rules():
         if os.path.basename(path) == 'MEMORY.md':
             continue
         try:
-            with open(path, encoding='utf-8', errors='ignore') as f:
+            # utf-8-sig: a BOM would defeat the \A--- frontmatter fence.
+            with open(path, encoding='utf-8-sig', errors='ignore') as f:
                 c = f.read()
         except Exception:
             continue
-        # Capture the whole id slug (promote.py allows [A-Za-z0-9_-]); a `\d+`
-        # tail would truncate ids like `wf-pref-3sync` to `wf-pref-3`.
-        m = re.search(r'atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', c)
+        # Field regexes are scoped to the frontmatter block and tolerate
+        # leading whitespace (nested-under-`metadata:` schema) — see
+        # _frontmatter_of. Capture the whole id slug (promote.py allows
+        # [A-Za-z0-9_-]); a `\d+` tail would truncate ids like
+        # `wf-pref-3sync` to `wf-pref-3`.
+        fm = _frontmatter_of(c)
+        m = re.search(r'^\s*atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', fm, re.MULTILINE)
         if not m:
             continue
-        desc_m = (re.search(r'^description:\s*(.+)$', c, re.MULTILINE)
-                  or re.search(r'^rule_text:\s*(.+)$', c, re.MULTILINE))
-        when_m = (re.search(r'^applies_when:\s*"?(.+?)"?\s*$', c, re.MULTILINE)
-                  or re.search(r'^condition:\s*"?(.+?)"?\s*$', c, re.MULTILINE))
-        tier_m = re.search(r'^priority_tier:\s*(\d+)', c, re.MULTILINE)
+        desc_m = (re.search(r'^\s*description:\s*(.+)$', fm, re.MULTILINE)
+                  or re.search(r'^\s*rule_text:\s*(.+)$', fm, re.MULTILINE))
+        when_m = (re.search(r'^\s*applies_when:\s*"?(.+?)"?\s*$', fm, re.MULTILINE)
+                  or re.search(r'^\s*condition:\s*"?(.+?)"?\s*$', fm, re.MULTILINE))
+        tier_m = re.search(r'^\s*priority_tier:\s*(\d+)', fm, re.MULTILINE)
         if tier_m:
             tier = int(tier_m.group(1))
         else:
-            conf_m = re.search(r'^confidence:\s*(\w+)', c, re.MULTILINE)
+            conf_m = re.search(r'^\s*confidence:\s*(\w+)', fm, re.MULTILINE)
             tier = _CONFIDENCE_TIER.get(conf_m.group(1).lower(), 3) if conf_m else 3
         rules.append({
             'id': m.group(1),
@@ -302,17 +364,101 @@ def _collect_all_rules():
     return rules
 
 
+def _progressive_cursor_path() -> str:
+    return os.path.join(path_config.get_state_dir(), 'progressive_cursor.json')
+
+
+def _load_progressive_cursor() -> int:
+    """Best-effort read of the rotation cursor; any failure → 0 (rotation
+    degrades to a stable window, injection itself never blocks)."""
+    try:
+        with open(_progressive_cursor_path(), encoding='utf-8') as f:
+            cur = json.load(f).get('cursor', 0)
+        return cur if isinstance(cur, int) and cur >= 0 else 0
+    except Exception:
+        return 0
+
+
+def _save_progressive_cursor(cursor: int) -> None:
+    """Atomic write (tmp + os.replace): concurrent sessions share this file,
+    and a reader hitting a half-written JSON would snap the rotation window
+    back to 0. A lost-update race between two sessions is accepted — it only
+    repeats a window, never corrupts."""
+    try:
+        path = _progressive_cursor_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix='.progressive_cursor.', dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump({'cursor': cursor}, f)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        path_config.chmod_or_warn(path, 0o600)
+    except Exception:
+        pass
+
+
+def _select_progressive_rules(rules):
+    """Pick which rules go into this turn's index when the library exceeds
+    PROGRESSIVE_MAX (0 or negative = no cap → all rules).
+    Returns (selected_rules, tier1_pinned: bool).
+
+    Tier-1 rules are always included when they fit under the cap (they are
+    the user's hardest preferences). The remaining slots are filled from the
+    non-tier-1 rules by a cursor persisted in the state dir, so over
+    successive turns every rule cycles into view — a plain `rules[:cap]`
+    would permanently starve everything sorted after the cap. If tier-1
+    alone overflows the cap, the cursor rotates over the whole library
+    instead (tier1_pinned=False), so nothing is starved there either; the
+    render layer words the disclosure per branch."""
+    if PROGRESSIVE_MAX <= 0 or len(rules) <= PROGRESSIVE_MAX:
+        return rules, False
+    tier1 = [r for r in rules if r['tier'] == 1]
+    tier1_pinned = len(tier1) < PROGRESSIVE_MAX
+    if tier1_pinned:
+        pinned = tier1
+        pool = [r for r in rules if r['tier'] != 1]
+    else:
+        pinned = []
+        pool = rules
+    slots = min(PROGRESSIVE_MAX - len(pinned), len(pool))
+    cur = _load_progressive_cursor() % len(pool)
+    picked = [pool[(cur + i) % len(pool)] for i in range(slots)]
+    _save_progressive_cursor((cur + slots) % len(pool))
+    selected = pinned + picked
+    selected.sort(key=lambda r: (r['tier'], r['id']))
+    return selected, tier1_pinned
+
+
 def _render_progressive_lines(rules):
     """Render the progressive rule index: one compact line per saved rule, so a
     simple rule is fully usable from its line alone; the model reads the full
-    .md only if it needs the Why / How-to-apply detail."""
+    .md only if it needs the Why / How-to-apply detail. When the library
+    exceeds PROGRESSIVE_MAX the truncation is disclosed explicitly — a silent
+    cap reads as "these are all my rules" when it isn't."""
+    shown, tier1_pinned = _select_progressive_rules(rules)
     lines = ['### Your saved preferences — check each against this turn and apply the ones that fit:']
-    for r in rules[:PROGRESSIVE_MAX]:
+    for r in shown:
         desc = r['desc'] or r['id']
         line = f"- [{r['id']}] (tier{r['tier']}) {desc}"
         if r['when']:
             line += f" | when: {r['when'][:200]}"
         lines.append(line)
+    if len(shown) < len(rules):
+        if tier1_pinned:
+            how = ('tier-1 rules are always included, the rest rotate in on later turns')
+        else:
+            how = ('the tier-1 rules alone exceed the cap, so all rules rotate in over turns')
+        lines.append(
+            f"(Showing {len(shown)} of {len(rules)} saved rules — {how}. "
+            "Set progressive_max in ~/.tellonce.config.json "
+            "or B5_PROGRESSIVE_MAX to widen the window; 0 = show all.)"
+        )
     lines.append('(These are your recorded preferences. Judge each rule against the current task; apply those that apply, skip those that do not.)')
     return '\n'.join(lines)
 
@@ -844,8 +990,9 @@ def main():
         sys.exit(0)
     prompt_scan = prompt[:PROMPT_TRUNCATE].lower()
 
-    # Progressive backend: inject the full rule index every turn and let the
-    # main model judge applicability. No prompt filtering, no LLM, no PyYAML.
+    # Progressive backend: inject the rule index every turn (capped + rotating
+    # under PROGRESSIVE_MAX) and let the main model judge applicability. No
+    # prompt filtering, no LLM, no PyYAML.
     if RETRIEVE_BACKEND == 'progressive':
         _emit_progressive('UserPromptSubmit')
         return
@@ -912,9 +1059,10 @@ def session_start_summary():
     """SessionStart mode: inject saved rules without prompt matching.
 
     At session start there is no user prompt, so keyword/CLI/API matching can't
-    fire. The default 'progressive' backend injects the full rule index (every
-    saved rule, one line each). Legacy backends fall back to scanning
-    fingerprints.yaml for critical/high rules only.
+    fire. The default 'progressive' backend injects the rule index (one line
+    each; capped + rotating under PROGRESSIVE_MAX, truncation disclosed).
+    Legacy backends fall back to scanning fingerprints.yaml for critical/high
+    rules only.
     """
     # Progressive backend: inject the full rule index once at session start.
     if RETRIEVE_BACKEND == 'progressive':

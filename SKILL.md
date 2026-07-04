@@ -31,7 +31,7 @@ This skill is more than the Iron Law + Gate Function. It installs 3 layers of in
 
 ### Rule injection (progressive full index — default)
 
-Each time the user submits a message, `<skill_dir>/hooks/memory-retrieve-inject.sh` injects a **one-line index of every rule** saved under my memory dir as `additionalContext`, and I judge which apply. This is the default `progressive` backend: it just reads the saved rule files — no prompt matching, no model call, no CLI cold-start. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
+Each time the user submits a message, `<skill_dir>/hooks/memory-retrieve-inject.sh` injects a **one-line index of the rules** saved under my memory dir as `additionalContext`, and I judge which apply. If the library exceeds the per-turn cap (default 50 — `progressive_max` in `~/.tellonce.config.json` or `B5_PROGRESSIVE_MAX`, `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across turns, and the block states how many of the total are shown. This is the default `progressive` backend: it just reads the saved rule files — no prompt matching, no model call, no CLI cold-start. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
 
 ```
 ### Your saved preferences — check each against this turn and apply the ones that fit:

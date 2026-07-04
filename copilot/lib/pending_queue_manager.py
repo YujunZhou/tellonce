@@ -232,7 +232,13 @@ def _atomic_ids_in_memory():
         try:
             with open(path, errors='ignore') as f:
                 head = f.read(2000)
-            m = re.search(r'^atomic_id:\s*([a-z]+-[a-z]+-\d+)', head, re.MULTILINE)
+            # Indent-tolerant + full-slug id pattern, matching retrieve_inject's
+            # _collect_all_rules: Claude Code's memory normalizer nests fields
+            # under `metadata:` (indented), and ids are not limited to
+            # aaa-bbb-123 (promote.py allows [A-Za-z0-9_-]). A column-0 anchor
+            # here made promoted-rule dedup miss those files → repeated
+            # PENDING_ALERTs for already-promoted rules.
+            m = re.search(r'^\s*atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', head, re.MULTILINE)
             if m:
                 ids.add(m.group(1))
         except Exception as e:
