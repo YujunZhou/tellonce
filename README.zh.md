@@ -2,8 +2,12 @@
 
 [English](README.md) · **中文**
 
+[![arXiv](https://img.shields.io/badge/arXiv-2606.13174-b31b1b.svg)](https://arxiv.org/abs/2606.13174)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > 别再一遍遍跟你的 AI 编码助手重复同样的话。Tellonce 记住你做过的纠正，
-> 并在你需要时强制执行，让同一个错误不再回来。
+> 并在你需要时强制执行，让同一个错误不再回来。在我们的评测里，编码 agent
+> 任务上的留出偏好违规率从 **100% 降到 2.0%**（分布外任务，见下方研究背书）。
 
 你让助手别往 `/tmp` 写临时文件、让它用你的语言回复、让它别动无关代码——结果三轮之后
 它又犯了。Tellonce 在每一轮观察对话，自动记录它检测到的偏好（preference）、
@@ -23,6 +27,29 @@
   `PT_RETRIEVE_BACKEND=cli`。）
 - ⚡ **支持 Claude Code、Codex、GitHub Copilot CLI**（Copilot 一键安装）——三者共享同一份记忆。
 - 🎛️ **三种模式，一个开关**：`observe` → `enforce` → `full`。
+
+## 📄 背后的研究
+
+Tellonce 是 **TRACE**（Test-time Rule Acquisition and Compiled Enforcement，
+测试时规则获取与编译强制）研究的可部署产物——把用户纠正编译成编码 agent 的
+运行时强制（[arXiv:2606.13174](https://arxiv.org/abs/2606.13174)）。
+论文的模拟用户在环评测显示：
+
+- **记住 ≠ 遵守**：在由匿名真实用户摩擦案例衍生的任务上，即使配上最先进的记忆层
+  （Mem0），**仍有 57.5% 的适用偏好检查被违反**——记忆能想起纠正，但没有任何机制
+  让 agent 照做。
+- **编译强制关上这个缺口**：在编码 agent 任务（ClawArena）上，TRACE 把留出偏好
+  违规率从 **100% 降到 2.0%**（分布外任务）、从 **100% 降到 37.6%**（分布内）。
+- **且不牺牲任务质量**：在记忆密集型任务（MemoryArena 衍生）上，TRACE 降低违规的
+  同时，**任务通过率打平或超过最强记忆基线**。
+
+真实日常使用中，纠正率的走势正是你希望看到的：作者本人的规则库在头两个月的密集
+使用中长到约 280 条——随后在持续同样强度的日常工作下，**新增规则数骤降 97%**
+（此后每月只有个位数新规则），因为已有的库覆盖了原来需要反复纠正的东西。
+**88% 的规则一次写对**，从未需要二次修订。
+
+实验代码：[YujunZhou/TRACE_exp](https://github.com/YujunZhou/TRACE_exp) ·
+引用：[BibTeX](#citation)
 
 ## 🚀 快速开始（Claude Code）
 
@@ -176,6 +203,22 @@ docs/claude-code.md       # Claude Code 变体详解
 hooks/ lib/ SKILL.md ...  # Claude Code 变体（位于仓库根目录）
 seed_memory/              # 默认为空，新用户从空白开始
 LICENSE
+```
+
+## Citation
+
+如果你的研究使用了 Tellonce 或基于 TRACE：
+
+```bibtex
+@article{zhou2026trace,
+  title   = {Getting Better at Working With You: Compiling User Corrections
+             into Runtime Enforcement for Coding Agents},
+  author  = {Zhou, Yujun and Guo, Kehan and Zhuang, Haomin and Wang, Xiangqi
+             and Huang, Yue and Liang, Zhenwen and Chen, Pin-Yu and Gao, Tian
+             and Moniz, Nuno and Chawla, Nitesh V. and Zhang, Xiangliang},
+  journal = {arXiv preprint arXiv:2606.13174},
+  year    = {2026}
+}
 ```
 
 ## License

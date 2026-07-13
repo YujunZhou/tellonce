@@ -2,9 +2,14 @@
 
 **English** · [中文](README.zh.md)
 
+[![arXiv](https://img.shields.io/badge/arXiv-2606.13174-b31b1b.svg)](https://arxiv.org/abs/2606.13174)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > Stop re-explaining yourself to your AI coding agent. Tellonce
 > remembers the corrections you make and — when you ask it to — enforces them, so
-> the same mistake doesn't come back.
+> the same mistake doesn't come back. In our evaluations, held-out preference
+> violations drop from **100% to 2.0%** on out-of-distribution coding-agent
+> tasks ([research below](#-the-research-behind-it)).
 
 You told your agent to stop writing scratch files to `/tmp`. To reply in your
 language. To leave unrelated code alone. Three turns later it does it again.
@@ -28,6 +33,34 @@ blocks you and never sends your conversation anywhere until you opt in.
 - ⚡ **Runs on Claude Code, Codex, and GitHub Copilot CLI** (one-command install
   on Copilot) — one shared memory across all three.
 - 🎛️ **Three modes, one switch:** `observe` → `enforce` → `full`.
+
+## 📄 The research behind it
+
+Tellonce is the deployable artifact of **TRACE** (Test-time Rule Acquisition and
+Compiled Enforcement) — our research on compiling user corrections into runtime
+enforcement for coding agents ([arXiv:2606.13174](https://arxiv.org/abs/2606.13174)).
+From the paper's simulated user-in-the-loop evaluations:
+
+- **Remembering ≠ honoring.** With a state-of-the-art memory layer (Mem0), **57.5%
+  of applicable preference checks were still violated** on tasks derived from
+  anonymized real-user friction cases. Memory recalls the correction; nothing
+  makes the agent act on it.
+- **Compiled enforcement closes the gap.** On coding-agent tasks (ClawArena),
+  TRACE reduces held-out preference violation from **100% to 2.0%** on
+  out-of-distribution tasks, and from **100% to 37.6%** in-distribution.
+- **Without giving up task quality.** On memory-intensive tasks
+  (MemoryArena-derived), TRACE cuts violations while **matching or exceeding the
+  strongest memory baseline on task pass rate**.
+
+And in real daily use, the correction rate behaves the way you'd hope: the
+author's own library grew to ~280 rules in its first two months of intensive
+use — then **new-rule creation fell by 97%** under continued daily work
+(single-digit new rules per month since), because the existing library already
+covers what used to need correcting. **88% of rules were right on the first
+write** and never needed a revision.
+
+Experiment code: [YujunZhou/TRACE_exp](https://github.com/YujunZhou/TRACE_exp) ·
+Cite: [BibTeX](#citation)
 
 ## 🚀 Quick start (Claude Code)
 
@@ -195,6 +228,22 @@ docs/claude-code.md       # Claude Code variant, in depth
 hooks/ lib/ SKILL.md ...  # Claude Code variant (lives at the repo root)
 seed_memory/              # empty by default; new users start with a blank slate
 LICENSE
+```
+
+## Citation
+
+If you use Tellonce or build on TRACE in your research:
+
+```bibtex
+@article{zhou2026trace,
+  title   = {Getting Better at Working With You: Compiling User Corrections
+             into Runtime Enforcement for Coding Agents},
+  author  = {Zhou, Yujun and Guo, Kehan and Zhuang, Haomin and Wang, Xiangqi
+             and Huang, Yue and Liang, Zhenwen and Chen, Pin-Yu and Gao, Tian
+             and Moniz, Nuno and Chawla, Nitesh V. and Zhang, Xiangliang},
+  journal = {arXiv preprint arXiv:2606.13174},
+  year    = {2026}
+}
 ```
 
 ## License
