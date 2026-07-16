@@ -124,7 +124,7 @@ WARNINGS=""
 #   c) Last entry's timestamp within 30s of now
 # Any miss → warn
 # ══════════════════════════════════════════════════════════════════════════
-CURRENT_SESSION=$(echo "$INPUT" | jq -r '.session_id // .sessionId // empty')
+CURRENT_SESSION=$(echo "$INPUT" | jq -r '.session_id // .sessionId // empty' 2>/dev/null || echo "")
 
 if [ -f "$OBS_LOG" ]; then
   # BSD stat (macOS) doesn't accept -c %Y. Try GNU first, fall back to BSD -f %m.
@@ -276,7 +276,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════
 # Prefer reading last_assistant_message directly from INPUT (authoritative),
 # fall back to tail transcript if that field is missing.
-TAIL_CONTENT=$(echo "$INPUT" | jq -r '.last_assistant_message // empty')
+TAIL_CONTENT=$(echo "$INPUT" | jq -r '.last_assistant_message // empty' 2>/dev/null || echo "")
 if [ -z "$TAIL_CONTENT" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   TAIL_CONTENT=$(tail -100 "$TRANSCRIPT_PATH" 2>/dev/null || echo "")
 fi
