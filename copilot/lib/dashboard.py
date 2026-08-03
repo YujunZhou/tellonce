@@ -55,7 +55,15 @@ def _mode_label():
         return 'full     (hard block + LLM judge)', enforce, shadow
     if enforce:
         return 'enforce  (hard block, no LLM judge)', enforce, shadow
-    return 'observe  (safe default: record + remind only; no block, no LLM)', enforce, shadow
+    return 'observe  (no hard block or shadow judge)', enforce, shadow
+
+
+def _memory_upsert_enabled():
+    try:
+        with open(path_config.CONFIG_PATH, encoding='utf-8-sig') as f:
+            return bool(json.load(f).get('memory_upsert_enabled', False))
+    except Exception:
+        return False
 
 
 def _registered():
@@ -118,6 +126,7 @@ def _fmt(v):
 
 def build_dashboard():
     mode, enforce, shadow = _mode_label()
+    upsert = _memory_upsert_enabled()
     reg = _registered()
     fp, memory_only, md_files = _rule_counts()
     obs = _count_lines(path_config.get_observations_log_path()) if hasattr(
@@ -138,6 +147,7 @@ def build_dashboard():
         f'mode:          {mode}',
         f'  enforce:     {enforce}',
         f'  shadow:      {shadow}',
+        f'  upsert:      {upsert} (background LLM judge)',
         f'registered:    {reg_label}',
         f'rules:         {_fmt(fp)} (fingerprints) + {_fmt(memory_only)} (memory-only)',
         f'memory files:  {_fmt(md_files)} (.md)',

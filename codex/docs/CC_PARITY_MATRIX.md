@@ -31,9 +31,8 @@ No CC capability may be removed from the Codex package without an explicit user 
 | Path config | `B5_*` env > config > cwd defaults | Codex project registration + explicit fallback | `codex_core` |
 | Observation logging | `observations.jsonl` + compliance logs | authoritative `events.jsonl`; observations export only | `codex_core` |
 | Retrieval injection | UserPromptSubmit hook | UserPromptSubmit hook (codex native) — `userpromptsubmit-retrieve-inject.sh` | `codex_core` (Round-7) |
-| Pending inject | UserPromptSubmit hook | UserPromptSubmit hook (codex native) — `userpromptsubmit-pending-inject.sh` | `codex_core` (Round-7) |
-| Pending promote | Stop hook | explicit two-phase `promote` command (codex has no Stop hook) | `codex_core` |
-| B4 refusal gate | Stop hook blocks if pending unresolved | warning/dashboard first; hard refusal only after false-positive review | `deferred_with_reason` |
+| Legacy pending observations | UserPromptSubmit/Stop workflow | metrics only; shared SQLite upsert is the sole writer | `codex_core` |
+| B4 pending metric | Stop hook | log-only on all platforms | `codex_core` |
 | Deterministic rules | Stop hook hard block | PostToolUse hook (`posttooluse-deterministic-block.sh`) scans agent-authored tool input; mode-aware (audit_only / wrapper / blocking). Wrapper-driven enforcement covers final stdout. | `codex_core` (Round-7) |
 | Per-user whitelist | package base + user whitelist file | Codex base + user whitelist under config/state | `codex_core` |
 | Streak bypass | repeated rule auto-bypass | implemented in the PostToolUse adapter (`codex_posttooluse_block.py`): per-session counter in the state dir, threshold `PT_STREAK_BYPASS`/`B5_STREAK_BYPASS` (default 3), kill-switch `PT_DETERMINISTIC_DISABLED`/`B5_DETERMINISTIC_DISABLED` honored | `codex_core` |

@@ -6,9 +6,19 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 # Tellonce
 
+## 统一记忆 Upsert
+
+- 三个平台共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值；`MEMORY.md`、规则 Markdown 和 `.tellonce-active.json` 都是可重建投影。
+- 检测到持久偏好后，只调用 `python <skill_dir>/lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`。`--manual` 会在自动 hook 已启用时跳过重复入队；`--force` 仅保证自动 hook 关闭时仍能主动记录。复杂多行消息也可通过 `--request-file <json>` 传入 `source_text`、`turn_key`、`context`。禁止直接新建或编辑记忆 Markdown，也禁止把同一轮的“禁用旧项”和“改用新项”拆成两条。
+- 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、NOOP/UPDATE/SUPERSEDE/NEW、事务提交和投影都在后台执行；失败保留 pending，不能阻塞用户。
+- judge 在返回 `NEEDS_USER` 前，先用当前项目根目录、最近对话和 active rules 消解指代、scope 与 activation；这些 context 只能帮助解释本轮用户原话，不能单独授权持久化。只有剩余歧义会改变未来行为时才进入轻量 clarification 队列，并在后续上下文中只问一个简短问题；下一条明确回答可关闭对应 turn。
+- 关闭自动 upsert 后 clarification 不再注入；过期项可用 `python <skill_dir>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
+- 自动 hook 默认关闭。只有 `~/.tellonce.config.json` 中 `memory_upsert_enabled=true`，或环境变量 `PT_MEMORY_UPSERT_ENABLED=1` 时，才会把完整用户消息交给当前平台的 CLI judge。
+- 一次修改三平台：运行 `python <skill_dir>/lib/memory_upsert.py enable-hooks`。关闭用 `disable-hooks`，查询用 `hook-status`；三者都修改同一个全局配置键。
+
 ## Run Modes and Defaults (Public Release)
 
-**Default = observe mode (observe-only)**: by default this skill only does "scan preferences → record → tell the user". It **never hard-blocks the session** and **never calls an LLM**. A new user who just installed it won't be intercepted by any hard rule, nor will their conversation content be sent to a third-party model.
+**默认 = observe mode（仅观察）**：它不会硬拦截，也不会运行 shadow LLM judge。共享 memory upsert judge 使用独立的 `memory_upsert_enabled` 开关；该开关默认关闭，开启后即使处于 observe mode，也会在后台调用当前平台的 CLI judge，但不会阻塞用户回复。
 
 - **Hard-block enforcement** (deterministic block / pending gate / observation-log gate) is **off** by default; you must explicitly set `PT_ENFORCE=1` to enable it.
 - **The shadow LLM judge** (sending the conversation to an external model for semantic scoring) is **off** by default; you must explicitly set `PT_SHADOW=1` to enable it. Privacy note: once enabled, each turn sends "the last user message + assistant reply" (with API keys / passwords etc. redacted) to that model.
@@ -283,7 +293,7 @@ The `feedback` type is no longer used in new memories and is gradually migrated 
 
 ## Memory File Format
 
-Storage location (path_config-driven): `~/.claude/projects/<cwd_escaped>/memory/`, where `<cwd_escaped>` is the current project cwd with `/` replaced by `-`. For the real path, run `python3 ~/.claude/skills/tellonce/lib/path_config.py` and look at the `memory_dir` field, or read `<skill_dir>/lib/path_config.py:get_memory_dir()`.
+Storage location (path_config-driven): `<project_root>/.tellonce/memory/`，三平台共用。旧 Claude、Copilot、Codex 目录只用于首次迁移，不能继续作为 writer 目标。
 
 ### Frontmatter specification
 
@@ -474,16 +484,18 @@ Suggested new MEMORY.md structure:
 
 ### Step 4: Execute migration
 
-1. Update each file's frontmatter
-2. Rename files (if needed)
-3. Rebuild the MEMORY.md index
-4. Show the final result
+1. 把用户确认后的变更编译成结构化 mutation plan。
+2. 调用 `memory_upsert.py apply-plan` 事务化提交。
+3. 由核心重建 `MEMORY.md`、规则 Markdown 和 active JSON 投影。
+4. 展示最终结果；禁止直接修改或重命名投影文件。
 
 ---
 
 ## Conflict Resolution Algorithm
 
-Executed when writing a new memory:
+> **本节旧的手工文件流程已废弃。** 冲突解析现在只能由后台 `memory_upsert` worker 执行：一次读取全部 active rules，把完整 user turn 聚合为一个 plan，再用 SQLite 事务提交 NOOP/UPDATE/SUPERSEDE/NEW。下方关于直接 Write/Edit Markdown、手工分配 atomic_id 或手工改 `MEMORY.md` 的步骤仅保留为历史说明，禁止执行。
+
+历史伪代码，仅用于解释旧版本为何会碎片化；禁止执行：
 
 ```
 1. Determine the new memory's domain and type
@@ -505,9 +517,11 @@ Executed when writing a new memory:
 
 ### ⚠ Pre-write verification checklist
 
+> **不再适用。** 正常记忆写入没有 agent 侧 pre-write；前台只能 enqueue。人工 audit 也必须把确认后的结果转为结构化 plan，并调用 `memory_upsert.py apply-plan`，不能直接改投影文件。
+
 > **This does not contradict §Gate mechanics; it's layered**: §Gate mechanics turned off the SCAN text-marker because SCAN runs every turn + wording drifts → many false positives. memory-write is a low-frequency high-risk event (~1-3 times/session, doesn't drift), so here we **re-enable** the text-marker, limited to the memory-write scenario. The SCAN gate still only-HARD-checks the structured log; Pre-write is an additional layer on memory-write.
 
-**Before** writing a memory file (Write/Edit any new `memory/*.md` file / change an atomic_id), state in the response **which existing memories you checked** and **what decision you made** (NOOP / UPDATE / SUPERSEDE / NEW + a one-sentence reason). Wording and language are unrestricted; below is one recommended example format (when enforcement mode is on, the optional Stop-hook recognizes this format):
+旧版本曾要求在直接写文件前输出以下文本；新版本禁止直接写文件，因此不要输出或执行：
 
 ```
 **I checked**: memory/<domain>/*.md, candidates considered = [<atomic_id_1>, <atomic_id_2>, ...]
@@ -543,6 +557,8 @@ When a new memory supersedes an old one:
 ---
 
 ## Confirmation Strategy
+
+异步 upsert 启用时，当前回复只确认“完整用户 turn 已入队，后台将合并或替代旧规则”，不得等待 worker，也不得猜测 atomic_id 或最终操作。只有 `inspect` 已返回 committed/projected 结果时，才使用下方带真实 atomic_id 的模板。
 
 ### High confidence (user stated explicitly + clearly worded + clear scope)
 Tell the user in one sentence which preference you recorded, and invite a correction (wording / language is up to you). For example:
@@ -592,10 +608,7 @@ When the user expresses an intent to delete ("forget X" / "drop that rule" / "de
 
 1. Search memory for memories related to X
 2. Show the matching results and let the user confirm which to delete
-3. After confirmation:
-   - Remove from the MEMORY.md index
-   - Rename the file to `_archived_<original_filename>.md` (don't hard-delete, keep it for traceability)
-   - Or, if the user says "delete permanently", actually delete the file
+3. 当前共享核心尚未提供事务化 ARCHIVE/DELETE mutation，因此确认后标记为 `NEEDS_USER` 并说明尚未执行。禁止直接删除、重命名 Markdown 或改 `MEMORY.md`，否则 SQLite 会在下一次投影时恢复它。
 
 ---
 

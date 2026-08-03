@@ -20,12 +20,21 @@ Public API:
   get_transcript_path(data) -> str | None
   get_cwd(data)             -> str | None
   read_transcript(data)     -> (response_text, last_user_text, tool_commands, raw_lines)
+  recent_context(lines)     -> compact context excluding the latest user turn
 """
 import json
 import os
 from collections import deque
 
 _MAX_LINES = 2000
+_SYNTHETIC_USER_PREFIXES = (
+    '<system-reminder>',
+    '<system_reminder>',
+    '<task-notification>',
+    '<task_notification>',
+    '<local-command-',
+    '<local_command_',
+)
 
 
 def stdin_get(data, *names, default=None):
@@ -47,6 +56,17 @@ def get_transcript_path(data):
 
 def get_cwd(data):
     return stdin_get(data, 'cwd', 'workingDirectory')
+
+
+def get_presentation_key(data):
+    """Stable key shared by retrieve and enqueue hooks for one conversation."""
+    session_id = get_session_id(data)
+    if session_id:
+        return f"session:{session_id}"
+    transcript_path = get_transcript_path(data)
+    if transcript_path:
+        return f"transcript:{os.path.abspath(str(transcript_path))}"
+    return ''
 
 
 def _role(o):
@@ -86,6 +106,21 @@ def _entry_text(o):
     if isinstance(cc, list):
         return _text_from_list(cc)
     return ''
+
+
+def is_trusted_user_entry(entry, text=None):
+    """Return whether a user entry is genuine user-authored authorization."""
+    if not isinstance(entry, dict):
+        return False
+    for container in (entry, entry.get('data'), entry.get('message')):
+        if isinstance(container, dict):
+            meta = container.get('isMeta')
+            if meta is None:
+                meta = container.get('is_meta')
+            if meta is True or str(meta).strip().lower() in {'1', 'true', 'yes', 'on'}:
+                return False
+    candidate = str(text if text is not None else _entry_text(entry)).lstrip().lower()
+    return bool(candidate) and not candidate.startswith(_SYNTHETIC_USER_PREFIXES)
 
 
 def _entry_tool_commands(o):
@@ -151,7 +186,7 @@ def read_transcript(data):
     for i, o in enumerate(entries):
         if _role(o) == 'user':
             txt = _entry_text(o)
-            if txt.strip():
+            if txt.strip() and is_trusted_user_entry(o, txt):
                 last_user_idx = i
                 last_user = txt
 
@@ -165,3 +200,37 @@ def read_transcript(data):
             tool_commands.extend(_entry_tool_commands(o))
 
     return response, last_user, tool_commands, lines
+
+
+def recent_context(lines, max_messages=6, max_chars=6000):
+    """Return nearby conversation as untrusted disambiguation context.
+
+    The latest user message is excluded because memory_upsert passes it
+    separately as the only trusted authorization source. Earlier messages and
+    the current assistant response may resolve project, referent, or phase
+    ambiguity but cannot create a durable rule on their own.
+    """
+    entries = []
+    for item in _iter_entries(lines or []):
+        role = _role(item)
+        text = _entry_text(item).strip()
+        if role and text and (role != 'user' or is_trusted_user_entry(item, text)):
+            entries.append((role, text))
+    latest_user_index = -1
+    for index, (role, _text) in enumerate(entries):
+        if role == 'user':
+            latest_user_index = index
+    if latest_user_index < 0:
+        return ''
+    nearby = (
+        entries[max(0, latest_user_index - max_messages):latest_user_index]
+        + entries[latest_user_index + 1:]
+    )
+    rendered = []
+    for role, text in nearby[-max_messages:]:
+        remaining = max_chars - sum(len(item) + 1 for item in rendered)
+        if remaining <= 0:
+            break
+        label = 'User' if role == 'user' else 'Assistant'
+        rendered.append(f'{label}: {text[:remaining]}')
+    return '\n'.join(rendered)

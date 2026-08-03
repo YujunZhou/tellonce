@@ -30,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/b
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
 （hook 才会加载）→ 设成安全的 `observe` 模式 → 记录你的 Python 路径。**装完重启 Copilot。**
 
-> 默认 **observe**（只记录+提醒，不拦截、不调用 LLM）。
+> 默认 **observe**（不硬拦截、不运行 shadow judge）。memory upsert judge 由独立开关控制，默认关闭。
 
 ### 核对脚本完整性
 

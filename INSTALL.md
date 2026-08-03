@@ -111,7 +111,7 @@ Codex uninstall:
 bash ~/.claude/skills/tellonce/codex/uninstall.sh                 # keep state + hooks + skill dir
 bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-hooks   # remove the ~/.codex/hooks.json registration
 bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-skill   # delete ~/.codex/skills/tellonce
-bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-state   # delete this project's state
+bash ~/.claude/skills/tellonce/codex/uninstall.sh --purge-state   # delete this project's Codex state
 ```
 
 ---

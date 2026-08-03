@@ -7,7 +7,7 @@ other key). path_config reads those keys, so the change takes effect next run.
 
 Usage (run with `python pt_mode.py <mode>`):
     status      show current mode (default when no arg)
-    observe     SAFE default — record + remind only; no hard block, no LLM
+    observe     no hard block or shadow judge; memory upsert has its own switch
     enforce     turn ON hard blocking (still no LLM judge)
     full        turn ON hard blocking AND the shadow LLM judge
     block on|off    granular: just the hard-blocking switch
@@ -65,15 +65,17 @@ def _on(v):
 def _print_status(cfg):
     enforce = bool(cfg.get('enforce', False))
     shadow = bool(cfg.get('shadow', False))
+    upsert = bool(cfg.get('memory_upsert_enabled', False))
     if enforce and shadow:
         mode = 'full     (hard block + LLM judge)'
     elif enforce:
         mode = 'enforce  (hard block, no LLM judge)'
     else:
-        mode = 'observe  (safe default: record + remind only; no block, no LLM)'
+        mode = 'observe  (no hard block or shadow judge)'
     print(f'tellonce current mode: {mode}')
     print(f'  enforce (hard block) = {enforce}')
     print(f'  shadow  (LLM judge)  = {shadow}')
+    print(f'  memory upsert judge  = {upsert}')
     print(f'  config file: {CONFIG_PATH}')
 
 
@@ -97,7 +99,7 @@ def main(argv):
     cmd = args[0]
     if cmd == 'observe':
         cfg = _apply(cfg, enforce=False, shadow=False)
-        print('Switched to observe (safe default: record + remind only; no blocking, no LLM).')
+        print('Switched to observe (no hard blocking or shadow judge; memory upsert switch is unchanged).')
     elif cmd == 'enforce':
         cfg = _apply(cfg, enforce=True, shadow=False)
         print('enforce is ON (hard blocking). The LLM judge stays off.')

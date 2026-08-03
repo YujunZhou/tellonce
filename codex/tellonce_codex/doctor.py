@@ -168,7 +168,7 @@ def _hooks_status() -> str:
     except Exception:
         return "FAIL"
     try:
-        from .install_codex_hooks import PT_HOOKS, _is_pt_command
+        from .install_codex_hooks import PT_HOOKS, _command_basename, _is_pt_command
     except Exception:
         return "FAIL"
     expected_pairs = {
@@ -177,6 +177,7 @@ def _hooks_status() -> str:
         for basename, _ in lst
     }
     found_pairs: set[tuple[str, str]] = set()
+    found_order: dict[str, list[str]] = {}
     found_any = False
     for event, chain in (data.get("hooks") or {}).items():
         for entry in chain or []:
@@ -185,11 +186,16 @@ def _hooks_status() -> str:
                 if not _is_pt_command(cmd):
                     continue
                 found_any = True
-                basename = cmd.replace("\\", "/").rsplit("/", 1)[-1]
+                basename = _command_basename(cmd)
                 found_pairs.add((event, basename))
+                found_order.setdefault(event, []).append(basename)
     if not found_any:
         return "NOT_INSTALLED"
-    if found_pairs == expected_pairs:
+    expected_order = {
+        event: [basename for basename, _timeout in hooks]
+        for event, hooks in PT_HOOKS.items()
+    }
+    if found_pairs == expected_pairs and found_order == expected_order:
         return "PASS"
     return "PARTIAL"
 

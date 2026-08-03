@@ -106,7 +106,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(
                 "promote: --dry-run is the only supported CLI mode; programmatic callers "
-                "should use tellonce_codex.promote.promote_candidate() directly.",
+                "must call tellonce_codex.promote.promote_candidate(..., "
+                "source_text=<complete original user turn>) to queue through the "
+                "shared SQLite upsert core.",
                 file=sys.stderr,
             )
             return 2

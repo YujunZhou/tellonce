@@ -29,8 +29,10 @@ explicitly: `export PT_PREFER_BACKEND=cli` (subscription) or `=sdk` (API).
 """
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pt_platform  # platform-specific values (this variant)
@@ -104,26 +106,79 @@ def _classify_via_sdk(user_msg: str) -> str:
 def _classify_via_cli(user_msg: str) -> str:
     """Platform CLI (-p) subprocess (subscription mode, 0 metered cost). Opt-in via
     PT_PREFER_BACKEND=cli. Falls back to 'u' on any error."""
+    output_path = None
     try:
-        _cmd = [pt_platform.CLI_COMMAND, '-p', _CLASSIFY_PROMPT.format(user_msg=user_msg)]
+        prompt = _CLASSIFY_PROMPT.format(user_msg=user_msg)
+        cli = pt_platform.CLI_COMMAND
         _cli_model = os.environ.get('PT_PREFER_MODEL', pt_platform.PREFER_MODEL_DEFAULT).strip()
-        if _cli_model:
-            # Only pass --model when set; otherwise the CLI uses its own default
-            # (some runtimes reject an explicit Claude model name).
-            _cmd += ['--model', _cli_model]
-        _cmd += ['--output-format', 'text']
+        prompt_input = None
+        if cli == 'codex':
+            output_fd, output_path = tempfile.mkstemp(
+                prefix='tellonce-prefer-',
+                suffix='.txt',
+            )
+            os.close(output_fd)
+            _cmd = [
+                'codex', 'exec', '--ephemeral', '--ignore-user-config',
+                '--ignore-rules', '--skip-git-repo-check',
+                '--sandbox', 'read-only',
+                '--output-last-message', output_path,
+            ]
+            if _cli_model:
+                _cmd += ['-m', _cli_model]
+            prompt_input = prompt
+        elif cli == 'claude':
+            _cmd = ['claude', '-p']
+            if _cli_model:
+                _cmd += ['--model', _cli_model]
+            _cmd += ['--output-format', 'text', '--setting-sources', 'project']
+            prompt_input = prompt
+        else:
+            _cmd = [cli, '-p', prompt]
+            if _cli_model:
+                _cmd += ['--model', _cli_model]
+            _cmd += ['--output-format', 'text']
+        child_env = dict(os.environ)
+        child_env["PT_CHILD_SESSION"] = "1"
+        child_env["B5_RETRIEVE_RECURSION_GUARD"] = "1"
+        child_env["B5_DETERMINISTIC_DISABLED"] = "1"
+        child_env["B5_SHADOW_DISABLED"] = "1"
+        child_env["B5_INJECT_DISABLED"] = "1"
         proc = subprocess.run(
             _cmd,
+            input=prompt_input,
             capture_output=True, text=True, encoding='utf-8', timeout=15,
+            env=child_env,
+            cwd=tempfile.gettempdir(),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        if output_path:
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
         return 'u'
     except Exception:
+        if output_path:
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
         return 'u'
-    if proc.returncode != 0:
-        return 'u'
-    out = (proc.stdout or '').strip().lower()
-    return 'c' if out.startswith('c') else 'u'
+    try:
+        if proc.returncode != 0:
+            return 'u'
+        if output_path and os.path.isfile(output_path):
+            out = Path(output_path).read_text(encoding='utf-8', errors='replace')
+        else:
+            out = proc.stdout or ''
+        return 'c' if out.strip().lower().startswith('c') else 'u'
+    finally:
+        if output_path:
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
 
 
 def classify(user_msg: str) -> str:

@@ -72,16 +72,9 @@ if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
     export B5_PROJECT_ROOT="${CODEX_CWD}"
 fi
 
-# Bridge retrieval to Codex's real memory store. Codex promotes rules to
-# <project>/.codex/tellonce/memories/active (tellonce_codex paths.py + index.py),
-# but shared_lib/pt_platform.py is CC's copy and resolves get_memory_dir() to
-# ~/.claude/projects/<escaped>/memory — a read/write split-brain (confirmed on a
-# live Codex: retrieval read a nonexistent CC dir while promote wrote under
-# .codex). Point retrieval at the active dir so it reads where promotion writes.
-# Honors an explicit B5_MEMORY_DIR override; covers the default project-local
-# state root only (not the unsafe-root fallback in tellonce_codex/paths.py).
+# All platforms share the project-local Tellonce truth store.
 if [[ -z "${B5_MEMORY_DIR:-}" && -n "${B5_PROJECT_ROOT:-}" ]]; then
-    export B5_MEMORY_DIR="${B5_PROJECT_ROOT}/.codex/tellonce/memories/active"
+    export B5_MEMORY_DIR="${B5_PROJECT_ROOT}/.tellonce/memory"
 fi
 
 # Run retrieve_inject. PYTHONIOENCODING=utf-8 prevents stdout from crashing when LANG is not utf-8.

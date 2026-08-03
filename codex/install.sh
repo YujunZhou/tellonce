@@ -28,13 +28,13 @@ if ! command -v "${PYTHON}" >/dev/null 2>&1; then
     exit 1
 fi
 
-# shared_lib source resolution: try repo layout first, then standalone-bundle
-# layout. Standalone bundles ship a `shared_lib/` directory pre-populated
-# alongside `tellonce_codex/` so they don't need the parent repo's lib/.
-if [[ -d "${REPO_ROOT}/lib" ]]; then
-    SHARED_LIB_SRC="${REPO_ROOT}/lib"
-elif [[ -d "${SKILL_DIR}/shared_lib" ]]; then
+# shared_lib source resolution: prefer the Codex bundle because its
+# pt_platform.py selects the Codex CLI judge. Falling back to repo lib/ would
+# silently install Claude's platform adapter into Codex.
+if [[ -d "${SKILL_DIR}/shared_lib" ]]; then
     SHARED_LIB_SRC="${SKILL_DIR}/shared_lib"
+elif [[ -d "${REPO_ROOT}/lib" ]]; then
+    SHARED_LIB_SRC="${REPO_ROOT}/lib"
 else
     SHARED_LIB_SRC=""
 fi
@@ -140,7 +140,7 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         fi
     fi
 
-    # 1b. shared_lib = CC's lib/ (retrieve_inject + deterministic_block + etc.)
+    # 1b. shared_lib = shared core + Codex-specific pt_platform.py.
     if [[ "${SELF_INSTALL}" != true ]]; then
         if [[ -n "${SHARED_LIB_SRC}" && -d "${SHARED_LIB_SRC}" ]]; then
             SHARED_LIB_SRC_REAL="$(cd "${SHARED_LIB_SRC}" && pwd -P)"
@@ -264,6 +264,11 @@ fi
 # ============================================================
 if [[ "${SKIP_PROJECT}" != true ]]; then
     echo "[3/3] per-project state init → $(pwd)/.codex/tellonce/"
+    if [[ -d "$(pwd)/.git/info" ]]; then
+        touch "$(pwd)/.git/info/exclude"
+        grep -qxF '.tellonce/' "$(pwd)/.git/info/exclude" 2>/dev/null \
+            || printf '\n.tellonce/\n' >> "$(pwd)/.git/info/exclude"
+    fi
     # Forward --no-hooks down so phase 3 does
     # not silently re-register hooks the user already opted out of via the
     # bash --no-hooks flag — and also when phase 1f already registered them

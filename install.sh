@@ -209,6 +209,15 @@ log "[2/5] Install: update settings + copy hooks + create state"
 # the Claude Code path-escaping rule (every non-alphanumeric -> '-') plus the
 # legacy-spelling fallback; duplicating the escape here already drifted once.
 MEMORY_DIR="$(env PT_LIB="${SKILL_DIR}/lib" PT_PR="${PROJECT_ROOT}" PYTHONIOENCODING=utf-8 python3 -c "import sys, os; sys.path.insert(0, os.environ['PT_LIB']); import pt_platform; print(pt_platform.default_memory_dir(os.environ['PT_PR']))")"
+
+# Keep the shared truth store out of `git add -A` without editing the project's
+# tracked .gitignore.
+if [[ "${DRY_RUN}" != true && -d "${PROJECT_ROOT}/.git/info" ]]; then
+    _PT_EXCLUDE="${PROJECT_ROOT}/.git/info/exclude"
+    touch "${_PT_EXCLUDE}"
+    grep -qxF '.tellonce/' "${_PT_EXCLUDE}" 2>/dev/null \
+        || printf '\n.tellonce/\n' >> "${_PT_EXCLUDE}"
+fi
 # PT_* are the documented names; B5_* kept as legacy aliases (Python layer accepts both).
 STATE_DIR="${STATE_DIR_OVERRIDE:-${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/runtime}}}"
 OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/obs_log}}"
@@ -467,7 +476,7 @@ log "  - state: ${STATE_DIR}"
 log "  - memory: ${MEMORY_DIR}"
 log ""
 log "Notes (to avoid confusion for new users):"
-log "  - Default observe mode: record + remind only; no hard blocking, no LLM calls."
+log "  - Default observe mode: no hard blocking or shadow judge; memory upsert remains separately opt-in."
 log "  - The shadow judge only runs in full mode, and its first run has cold-start latency (it spawns a claude -p"
 log "    subprocess that may take tens of seconds to a few minutes) — this is not a hang or a broken install. Observe mode never runs it."
 log "    To disable it entirely: export PT_SHADOW_DISABLED=1"

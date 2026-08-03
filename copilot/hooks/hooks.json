@@ -28,9 +28,9 @@
       },
       {
         "type": "command",
-        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-pending-promote.sh",
-        "powershell": "& \"${CLAUDE_PLUGIN_ROOT}\\hooks\\run.ps1\" pending_queue_manager.py promote",
-        "timeoutSec": 10
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-upsert-enqueue.sh",
+        "powershell": "& \"${CLAUDE_PLUGIN_ROOT}\\hooks\\run.ps1\" memory_upsert_hook.py stop",
+        "timeoutSec": 5
       }
     ],
     "SessionStart": [

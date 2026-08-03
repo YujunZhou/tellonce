@@ -31,6 +31,7 @@ runtime/
 .codex/
 .copilot/tellonce-state/
 .copilot/tellonce/
+.tellonce/
 _review_diff.txt
 
 # machine-specific python path recorded by install (run.ps1 launcher)
@@ -69,5 +70,6 @@ copilot/seed_memory.user/
 
 # tests - verified locally, kept out of the public tree (run locally: pytest lib/, codex/, etc.)
 test_*.py
+!checks/test_memory_upsert.py
 conftest.py
 **/tests/

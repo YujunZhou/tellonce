@@ -348,8 +348,8 @@ Output strict one-line JSON in this format:
         if pt_platform.CLI_COMMAND == 'claude':
             # Keep the user-global tellonce hooks out of the nested judge
             # session (same rationale as retrieve_inject's cli backend):
-            # without this, pending-inject prepends its reminder block to a
-            # prompt that demands one-line JSON, contaminating the verdict.
+            # without this, user-global hooks can prepend context to a prompt
+            # that demands one-line JSON, contaminating the verdict.
             _cmd += ['--setting-sources', 'project']
         if B5_JUDGE_MODEL:
             # Only pass --model when set; otherwise the CLI uses its own default

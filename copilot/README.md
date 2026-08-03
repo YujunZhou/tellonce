@@ -36,7 +36,7 @@ plugin directory → installs the optional dependency → registers it with Copi
 (so the hooks load) → sets the safe `observe` mode → records your Python path.
 **Restart Copilot when it's done.**
 
-> Default mode is **observe** (records and reminds only — no blocking, no LLM).
+> 默认模式是 **observe**：不硬拦截、不运行 shadow judge。memory upsert judge 由独立开关控制，默认关闭。
 
 ### Verify integrity
 

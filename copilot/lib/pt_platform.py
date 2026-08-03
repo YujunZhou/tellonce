@@ -56,27 +56,8 @@ def default_obs_log_dir(project_root: str) -> str:
 
 
 def default_memory_dir(project_root: str) -> str:
-    """Default memory-rules dir for Copilot: project-local at
-    <project_root>/.copilot/tellonce/memory.
-
-    Migration fallback: if the new path has no .md files, check the legacy Claude
-    Code path (~/.claude/projects/<cwd_escaped>/memory) and use it if it has
-    content, so rules recorded before switching from Claude Code aren't invisible.
-    """
-    new_dir = os.path.join(project_root, '.copilot', 'tellonce', 'memory')
-    try:
-        if os.path.isdir(new_dir) and any(f.endswith('.md') for f in os.listdir(new_dir)):
-            return new_dir
-    except Exception:
-        pass
-    try:
-        escaped = project_root.replace('/', '-').replace('\\', '-').replace(':', '-')
-        legacy_dir = os.path.expanduser(f'~/.claude/projects/{escaped}/memory')
-        if os.path.isdir(legacy_dir) and any(f.endswith('.md') for f in os.listdir(legacy_dir)):
-            return legacy_dir
-    except Exception:
-        pass
-    return new_dir
+    """Platform-independent project memory shared by all Tellonce variants."""
+    return os.path.join(project_root, '.tellonce', 'memory')
 
 
 def stop_block_exit_code() -> int:

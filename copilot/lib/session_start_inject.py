@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SessionStart hook entry point — combines retrieve + pending + shadow alert injection.
+"""SessionStart hook entry point — combines retrieve + shadow alert injection.
 
 Copilot CLI port: replaces 3 separate Claude UserPromptSubmit hooks with one
 SessionStart hook that injects all context at session start.
@@ -126,11 +126,6 @@ def main() -> None:
         ))
         if ctx:
             parts.append(ctx)
-
-    pending_text = _run_entry('pending_queue_manager.py', ['inject'], timeout=5)
-    if pending_text:
-        header = '### Pending memory finalize required (carried over from prior session):'
-        parts.append(header + '\n' + pending_text)
 
     shadow_ctx = _extract_context(_run_entry(
         'shadow_alert_inject.py',

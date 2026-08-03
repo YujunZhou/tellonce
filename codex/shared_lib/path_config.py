@@ -13,6 +13,8 @@ Priority (high → low):
   3. Auto-detect: project_root = os.getcwd(); state/obs/memory dirs come from
      pt_platform.default_state_dir / default_obs_log_dir / default_memory_dir.
 """
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -245,6 +247,44 @@ def get_memory_dir() -> str:
     (per-variant location, including any migration fallback)."""
     return _resolve('B5_MEMORY_DIR', 'memory_dir',
                     lambda: pt_platform.default_memory_dir(get_project_root()))
+
+
+def get_legacy_memory_dirs() -> list[str]:
+    """Known pre-unification memory directories, used only for first import."""
+    import hashlib
+    import re
+
+    root = get_project_root()
+    candidates = [
+        os.path.join(root, '.copilot', 'tellonce', 'memory'),
+        os.path.join(root, '.codex', 'tellonce', 'memories', 'active'),
+    ]
+    resolved_root = str(Path(root).expanduser().resolve())
+    project_name = Path(resolved_root).name or "project"
+    project_digest = hashlib.sha256(resolved_root.encode("utf-8")).hexdigest()[:12]
+    candidates.append(
+        os.path.expanduser(
+            f"~/.codex/projects/{project_name}-{project_digest}/tellonce/memories/active"
+        )
+    )
+    escaped_current = re.sub(r'[^A-Za-z0-9]', '-', root)
+    escaped_legacy = root.replace('/', '-').replace('\\', '-')
+    candidates.extend(
+        [
+            os.path.expanduser(f'~/.claude/projects/{escaped_current}/memory'),
+            os.path.expanduser(f'~/.claude/projects/{escaped_legacy}/memory'),
+        ]
+    )
+    canonical = os.path.normcase(os.path.abspath(get_memory_dir()))
+    unique = []
+    seen = {canonical}
+    for candidate in candidates:
+        normalized = os.path.normcase(os.path.abspath(candidate))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(candidate)
+    return unique
 
 
 def get_compliance_log_path() -> str:

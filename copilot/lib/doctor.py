@@ -174,7 +174,7 @@ def check_hooks():
     expected = [
         'check-observation-log.sh', 'memory-deterministic-block.sh',
         'memory-verify-compliance.sh', 'memory-shadow-judge.sh',
-        'memory-pending-promote.sh', 'session-start-inject.sh',
+        'memory-upsert-enqueue.sh', 'session-start-inject.sh',
     ]
     missing = [h for h in expected if not os.path.exists(os.path.join(hooks_dir, h))]
     if not missing:

@@ -93,7 +93,7 @@ bash ~/.claude/skills/tellonce/dashboard.sh
 # the skill dir. Your memory/state is kept.
 bash ~/.claude/skills/tellonce/uninstall.sh
 
-# Full removal (also state + obs_log):
+# Full removal (also state + obs_log + shared memory):
 bash ~/.claude/skills/tellonce/uninstall.sh --purge-state
 
 # Keep the skill directory (easier reinstall):
@@ -132,9 +132,8 @@ python3 ~/.claude/skills/tellonce/lib/path_config.py
 ## Architecture
 
 ```
-UserPromptSubmit chain (3):
+UserPromptSubmit chain (2):
   memory-retrieve-inject.sh       [retrieve relevant saved rules, inject by atomic_id]
-  memory-pending-inject.sh        [cross-session pending-memory reminder]
   memory-shadow-alert-inject.sh   [soft injection: "you violated X last turn"]
 
 → Claude generates a response
@@ -142,9 +141,9 @@ UserPromptSubmit chain (3):
 Stop chain (5):
   check-observation-log.sh        [Iron Law: the obs log must be appended]
   memory-deterministic-block.sh   [regex hard-blocks; ships with no built-in rules — opt-in extension point]
-  memory-verify-compliance.sh     [compliance + refuse-to-stop gate]
+  memory-verify-compliance.sh     [compliance + legacy-pending metrics, log-only]
   memory-shadow-judge.sh          [LLM judge, log-only; off by default]
-  memory-pending-promote.sh       [pending obs → queue]
+  memory-upsert-enqueue.sh        [complete user turn → shared SQLite upsert inbox]
 ```
 
 Block / pass / cost / streak data is written to

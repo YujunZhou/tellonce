@@ -68,8 +68,8 @@ jobs:
           done
           exit $fail
 
-      # Unit/integration tests are maintained locally and kept out of the public
-      # tree; the public CI gate is compile + import-smoke + parity + shell-lint.
+      - name: Unified memory upsert behavior
+        run: python checks/test_memory_upsert.py
 
       - name: Cross-variant parity check
         if: runner.os != 'Windows'

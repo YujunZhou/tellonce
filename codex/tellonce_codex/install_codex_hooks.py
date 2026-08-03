@@ -17,10 +17,9 @@ Hook layout (mirrors CC's UserPromptSubmit chain + adds PostToolUse to fill the
 gap that codex doesn't have a Stop hook):
 
   UserPromptSubmit:
-    - userpromptsubmit-retrieve-inject.sh    (retrieve memory rules, inject
+   - userpromptsubmit-memory-upsert.sh      (fast inbox enqueue; detached worker)
+   - userpromptsubmit-retrieve-inject.sh    (retrieve memory rules, inject
       additionalContext)
-    - userpromptsubmit-pending-inject.sh     (cross-session pending memory
-      reminders)
     - userpromptsubmit-shadow-alert-inject.sh (last-turn shadow violation
       alerts -> next turn fix)
 
@@ -41,6 +40,12 @@ import sys
 import time
 from pathlib import Path
 
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
+
 
 PT_HOOKS_DEFAULT_DIR = Path.home() / ".codex" / "skills" / "tellonce" / "hooks"
 
@@ -51,8 +56,8 @@ PT_HOOKS_DEFAULT_DIR = Path.home() / ".codex" / "skills" / "tellonce" / "hooks"
 # before the inner subprocess finishes, silently dropping its JSON output.
 PT_HOOKS = {
     "UserPromptSubmit": [
+        ("userpromptsubmit-memory-upsert.sh", 5),
         ("userpromptsubmit-retrieve-inject.sh", 40),
-        ("userpromptsubmit-pending-inject.sh", 25),
         ("userpromptsubmit-shadow-alert-inject.sh", 25),
     ],
     "PostToolUse": [
@@ -62,6 +67,7 @@ PT_HOOKS = {
         ("sessionstart-init.sh", 20),
     ],
 }
+LEGACY_HOOK_BASENAMES = {"userpromptsubmit-pending-inject.sh"}
 
 
 def _load_hooks_json(path: str) -> dict:
@@ -128,6 +134,14 @@ def _save_hooks_json(path: str, data: dict) -> None:
         raise
 
 
+def _normalize_command(cmd: str) -> str:
+    return str(cmd or "").strip().strip("'\"").replace("\\", "/")
+
+
+def _command_basename(cmd: str) -> str:
+    return _normalize_command(cmd).rsplit("/", 1)[-1]
+
+
 def _is_pt_command(cmd: str) -> bool:
     """Identify any registration string we previously wrote so cleanup is safe.
 
@@ -140,13 +154,17 @@ def _is_pt_command(cmd: str) -> bool:
     old forward-slash-only `/hooks/` substring and `rsplit("/")` basename
     extraction never matched and cleanup/verify silently missed PT entries.
     """
-    norm = cmd.replace("\\", "/")
+    norm = _normalize_command(cmd)
     if "tellonce" not in norm:
         return False
     if "/hooks/" not in norm:
         return False
-    basename = norm.rsplit("/", 1)[-1]
-    known = {basename for lst in PT_HOOKS.values() for basename, _ in lst}
+    basename = _command_basename(norm)
+    known = {
+        basename
+        for lst in PT_HOOKS.values()
+        for basename, _ in lst
+    } | LEGACY_HOOK_BASENAMES
     return basename in known
 
 
@@ -161,25 +179,47 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
 
     data = _load_hooks_json(hooks_path)
     data.setdefault("hooks", {})
+    for event, chain in data["hooks"].items():
+        cleaned_chain = []
+        for entry in chain:
+            hooks = []
+            for hook in entry.get("hooks", []) or []:
+                basename = _command_basename(
+                    _normalize_command(hook.get("command", ""))
+                )
+                if basename in LEGACY_HOOK_BASENAMES:
+                    continue
+                hooks.append(hook)
+            if hooks:
+                entry["hooks"] = hooks
+                cleaned_chain.append(entry)
+            elif not entry.get("hooks"):
+                cleaned_chain.append(entry)
+        data["hooks"][event] = cleaned_chain
 
     added = 0
     skipped = 0
     for event, hook_list in PT_HOOKS.items():
         chain = data["hooks"].setdefault(event, [])
-        # Find or create the PT-managed entry. We identify it by inspecting the
-        # commands inside (path-based — see _is_pt_command). If no PT-only
-        # entry exists yet, create one with empty matcher (so hook fires for
-        # any tool / scope, mirroring how our hooks behave on CC side).
-        pt_entry = None
+        existing_basenames = set()
+        cleaned_chain = []
         for entry in chain:
-            cmds = [h.get("command", "") for h in entry.get("hooks", []) or []]
-            if cmds and all(_is_pt_command(c) for c in cmds):
-                pt_entry = entry
-                break
-        if pt_entry is None:
-            pt_entry = {"matcher": "", "hooks": []}
-            chain.append(pt_entry)
-        existing_cmds = {h.get("command", "") for h in pt_entry.get("hooks", [])}
+            user_hooks = []
+            for hook in entry.get("hooks", []) or []:
+                command = hook.get("command", "")
+                if _is_pt_command(command):
+                    existing_basenames.add(_command_basename(command))
+                else:
+                    user_hooks.append(hook)
+            if user_hooks:
+                preserved = dict(entry)
+                preserved.pop("_pt_managed", None)
+                preserved["hooks"] = user_hooks
+                cleaned_chain.append(preserved)
+            elif not entry.get("hooks"):
+                cleaned_chain.append(entry)
+
+        managed_hooks = []
         for basename, timeout in hook_list:
             # shlex.quote: codex shlex-splits the command string and execs it
             # directly — a HOME containing a space would split a bare path
@@ -188,15 +228,20 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
             # byte-identical commands (no re-trust churn).
             import shlex
             cmd = shlex.quote(str(hooks_dir_p / basename))
-            if cmd in existing_cmds:
+            if basename in existing_basenames:
                 skipped += 1
-                continue
-            pt_entry.setdefault("hooks", []).append({
+            else:
+                added += 1
+            managed_hooks.append({
                 "type": "command",
                 "command": cmd,
                 "timeout": timeout,
             })
-            added += 1
+        # Keep all Tellonce hooks in one schema-clean entry and rebuild it in
+        # PT_HOOKS order on every upgrade. The memory-upsert hook must run
+        # before retrieval rotates the clarification presentation sidecar.
+        cleaned_chain.insert(0, {"matcher": "", "hooks": managed_hooks})
+        data["hooks"][event] = cleaned_chain
     _save_hooks_json(hooks_path, data)
     print(f"  added {added}, skipped {skipped} (already registered)")
     return 0
@@ -271,13 +316,13 @@ def cmd_verify(hooks_path: str, hooks_dir: str) -> int:
                 cmd = h.get("command", "")
                 if not cmd:
                     continue
-                cmd_to_events.setdefault(cmd, set()).add(event)
+                cmd_to_events.setdefault(_normalize_command(cmd), set()).add(event)
     print(f"  Codex tellonce hook registration status:")
     print(f"    hooks.json: {hooks_path}")
     print(f"    hooks dir:  {hooks_dir_p}")
     bad = 0
     for (expected_event, cmd), basename in expected_pairs.items():
-        events_seen = cmd_to_events.get(cmd, set())
+        events_seen = cmd_to_events.get(_normalize_command(cmd), set())
         if expected_event in events_seen:
             print(f"    ✓ {basename} → {expected_event}")
         elif events_seen:

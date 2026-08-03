@@ -48,8 +48,16 @@ iface() {
     ( cd "$1" && "${PY}" -c "import pt_platform as p; print(','.join(sorted(n for n in dir(p) if not n.startswith('_'))))" )
 }
 if [ -f "${SRC}/pt_platform.py" ] && [ -f "${DST}/pt_platform.py" ]; then
-    A="$(iface "${SRC}")"
-    B="$(iface "${DST}")"
+    if ! A="$(iface "${SRC}")"; then
+        echo "FAIL: could not inspect lib/pt_platform.py with ${PY}"
+        A="__LIB_INTERFACE_ERROR__"
+        fail=1
+    fi
+    if ! B="$(iface "${DST}")"; then
+        echo "FAIL: could not inspect copilot/lib/pt_platform.py with ${PY}"
+        B="__COPILOT_INTERFACE_ERROR__"
+        fail=1
+    fi
     if [ "${A}" != "${B}" ]; then
         echo "FAIL: pt_platform interface mismatch"
         echo "  lib/:        ${A}"
@@ -61,13 +69,13 @@ else
     fail=1
 fi
 
-# 3. codex/shared_lib must be a byte-identical copy of lib/ (minus tests).
+# 3. codex/shared_lib shared files are byte-identical; pt_platform is variant-specific.
 CODEX_SHARED="${REPO}/codex/shared_lib"
 if [ -d "${CODEX_SHARED}" ]; then
     shopt -s nullglob
     for f in "${SRC}"/*.py "${SRC}"/*.yaml "${SRC}"/*.txt; do
         base="$(basename "${f}")"
-        case "${base}" in conftest.py|test_*.py) continue ;; esac
+        case "${base}" in pt_platform.py|conftest.py|test_*.py) continue ;; esac
         if [ ! -f "${CODEX_SHARED}/${base}" ]; then
             echo "FAIL: ${base} missing in codex/shared_lib/ (run scripts/sync-variants.sh)"
             fail=1
@@ -80,9 +88,25 @@ if [ -d "${CODEX_SHARED}" ]; then
     for f in "${CODEX_SHARED}"/*.py "${CODEX_SHARED}"/*.yaml "${CODEX_SHARED}"/*.txt; do
         [ -e "${f}" ] || continue
         base="$(basename "${f}")"
+        [ "${base}" = "pt_platform.py" ] && continue
         [ -f "${SRC}/${base}" ] || { echo "FAIL: stale ${base} in codex/shared_lib/ (not in lib/)"; fail=1; }
     done
     shopt -u nullglob
+fi
+
+if [ -f "${CODEX_SHARED}/pt_platform.py" ]; then
+    if ! C="$(iface "${CODEX_SHARED}")"; then
+        echo "FAIL: could not inspect codex/shared_lib/pt_platform.py with ${PY}"
+        C="__CODEX_INTERFACE_ERROR__"
+        fail=1
+    fi
+    if [ "${A}" != "${C}" ]; then
+        echo "FAIL: Codex pt_platform interface mismatch"
+        fail=1
+    fi
+else
+    echo "FAIL: pt_platform.py missing in codex/shared_lib/"
+    fail=1
 fi
 
 if [ "${fail}" -eq 0 ]; then

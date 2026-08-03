@@ -71,6 +71,21 @@ $env:PT_LIB = $PTLib
 & $Py "$ScriptDir\_install_helper.py" ensure-dirs
 if ($LASTEXITCODE -eq 0) { Write-Host "[OK] State directories created" -ForegroundColor Green }
 
+# Protect the shared truth store from accidental `git add -A` without changing
+# the project's tracked .gitignore.
+$gitInfo = Join-Path $ProjectRoot ".git\info"
+if (Test-Path $gitInfo) {
+    $excludePath = Join-Path $gitInfo "exclude"
+    $existing = if (Test-Path $excludePath) { [System.IO.File]::ReadAllText($excludePath) } else { "" }
+    if (-not (($existing -split "`r?`n") -contains ".tellonce/")) {
+        [System.IO.File]::AppendAllText(
+            $excludePath,
+            [Environment]::NewLine + ".tellonce/" + [Environment]::NewLine,
+            (New-Object System.Text.UTF8Encoding($false))
+        )
+    }
+}
+
 # 3. Seed memory
 $memoryDir = & $Py "$ScriptDir\_install_helper.py" get-memory-dir
 
@@ -173,8 +188,8 @@ Write-Host ""
 Write-Host "The plugin hooks are now active for any Copilot CLI session."
 Write-Host "Current mode = $Mode"
 Write-Host ""
-Write-Host "observe = only records preferences + reminds you (safe default;"
-Write-Host "          never hard-blocks, never calls an LLM)."
+Write-Host "observe = no hard blocking or shadow judge."
+Write-Host "          Memory upsert has a separate global enable-hooks switch."
 Write-Host "enforce = also hard-blocks replies that violate your saved rules."
 Write-Host "full    = enforce + an LLM 'shadow judge' (sends the conversation"
 Write-Host "          to copilot -p; redacts secrets first)."

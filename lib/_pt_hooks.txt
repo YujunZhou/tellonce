@@ -6,6 +6,5 @@ memory-shadow-judge.sh
 memory-shadow-alert-inject.sh
 memory-verify-compliance.sh
 memory-retrieve-inject.sh
-memory-pending-promote.sh
-memory-pending-inject.sh
+memory-upsert-enqueue.sh
 check-observation-log.sh

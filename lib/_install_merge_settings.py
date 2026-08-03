@@ -26,8 +26,8 @@ from datetime import datetime
 # assume an earlier sibling's output landed first. The README declared:
 #
 #   Stop chain: check-observation-log → deterministic-block → verify-compliance
-#               → shadow-judge → pending-promote
-#   UserPromptSubmit: retrieve-inject → pending-inject → shadow-alert-inject
+#               → shadow-judge → memory-upsert
+#   UserPromptSubmit: retrieve-inject → shadow-alert-inject
 #
 # Python 3.7+ dict preserves insertion order, so this dict literally drives the
 # settings.local.json registration order.
@@ -46,17 +46,17 @@ PT_HOOKS = {
     'memory-verify-compliance.sh': {
         'event': 'Stop',
         'timeout': 5,
-        'desc': 'Compliance log + pending-finalize gate',
+        'desc': 'Compliance and legacy-pending metrics (log-only)',
     },
     'memory-shadow-judge.sh': {
         'event': 'Stop',
         'timeout': 30,
         'desc': 'Shadow LLM judge (log-only)',
     },
-    'memory-pending-promote.sh': {
+    'memory-upsert-enqueue.sh': {
         'event': 'Stop',
         'timeout': 5,
-        'desc': 'Pending observation -> queue',
+        'desc': 'Non-blocking shared memory inbox enqueue',
     },
     # ── UserPromptSubmit chain ──────────────────────────────────────────
     'memory-retrieve-inject.sh': {
@@ -67,16 +67,15 @@ PT_HOOKS = {
         'timeout': 15,
         'desc': 'Semantic/fingerprint memory retrieve',
     },
-    'memory-pending-inject.sh': {
-        'event': 'UserPromptSubmit',
-        'timeout': 5,
-        'desc': 'Pending queue -> next-turn inject',
-    },
     'memory-shadow-alert-inject.sh': {
         'event': 'UserPromptSubmit',
         'timeout': 5,
         'desc': 'Soft inject from shadow alert',
     },
+}
+LEGACY_HOOKS = {
+    'memory-pending-promote.sh',
+    'memory-pending-inject.sh',
 }
 
 
@@ -155,6 +154,19 @@ def cmd_add(settings_path: str, hooks_dir: str):
 
     settings = _load_settings(settings_path)
     settings.setdefault('hooks', {})
+    legacy_commands = {os.path.join(hooks_dir, h) for h in LEGACY_HOOKS}
+    for event, chain in settings.get('hooks', {}).items():
+        cleaned_chain = []
+        for entry in chain:
+            entry['hooks'] = [
+                hook
+                for hook in entry.get('hooks', [])
+                if hook.get('command') not in legacy_commands
+            ]
+            if entry.get('_pt_managed') and not entry['hooks']:
+                continue
+            cleaned_chain.append(entry)
+        settings['hooks'][event] = cleaned_chain
 
     # Create a dedicated PT entry per event (no matcher, so it always fires)
     # instead of writing into chain[0]. Previously we appended into the user's
@@ -210,7 +222,10 @@ def cmd_remove(settings_path: str, hooks_dir: str):
         print(f'  versioned backup: {backup}')
 
     settings = _load_settings(settings_path)
-    pt_commands = {os.path.join(hooks_dir, h) for h in PT_HOOKS}
+    pt_commands = {
+        os.path.join(hooks_dir, h)
+        for h in set(PT_HOOKS) | LEGACY_HOOKS
+    }
 
     removed = 0
     for event, chain in settings.get('hooks', {}).items():

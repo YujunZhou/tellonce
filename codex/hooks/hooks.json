@@ -3,8 +3,8 @@
     "UserPromptSubmit": [
       {
         "hooks": [
+          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-memory-upsert.sh\"'", "timeout": 5 },
           { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-retrieve-inject.sh\"'", "timeout": 40 },
-          { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-pending-inject.sh\"'", "timeout": 25 },
           { "type": "command", "command": "bash -c 'exec bash \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit-shadow-alert-inject.sh\"'", "timeout": 25 }
         ]
       }

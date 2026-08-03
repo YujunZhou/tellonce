@@ -194,8 +194,8 @@ else
 fi
 echo "Current mode = ${MODE}"
 echo ""
-echo "observe = records preferences + reminds you (safe default; never"
-echo "          hard-blocks, never calls an LLM)."
+echo "observe = no hard blocking or shadow judge."
+echo "          Memory upsert has a separate global enable-hooks switch."
 echo "enforce = also hard-blocks replies that violate your saved rules."
 echo "full    = enforce + an LLM 'shadow judge' (sends the conversation to"
 echo "          copilot -p; redacts secrets first)."

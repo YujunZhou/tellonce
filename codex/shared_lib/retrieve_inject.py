@@ -43,13 +43,16 @@ Non-destructive: any failure → exit 0 silently (no block).
 """
 from __future__ import annotations
 
-import json, sys, re, os, glob, subprocess, tempfile, time
+import hashlib, json, sys, re, os, glob, subprocess, tempfile, time
 
 import sys as _sys
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 _sys.path.insert(0, _LIB_DIR)
 import path_config
 import pt_platform  # platform-specific values (this variant)
+import memory_store
+import memory_upsert
+import transcript_adapter
 
 FP_YAML = os.path.join(_LIB_DIR, 'fingerprints.yaml')
 # Private overlay: the shipped fingerprints.yaml is empty by default. Users keep
@@ -219,10 +222,12 @@ RETRIEVE_RECURSION_GUARD = os.environ.get('B5_RETRIEVE_RECURSION_GUARD') == '1'
 
 _RULE_INDEX = None
 _RULE_DESC_INDEX = None
+_RULE_META_INDEX = None
 
 # Leading '---' fenced YAML block. DOTALL so the block may span lines; the
 # closing fence must start a line.
 _FRONTMATTER_RE = re.compile(r'\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)', re.DOTALL)
+_ACTIVE_INDEX_FILENAME = '.tellonce-active.json'
 
 
 def _frontmatter_of(content: str) -> str:
@@ -243,20 +248,96 @@ def _frontmatter_of(content: str) -> str:
     return m.group(1) if m else content
 
 
+def _frontmatter_scalar(frontmatter: str, field: str) -> str:
+    """Read one scalar without allowing YAML whitespace to cross a newline."""
+    match = re.search(
+        rf'^[ \t]*{re.escape(field)}:[ \t]*(.*?)[ \t]*$',
+        frontmatter,
+        re.MULTILINE,
+    )
+    if not match:
+        return ''
+    value = match.group(1).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1].strip()
+    return value
+
+
+def _load_active_projection():
+    """Return the authoritative active-rule projection, or None if unavailable."""
+    path = os.path.join(MEMORY_DIR, _ACTIVE_INDEX_FILENAME)
+    try:
+        with open(path, encoding='utf-8-sig') as f:
+            payload = json.load(f)
+        active = payload.get('active')
+        if not isinstance(active, list):
+            return None
+        return [item for item in active if isinstance(item, dict) and item.get('atomic_id')]
+    except Exception:
+        return None
+
+
+def _memory_scan_dirs():
+    """Use canonical projections first; fall back to pre-unification stores."""
+    dirs = [MEMORY_DIR]
+    if _load_active_projection() is None:
+        try:
+            dirs.extend(path_config.get_legacy_memory_dirs())
+        except Exception:
+            pass
+    seen = set()
+    result = []
+    for directory in dirs:
+        normalized = os.path.normcase(os.path.abspath(directory))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(directory)
+    return result
+
+
 def _build_index():
     """One-pass scan of memory dir → {atomic_id: (applies_when, condition)}.
     Also caches description into _RULE_DESC_INDEX so render can fall back
     to the .md frontmatter when fingerprints.yaml has no `desc` for the
     rule (UX: rules that exist only in memory dir used to
     render with empty desc in the additionalContext block)."""
-    global _RULE_INDEX, _RULE_DESC_INDEX
+    global _RULE_INDEX, _RULE_DESC_INDEX, _RULE_META_INDEX
     if _RULE_INDEX is not None:
         return _RULE_INDEX
     idx = {}
     desc_idx: dict[str, str] = {}
+    meta_idx: dict[str, dict[str, str]] = {}
+    projected = _load_active_projection()
+    if projected is not None:
+        for item in projected:
+            atomic_id = str(item.get('atomic_id', '')).strip()
+            if not atomic_id:
+                continue
+            idx[atomic_id] = (
+                str(item.get('applies_when', '') or '').strip(),
+                str(item.get('condition', '') or '').strip(),
+            )
+            desc_idx[atomic_id] = str(
+                item.get('description') or item.get('rule_text') or ''
+            ).strip()
+            meta_idx[atomic_id] = {
+                'scope': str(item.get('scope') or '').strip(),
+                'does_not_apply_when': str(
+                    item.get('does_not_apply_when') or ''
+                ).strip(),
+            }
+        _RULE_INDEX = idx
+        _RULE_DESC_INDEX = desc_idx
+        _RULE_META_INDEX = meta_idx
+        return idx
     try:
-        for path in glob.glob(os.path.join(MEMORY_DIR, '*.md')):
-            if os.path.basename(path) == 'MEMORY.md':
+        paths = []
+        for directory in _memory_scan_dirs():
+            paths.extend(glob.glob(os.path.join(directory, '*.md')))
+        for path in paths:
+            basename = os.path.basename(path)
+            if basename == 'MEMORY.md' or basename.startswith('_archived_'):
                 continue
             try:
                 # utf-8-sig: a BOM would defeat the \A--- frontmatter fence.
@@ -265,22 +346,36 @@ def _build_index():
             except Exception:
                 continue
             fm = _frontmatter_of(c)
-            m = re.search(r'^\s*atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', fm, re.MULTILINE)
-            if not m:
+            atomic_id = _frontmatter_scalar(fm, 'atomic_id')
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', atomic_id):
                 continue
-            aw = re.search(r'^\s*applies_when:\s*(.+)$', fm, re.MULTILINE)
-            cond = re.search(r'^\s*condition:\s*"?([^\n"]+)"?', fm, re.MULTILINE)
-            d = re.search(r'^\s*description:\s*(.+)$', fm, re.MULTILINE)
-            idx[m.group(1)] = (
-                aw.group(1).strip() if aw else '',
-                cond.group(1).strip() if cond else '',
+            status = _frontmatter_scalar(fm, 'status')
+            superseded_by = _frontmatter_scalar(fm, 'superseded_by')
+            if status and status.lower() != 'active':
+                continue
+            if superseded_by.lower() not in {'', 'null', 'none', '[]', '[ ]'}:
+                continue
+            if atomic_id in idx:
+                continue
+            idx[atomic_id] = (
+                _frontmatter_scalar(fm, 'applies_when'),
+                _frontmatter_scalar(fm, 'condition'),
             )
-            if d:
-                desc_idx[m.group(1)] = d.group(1).strip()
+            description = _frontmatter_scalar(fm, 'description')
+            if description:
+                desc_idx[atomic_id] = description
+            meta_idx[atomic_id] = {
+                'scope': _frontmatter_scalar(fm, 'scope'),
+                'does_not_apply_when': _frontmatter_scalar(
+                    fm,
+                    'does_not_apply_when',
+                ),
+            }
     except Exception:
         pass
     _RULE_INDEX = idx
     _RULE_DESC_INDEX = desc_idx
+    _RULE_META_INDEX = meta_idx
     return idx
 
 
@@ -296,6 +391,15 @@ def read_rule_description(atomic_id: str) -> str:
     return (_RULE_DESC_INDEX or {}).get(atomic_id, '')
 
 
+def read_rule_metadata(atomic_id: str) -> dict[str, str]:
+    if _RULE_META_INDEX is None:
+        _build_index()
+    return (_RULE_META_INDEX or {}).get(
+        atomic_id,
+        {'scope': '', 'does_not_apply_when': ''},
+    )
+
+
 # When a rule has no explicit priority_tier, derive an ordering tier from its
 # confidence field so higher-confidence rules sort first. The real frontmatter
 # schema (SKILL.md) uses `confidence:`, not `priority_tier:`.
@@ -304,7 +408,7 @@ _CONFIDENCE_TIER = {'high': 1, 'medium': 2, 'low': 3}
 
 def _collect_all_rules():
     """Scan the memory dir and return EVERY rule as a dict for the progressive
-    backend: {id, tier, desc, when, path}.
+    backend: {id, tier, desc, when, scope, except, path}.
 
     Pure regex over the .md frontmatter — no PyYAML, no LLM call, no keyword
     matching. The progressive backend injects a one-line index of these every
@@ -329,12 +433,31 @@ def _collect_all_rules():
     priority_tier->confidence. Tuning only to the seed schema would render real
     promoted rules with an empty description and an inert tier sort."""
     rules = []
+    projected = _load_active_projection()
+    if projected is not None:
+        for item in projected:
+            confidence = str(item.get('confidence', '')).lower()
+            rules.append({
+                'id': str(item.get('atomic_id', '')),
+                'tier': _CONFIDENCE_TIER.get(confidence, 3),
+                'desc': str(item.get('description') or item.get('rule_text') or '').strip(),
+                'when': str(item.get('applies_when') or item.get('condition') or '').strip(),
+                'scope': str(item.get('scope') or '').strip(),
+                'except': str(item.get('does_not_apply_when') or '').strip(),
+                'path': os.path.join(MEMORY_DIR, f"{item.get('atomic_id', '')}.md"),
+            })
+        rules.sort(key=lambda r: (r['tier'], r['id']))
+        return rules
     try:
-        paths = glob.glob(os.path.join(MEMORY_DIR, '*.md'))
+        paths = []
+        for directory in _memory_scan_dirs():
+            paths.extend(glob.glob(os.path.join(directory, '*.md')))
     except Exception:
         return rules
+    seen_rule_ids = {}
     for path in paths:
-        if os.path.basename(path) == 'MEMORY.md':
+        basename = os.path.basename(path)
+        if basename == 'MEMORY.md' or basename.startswith('_archived_'):
             continue
         try:
             # utf-8-sig: a BOM would defeat the \A--- frontmatter fence.
@@ -348,24 +471,60 @@ def _collect_all_rules():
         # [A-Za-z0-9_-]); a `\d+` tail would truncate ids like
         # `wf-pref-3sync` to `wf-pref-3`.
         fm = _frontmatter_of(c)
-        m = re.search(r'^\s*atomic_id:\s*([A-Za-z0-9][A-Za-z0-9_-]*)', fm, re.MULTILINE)
-        if not m:
+        atomic_id = _frontmatter_scalar(fm, 'atomic_id')
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', atomic_id):
             continue
-        desc_m = (re.search(r'^\s*description:\s*(.+)$', fm, re.MULTILINE)
-                  or re.search(r'^\s*rule_text:\s*(.+)$', fm, re.MULTILINE))
-        when_m = (re.search(r'^\s*applies_when:\s*"?(.+?)"?\s*$', fm, re.MULTILINE)
-                  or re.search(r'^\s*condition:\s*"?(.+?)"?\s*$', fm, re.MULTILINE))
-        tier_m = re.search(r'^\s*priority_tier:\s*(\d+)', fm, re.MULTILINE)
-        if tier_m:
-            tier = int(tier_m.group(1))
+        status = _frontmatter_scalar(fm, 'status')
+        superseded_by = _frontmatter_scalar(fm, 'superseded_by')
+        if status and status.lower() != 'active':
+            continue
+        if superseded_by.lower() not in {'', 'null', 'none', '[]', '[ ]'}:
+            continue
+        description = (
+            _frontmatter_scalar(fm, 'description')
+            or _frontmatter_scalar(fm, 'rule_text')
+        )
+        applies_when = (
+            _frontmatter_scalar(fm, 'applies_when')
+            or _frontmatter_scalar(fm, 'condition')
+        )
+        scope = _frontmatter_scalar(fm, 'scope')
+        exception = _frontmatter_scalar(fm, 'does_not_apply_when')
+        tier_text = _frontmatter_scalar(fm, 'priority_tier')
+        if tier_text.isdigit():
+            tier = int(tier_text)
         else:
-            conf_m = re.search(r'^\s*confidence:\s*(\w+)', fm, re.MULTILINE)
-            tier = _CONFIDENCE_TIER.get(conf_m.group(1).lower(), 3) if conf_m else 3
+            confidence = _frontmatter_scalar(fm, 'confidence').lower()
+            tier = _CONFIDENCE_TIER.get(confidence, 3)
+        signature = hashlib.sha256(
+            json.dumps(
+                {
+                    'description': description,
+                    'when': applies_when,
+                    'scope': scope,
+                    'except': exception,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ).encode('utf-8')
+        ).hexdigest()
+        if atomic_id in seen_rule_ids:
+            if seen_rule_ids[atomic_id] == signature:
+                continue
+            base_id = f'{atomic_id}-legacy-{signature[:8]}'
+            atomic_id = base_id
+            suffix = 2
+            while atomic_id in seen_rule_ids:
+                atomic_id = f'{base_id}-{suffix}'
+                suffix += 1
+        seen_rule_ids[atomic_id] = signature
         rules.append({
-            'id': m.group(1),
+            'id': atomic_id,
             'tier': tier,
-            'desc': desc_m.group(1).strip() if desc_m else '',
-            'when': when_m.group(1).strip() if when_m else '',
+            'desc': description,
+            'when': applies_when,
+            'scope': scope,
+            'except': exception,
             'path': path,
         })
     # Stable order: tier ascending (1 = highest), then id.
@@ -457,6 +616,10 @@ def _render_progressive_lines(rules):
         line = f"- [{r['id']}] (tier{r['tier']}) {desc}"
         if r['when']:
             line += f" | when: {r['when'][:200]}"
+        if r['scope']:
+            line += f" | scope: {r['scope'][:120]}"
+        if r['except'] and r['except'].lower() not in {'(none)', 'none'}:
+            line += f" | except: {r['except'][:800]}"
         lines.append(line)
     if len(shown) < len(rules):
         # 'turns' on Claude Code / Codex (per-prompt injection); 'sessions' on
@@ -472,23 +635,82 @@ def _render_progressive_lines(rules):
             "Set progressive_max in ~/.tellonce.config.json "
             "or PT_PROGRESSIVE_MAX to widen the window; 0 = show all.)"
         )
-    lines.append('(These are your recorded preferences. Judge each rule against the current task; apply those that apply, skip those that do not.)')
+    lines.append(
+        '(Evaluate every rule independently using explicit evidence from the '
+        'current task. Topic similarity or possible future usefulness is not '
+        'enough. Apply the minimum sufficient set, continue scanning after a '
+        'match, and skip rules whose scope, when, or exception excludes them.)'
+    )
     return '\n'.join(lines)
 
 
-def _emit_progressive(event_name: str) -> None:
-    """Emit the progressive full-index injection as hookSpecificOutput JSON.
-    Silent (no output) when there are no rules yet."""
-    rules = _collect_all_rules()
-    if not rules:
+def _render_pending_clarifications(presentation_key: str = '') -> str:
+    """Render unresolved semantic questions without reviving the old gate."""
+    try:
+        enabled = os.environ.get('PT_MEMORY_UPSERT_ENABLED')
+        if enabled is None:
+            enabled = os.environ.get('B5_MEMORY_UPSERT_ENABLED')
+        if enabled is None:
+            enabled = _USER_CONFIG.get('memory_upsert_enabled', False)
+        if str(enabled).strip().lower() not in {'1', 'true', 'yes', 'on'}:
+            return ''
+        memory_dir = path_config.get_memory_dir()
+        if not os.path.isfile(os.path.join(memory_dir, memory_store.DB_FILENAME)):
+            return ''
+        store = memory_store.MemoryStore(memory_dir)
+        pending = store.needs_user_turns(limit=3)
+    except Exception:
+        return ''
+    if not pending:
+        return ''
+    memory_upsert.record_clarification_presentation(
+        memory_dir,
+        presentation_key,
+        [item['turn_key'] for item in pending],
+    )
+    lines = [
+        '### Tellonce needs one lightweight clarification before saving memory:',
+        (
+            'Use the current user message and conversation context first. If the '
+            'current message clearly answers an item, proceed without asking it '
+            'again; otherwise ask the user one concise question. Do not treat the '
+            'quoted source below as new authorization by itself. The user can '
+            'dismiss an obsolete item with `memory_upsert.py dismiss --turn-key <id>`.'
+        ),
+    ]
+    for item in pending:
+        source = re.sub(r'\s+', ' ', str(item.get('source_text', ''))).strip()[:500]
+        reason = str(item.get('reason', '')).strip()[:500]
+        lines.append(f"- turn_key={item['turn_key']}: {reason or 'semantic scope remains ambiguous'}")
+        if source:
+            lines.append(f"  original turn excerpt: {source}")
+    return '\n'.join(lines)
+
+
+def _emit_context(event_name: str, parts: list[str]) -> None:
+    context = '\n\n---\n\n'.join(part for part in parts if part)
+    if not context:
         return
     out = {
         'hookSpecificOutput': {
             'hookEventName': event_name,
-            'additionalContext': _render_progressive_lines(rules),
+            'additionalContext': context,
         }
     }
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
+
+
+def _emit_progressive(event_name: str, presentation_key: str = '') -> None:
+    """Emit the progressive full-index injection as hookSpecificOutput JSON.
+    Silent (no output) when there are no rules yet."""
+    rules = _collect_all_rules()
+    parts = []
+    if rules:
+        parts.append(_render_progressive_lines(rules))
+    clarification = _render_pending_clarifications(presentation_key)
+    if clarification:
+        parts.append(clarification)
+    _emit_context(event_name, parts)
 
 
 def _write_debug(record):
@@ -505,18 +727,39 @@ def _write_debug(record):
         pass
 
 
-def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
-    """Build (cmd_argv, output_file_path_or_None) for the configured CLI.
+def _build_cli_invocation(
+    prompt: str,
+) -> tuple[list[str], str | None, str | None, bool]:
+    """Build command, output path, prompt path, and stdin mode.
 
     Dispatches by B5_RETRIEVE_CLI:
-      - 'claude': prompt is positional arg, output on stdout
+      - 'claude': prompt via stdin, output on stdout
       - 'codex':  prompt via stdin, output written to --output-last-message file
-    Returns (None, None) on unknown CLI.
+    Returns an empty command on unknown CLI.
     """
     if RETRIEVE_CLI in ('copilot', 'claude'):
-        # Copilot/Claude CLI: prompt is positional arg, output on stdout.
         cli_cmd = 'copilot' if RETRIEVE_CLI == 'copilot' else 'claude'
-        cmd = [cli_cmd, '-p', prompt]
+        prompt_file = None
+        prompt_on_stdin = RETRIEVE_CLI == 'claude'
+        if prompt_on_stdin:
+            cmd = [cli_cmd, '-p']
+        elif os.name == 'nt' and len(prompt) > 16000:
+            prompt_fd, prompt_file = tempfile.mkstemp(
+                prefix='tellonce-retrieve-prompt-',
+                suffix='.txt',
+            )
+            os.close(prompt_fd)
+            with open(prompt_file, 'w', encoding='utf-8', newline='\n') as handle:
+                handle.write(prompt)
+            cmd = [
+                cli_cmd,
+                '-p',
+                f'Follow the complete retrieval prompt in '
+                f'@{os.path.basename(prompt_file)} exactly. '
+                'Return only the requested JSON array.',
+            ]
+        else:
+            cmd = [cli_cmd, '-p', prompt]
         # Only pass --model when set; some runtimes (Copilot) reject an explicit
         # Claude model name, so RETRIEVE_MODEL is empty there and the CLI uses
         # its own default model.
@@ -528,7 +771,7 @@ def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
         # for Copilot we rely on the B5_RETRIEVE_RECURSION_GUARD env var.
         if RETRIEVE_CLI == 'claude':
             cmd.extend(['--setting-sources', 'project'])
-        return (cmd, None)
+        return (cmd, None, prompt_file, prompt_on_stdin)
     if RETRIEVE_CLI == 'codex':
         # codex exec reads prompt from stdin, writes last assistant text to a
         # file via --output-last-message. --ephemeral + --ignore-user-config +
@@ -544,8 +787,10 @@ def _build_cli_invocation(prompt: str) -> tuple[list[str], str | None]:
              '-c', 'model_reasoning_effort="low"',
              '--output-last-message', out_path],
             out_path,
+             None,
+             True,
         )
-    return ([], None)
+    return ([], None, None, False)
 
 
 def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
@@ -558,56 +803,16 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
     UPS hook short-circuits, avoiding an infinite loop.
     """
     if not user_prompt:
-        return []
+        return None
     if RETRIEVE_RECURSION_GUARD:
-        # Nested CLI session — don't re-fire retrieval, return empty so
-        # caller falls back to keyword.
-        return []
-    rules_for_prompt = []
-    seen_ids = set()
-    for atomic_id, rule in (fps_dict or {}).items():
-        if not isinstance(rule, dict) or atomic_id in seen_ids:
-            continue
-        seen_ids.add(atomic_id)
-        desc = (rule.get('desc') or '')[:140]
-        applies_when, _cond = memory_idx.get(atomic_id, ('', ''))
-        rules_for_prompt.append({
-            'id': atomic_id,
-            'desc': desc,
-            'applies_when': (applies_when or '')[:200],
-            'priority': rule.get('priority', 'normal'),
-            'action': (rule.get('action') or '')[:140],
-        })
-    for atomic_id, (applies_when, _cond) in memory_idx.items():
-        if atomic_id in seen_ids:
-            continue
-        seen_ids.add(atomic_id)
-        rules_for_prompt.append({
-            'id': atomic_id,
-            'desc': '',
-            'applies_when': (applies_when or '')[:200],
-            'priority': 'normal',
-            'action': '',
-        })
+        # Nested CLI session — don't re-fire retrieval; signal backend
+        # unavailability so the outer caller can use its local fallback.
+        return None
+    rules_for_prompt = _build_rules_for_prompt(fps_dict, memory_idx)
     if not rules_for_prompt:
         return []
-    rules_for_prompt = rules_for_prompt[:RETRIEVE_HAIKU_RULE_LIMIT]
-
-    rules_lines = [
-        f"- {r['id']}: {r['desc']}" + (f" | applies_when: {r['applies_when']}" if r['applies_when'] else '')
-        for r in rules_for_prompt
-    ]
-    rules_text = '\n'.join(rules_lines)
     prompt_text = user_prompt[:RETRIEVE_HAIKU_PROMPT_BUDGET]
-    prompt = (
-        "You select which preference rules apply to a user message.\n\n"
-        "User message:\n\"\"\"\n" + prompt_text + "\n\"\"\"\n\n"
-        "Available rules (one per line, format `atomic_id: description | applies_when: ...`):\n"
-        + rules_text + "\n\n"
-        "Return ONLY a JSON array of atomic_id strings for rules that apply, no prose.\n"
-        "Example: [\"fmt-pref-001\", \"tool-pref-002\"]\n"
-        "If no rule applies, return [].\n"
-    )
+    prompt = _build_llm_prompt_text(prompt_text, rules_for_prompt)
 
     debug = path_config.pt_env('RETRIEVE_DEBUG') == '1'
     debug_record = {
@@ -619,11 +824,11 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         'prompt_truncated_len': len(prompt_text),
     }
 
-    cmd, out_path = _build_cli_invocation(prompt)
+    cmd, out_path, prompt_file, prompt_on_stdin = _build_cli_invocation(prompt)
     if not cmd:
         debug_record['err'] = f'unknown B5_RETRIEVE_CLI={RETRIEVE_CLI!r}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
 
     # Child CLI sessions must NOT re-fire any PT hook AND must
     # NOT inherit the outer Claude Code session's SSE-mode env vars. If
@@ -632,11 +837,12 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
     # response over the SSE channel instead of stdout — retrieve gets
     # back len=1 ('\n') and falls back to keyword.
     child_env = dict(os.environ)
+    child_env['PT_CHILD_SESSION'] = '1'
     # Recursion guard for our own hook scripts (CC + Codex check this).
     child_env['B5_RETRIEVE_RECURSION_GUARD'] = '1'
     # Disable all PT hooks in the inner session so its Stop hook chain
     # (check-observation-log / deterministic-block / verify-compliance /
-    # shadow-judge / pending-promote) doesn't return decision=block and
+    # shadow-judge / memory-upsert) doesn't interfere with the child result and
     # turn the result into terminal_reason=stop_hook_prevented.
     child_env['B5_DETERMINISTIC_DISABLED'] = '1'
     child_env['B5_SHADOW_DISABLED'] = '1'
@@ -654,12 +860,11 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         child_env.pop(k, None)
 
     # Run inner CLI from temp dir so no project settings get loaded.
-    inner_cwd = os.environ.get('TEMP', os.environ.get('TMPDIR', '/tmp'))
+    inner_cwd = tempfile.gettempdir()
     out = ''
     try:
         t0 = time.time()
-        if RETRIEVE_CLI == 'codex':
-            # codex reads prompt from stdin
+        if prompt_on_stdin:
             proc = subprocess.run(
                 cmd, input=prompt,
                 capture_output=True, text=True, encoding='utf-8',
@@ -681,7 +886,7 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         if proc.returncode != 0:
             debug_record['err'] = f'rc={proc.returncode} stderr={(proc.stderr or "")[:200]}'
             _write_debug(debug_record) if debug else None
-            return []
+            return None
         # claude: stdout = response. codex: read out_path file.
         if out_path and os.path.isfile(out_path):
             try:
@@ -695,15 +900,17 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         debug_record['err'] = f'{type(e).__name__}: {str(e)[:200]}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     except Exception as e:
         debug_record['err'] = f'{type(e).__name__}: {str(e)[:200]}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     finally:
-        if out_path:
+        for cleanup_path in (out_path, prompt_file):
+            if not cleanup_path:
+                continue
             try:
-                os.unlink(out_path)
+                os.unlink(cleanup_path)
             except OSError:
                 pass
 
@@ -712,17 +919,17 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
         debug_record['err'] = f'no JSON array in stdout (len={len(out)})'
         debug_record['stdout_head'] = out[:200]
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     try:
         ids = json.loads(m.group())
     except (json.JSONDecodeError, ValueError) as e:
         debug_record['err'] = f'json decode: {e}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     if not isinstance(ids, list):
         debug_record['err'] = f'not a list: {type(ids).__name__}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     debug_record['ids'] = ids
     _write_debug(debug_record) if debug else None
 
@@ -741,6 +948,8 @@ def _retrieve_via_cli(user_prompt, fps_dict, memory_idx):
             'desc': r['desc'],
             'action': r['action'],
         })
+    if ids and not hits:
+        return None
     return hits
 
 
@@ -766,22 +975,30 @@ def _build_rules_for_prompt(fps_dict, memory_idx):
         if not desc:
             desc = read_rule_description(atomic_id)
         desc = desc[:140]
-        applies_when, _cond = memory_idx.get(atomic_id, ('', ''))
+        applies_when, condition = memory_idx.get(atomic_id, ('', ''))
+        effective_when = applies_when or condition
+        metadata = read_rule_metadata(atomic_id)
         rules_for_prompt.append({
             'id': atomic_id,
             'desc': desc,
-            'applies_when': (applies_when or '')[:200],
+            'applies_when': effective_when[:200],
+            'scope': metadata['scope'][:120],
+            'does_not_apply_when': metadata['does_not_apply_when'][:800],
             'priority': rule.get('priority', 'normal'),
             'action': (rule.get('action') or '')[:140],
         })
-    for atomic_id, (applies_when, _cond) in memory_idx.items():
+    for atomic_id, (applies_when, condition) in memory_idx.items():
         if atomic_id in seen_ids:
             continue
         seen_ids.add(atomic_id)
+        metadata = read_rule_metadata(atomic_id)
+        effective_when = applies_when or condition
         rules_for_prompt.append({
             'id': atomic_id,
             'desc': read_rule_description(atomic_id)[:140],
-            'applies_when': (applies_when or '')[:200],
+            'applies_when': effective_when[:200],
+            'scope': metadata['scope'][:120],
+            'does_not_apply_when': metadata['does_not_apply_when'][:800],
             'priority': 'normal',
             'action': '',
         })
@@ -790,7 +1007,15 @@ def _build_rules_for_prompt(fps_dict, memory_idx):
 
 def _build_llm_prompt_text(user_prompt, rules_for_prompt):
     rules_lines = [
-        f"- {r['id']}: {r['desc']}" + (f" | applies_when: {r['applies_when']}" if r['applies_when'] else '')
+        f"- {r['id']}: {r['desc']}"
+        + (f" | applies_when: {r['applies_when']}" if r['applies_when'] else '')
+        + (f" | scope: {r['scope']}" if r.get('scope') else '')
+        + (
+            f" | does_not_apply_when: {r['does_not_apply_when']}"
+            if r.get('does_not_apply_when')
+            and r['does_not_apply_when'].lower() not in {'(none)', 'none'}
+            else ''
+        )
         for r in rules_for_prompt
     ]
     rules_text = '\n'.join(rules_lines)
@@ -798,8 +1023,12 @@ def _build_llm_prompt_text(user_prompt, rules_for_prompt):
     return (
         "You select which preference rules apply to a user message.\n\n"
         "User message:\n\"\"\"\n" + prompt_text + "\n\"\"\"\n\n"
-        "Available rules (one per line, format `atomic_id: description | applies_when: ...`):\n"
+        "Available rules (one per line with applicability metadata):\n"
         + rules_text + "\n\n"
+        "Evaluate every rule independently. Select a rule only when explicit "
+        "evidence in the message satisfies its applicability and no exception "
+        "matches. Topic similarity or possible future usefulness is not enough. "
+        "Continue scanning after a match and return the minimum sufficient set.\n\n"
         "Return ONLY a JSON array of atomic_id strings for rules that apply, no prose.\n"
         "Example: [\"fmt-pref-001\", \"tool-pref-002\"]\n"
         "If no rule applies, return [].\n"
@@ -854,8 +1083,8 @@ def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
     OpenRouter / etc) for retrieve. No CLI cold-start, no nested-hook
     issue — fastest path, but uses an API key (not subscription).
 
-    Returns hit list; on any failure returns [] so caller falls back to
-    keyword backend.
+    Returns a hit list, including [] for a successful no-match. Returns None on
+    failure so the caller can distinguish failure from semantic rejection.
     """
     if not user_prompt or RETRIEVE_RECURSION_GUARD:
         return []
@@ -877,7 +1106,7 @@ def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
     if not url:
         debug_record['err'] = 'api endpoint config incomplete (base_url or api_key missing)'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
 
     body = json.dumps({
         'model': RETRIEVE_MODEL,
@@ -900,13 +1129,13 @@ def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
         except json.JSONDecodeError as e:
             debug_record['err'] = f'response not JSON: {e}; head={raw[:200]}'
             _write_debug(debug_record) if debug else None
-            return []
+            return None
         choices = obj.get('choices') or []
         if not choices:
             err_field = obj.get('error') or obj.get('message') or {}
             debug_record['err'] = f'no choices; error={str(err_field)[:200]}'
             _write_debug(debug_record) if debug else None
-            return []
+            return None
         out = (choices[0].get('message') or {}).get('content') or ''
         debug_record['stdout_len'] = len(out)
     except _urlerr.HTTPError as e:
@@ -917,26 +1146,26 @@ def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
             pass
         debug_record['err'] = f'HTTP {e.code}: {body_excerpt}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     except Exception as e:
         debug_record['err'] = f'{type(e).__name__}: {str(e)[:200]}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
 
     m = re.search(r'\[[^\[\]]*\]', out, re.DOTALL)
     if not m:
         debug_record['err'] = f'no JSON array in response (len={len(out)})'
         debug_record['stdout_head'] = out[:200]
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     try:
         ids = json.loads(m.group())
     except (json.JSONDecodeError, ValueError) as e:
         debug_record['err'] = f'json decode: {e}'
         _write_debug(debug_record) if debug else None
-        return []
+        return None
     if not isinstance(ids, list):
-        return []
+        return None
     debug_record['ids'] = ids
     _write_debug(debug_record) if debug else None
 
@@ -955,6 +1184,8 @@ def _retrieve_via_api(user_prompt, fps_dict, memory_idx):
             'desc': r['desc'],
             'action': r['action'],
         })
+    if ids and not hits:
+        return None
     return hits
 
 
@@ -1002,13 +1233,15 @@ def main():
     if not prompt:
         sys.exit(0)
     prompt_scan = prompt[:PROMPT_TRUNCATE].lower()
+    presentation_key = transcript_adapter.get_presentation_key(data)
 
     # Progressive backend: inject the rule index every turn (capped + rotating
     # under PROGRESSIVE_MAX) and let the main model judge applicability. No
     # prompt filtering, no LLM, no PyYAML.
     if RETRIEVE_BACKEND == 'progressive':
-        _emit_progressive('UserPromptSubmit')
+        _emit_progressive('UserPromptSubmit', presentation_key)
         return
+    clarification = _render_pending_clarifications(presentation_key)
 
     try:
         import yaml  # noqa: F401  (kept so the guard below still exits cleanly if missing)
@@ -1017,22 +1250,23 @@ def main():
 
     fps = _load_fingerprints()
 
-    # Backend dispatch. cli/api both fall back to keyword
-    # on any failure so the user never loses retrieval.
+    # Backend dispatch. cli/api fall back to keyword only on backend failure;
+    # a valid semantic [] must remain a no-match or exclusions are bypassed.
     if RETRIEVE_BACKEND == 'api':
         memory_idx = _build_index()
         hits = _retrieve_via_api(prompt, fps, memory_idx)
-        if not hits:
+        if hits is None:
             hits = _retrieve_via_keyword(prompt, fps)
     elif RETRIEVE_BACKEND == 'cli':
         memory_idx = _build_index()
         hits = _retrieve_via_cli(prompt, fps, memory_idx)
-        if not hits:
+        if hits is None:
             hits = _retrieve_via_keyword(prompt, fps)
     else:
         hits = _retrieve_via_keyword(prompt, fps)
 
     if not hits:
+        _emit_context('UserPromptSubmit', [clarification])
         sys.exit(0)
 
     priority_order = {'critical': 0, 'high': 1, 'normal': 2}
@@ -1043,6 +1277,7 @@ def main():
     lines.append('')
     for h in hits[:MAX_SHOW]:
         applies_when, condition = read_rule_applicability(h['id'])
+        metadata = read_rule_metadata(h['id'])
         # Desc-fallback: keyword-backend hits may have empty desc
         # if the rule is memory-only (not in fingerprints.yaml). Fall back
         # to the .md frontmatter `description:` so the rendered block has
@@ -1055,20 +1290,22 @@ def main():
             lines.append(f"    • applies_when: {applies_when[:200]}")
         if condition:
             lines.append(f"    • condition: {condition[:120]}")
+        if metadata['scope']:
+            lines.append(f"    • scope: {metadata['scope'][:120]}")
+        exception = metadata['does_not_apply_when']
+        if exception and exception.lower() not in {'(none)', 'none', '[]', '[ ]'}:
+            lines.append(f"    • does_not_apply_when: {exception[:800]}")
         lines.append(f"    • triggered by: {h['trigger']}")
     lines.append('')
-    lines.append('(Memory retrieval + applicability gate. Respect these unless applies_when rules out current context.)')
+    lines.append(
+        '(Memory retrieval + applicability gate. Apply only when scope and '
+        'applicability match and no does_not_apply_when exception holds.)'
+    )
 
-    out = {
-        'hookSpecificOutput': {
-            'hookEventName': 'UserPromptSubmit',
-            'additionalContext': '\n'.join(lines),
-        }
-    }
-    sys.stdout.write(json.dumps(out, ensure_ascii=False))
+    _emit_context('UserPromptSubmit', ['\n'.join(lines), clarification])
 
 
-def session_start_summary():
+def session_start_summary(data=None):
     """SessionStart mode: inject saved rules without prompt matching.
 
     At session start there is no user prompt, so keyword/CLI/API matching can't
@@ -1077,10 +1314,12 @@ def session_start_summary():
     Legacy backends fall back to scanning fingerprints.yaml for critical/high
     rules only.
     """
+    presentation_key = transcript_adapter.get_presentation_key(data or {})
     # Progressive backend: inject the full rule index once at session start.
     if RETRIEVE_BACKEND == 'progressive':
-        _emit_progressive('SessionStart')
+        _emit_progressive('SessionStart', presentation_key)
         return
+    clarification = _render_pending_clarifications(presentation_key)
 
     try:
         import yaml
@@ -1115,6 +1354,7 @@ def session_start_summary():
     # via keyword/CLI/API retrieval when available.
 
     if not candidates:
+        _emit_context('SessionStart', [clarification])
         sys.exit(0)
 
     candidates.sort(key=lambda h: priority_order.get(h['priority'], 3))
@@ -1124,6 +1364,7 @@ def session_start_summary():
     lines.append('')
     for h in candidates[:MAX_SHOW]:
         applies_when, condition = read_rule_applicability(h['id'])
+        metadata = read_rule_metadata(h['id'])
         desc = h.get('desc') or read_rule_description(h['id'])
         lines.append(f"- **[{h['id']}]** ({h['priority']}) {desc}")
         if h['action']:
@@ -1132,22 +1373,25 @@ def session_start_summary():
             lines.append(f"    • applies_when: {applies_when[:200]}")
         if condition:
             lines.append(f"    • condition: {condition[:120]}")
+        if metadata['scope']:
+            lines.append(f"    • scope: {metadata['scope'][:120]}")
+        exception = metadata['does_not_apply_when']
+        if exception and exception.lower() not in {'(none)', 'none', '[]', '[ ]'}:
+            lines.append(f"    • does_not_apply_when: {exception[:800]}")
     lines.append('')
     lines.append('(Session-start memory retrieval. Full prompt-based matching fires per-turn in Claude; Copilot injects at session start only.)')
 
-    out = {
-        'hookSpecificOutput': {
-            'hookEventName': 'SessionStart',
-            'additionalContext': '\n'.join(lines),
-        }
-    }
-    sys.stdout.write(json.dumps(out, ensure_ascii=False))
+    _emit_context('SessionStart', ['\n'.join(lines), clarification])
 
 
 if __name__ == '__main__':
     try:
         if '--session-start' in sys.argv:
-            session_start_summary()
+            try:
+                session_data = json.load(sys.stdin)
+            except Exception:
+                session_data = {}
+            session_start_summary(session_data)
         else:
             main()
     except SystemExit:

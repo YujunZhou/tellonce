@@ -27,6 +27,7 @@ HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"
 STATE_DIR="${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/runtime}}"
 OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/obs_log}}"
+MEMORY_DIR="$(PYTHONPATH="${SKILL_DIR}/lib${PYTHONPATH:+:${PYTHONPATH}}" python3 -c 'import path_config; print(path_config.get_memory_dir())')"
 CONFIG_FILE="${HOME}/.tellonce.config.json"
 
 KEEP_SKILL_DIR=false
@@ -183,14 +184,15 @@ fi
 echo ""
 echo "[4/5] state + memory:"
 if [[ "${PURGE_STATE}" == true ]]; then
-    echo "  - rm state + obs_log (--purge-state):"
+    echo "  - rm state + obs_log + shared memory (--purge-state):"
     _refuse_dangerous_path STATE_DIR "${STATE_DIR}"
     _refuse_dangerous_path OBS_LOG_DIR "${OBS_LOG_DIR}"
+    _refuse_dangerous_path MEMORY_DIR "${MEMORY_DIR}"
     # Interactive confirm before destroying observation history (matches the
     # header's "double-confirm on --purge-state" promise). Non-interactive
     # callers (no tty) keep the old behavior: the flag itself is the consent.
     if [[ -t 0 ]]; then
-        read -p "  Really delete ${STATE_DIR} and ${OBS_LOG_DIR}? (y/N) " ans || ans="N"
+        read -p "  Really delete ${STATE_DIR}, ${OBS_LOG_DIR}, and ${MEMORY_DIR}? (y/N) " ans || ans="N"
         if [[ "${ans}" != "y" && "${ans}" != "Y" ]]; then
             echo "  - keeping state + obs_log (declined)"
             PURGE_STATE=false
@@ -198,14 +200,15 @@ if [[ "${PURGE_STATE}" == true ]]; then
     fi
 fi
 if [[ "${PURGE_STATE}" == true ]]; then
-    rm -rf "${STATE_DIR}" "${OBS_LOG_DIR}"
+    rm -rf "${STATE_DIR}" "${OBS_LOG_DIR}" "${MEMORY_DIR}"
     echo "    rm -rf ${STATE_DIR}"
     echo "    rm -rf ${OBS_LOG_DIR}"
+    echo "    rm -rf ${MEMORY_DIR}"
 else
     echo "  - state + obs_log + memory kept (user data)"
     echo "    state: ${STATE_DIR}"
     echo "    obs_log: ${OBS_LOG_DIR}"
-    echo "    memory: ~/.claude/projects/<cwd_escaped>/memory/ (untouched)"
+    echo "    memory: ${MEMORY_DIR} (untouched)"
     echo ""
     echo "  Full delete: bash ${SKILL_DIR}/uninstall.sh --purge-state"
 fi
