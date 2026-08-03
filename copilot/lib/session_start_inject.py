@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # Windows pipes default to cp1252; we print Chinese additionalContext, which
@@ -88,6 +89,42 @@ def _run_entry(script_name: str, args: list[str] | None = None, *, stdin_text: s
     return result.stdout.strip()
 
 
+def _wait_for_pending_upsert(timeout_seconds: float = 5.0) -> bool:
+    """Give the prior Stop worker a short chance to publish before injection."""
+    try:
+        import path_config
+
+        path_config.get_project_root.cache_clear()
+        path_config.get_memory_dir.cache_clear()
+        memory_dir = Path(path_config.get_memory_dir())
+    except Exception:
+        return False
+    deadline = time.time() + max(0.0, timeout_seconds)
+    while time.time() < deadline:
+        inbox_pending = bool(list((memory_dir / '.tellonce-inbox').glob('*.json')))
+        database_pending = False
+        db_path = memory_dir / '.tellonce.sqlite3'
+        if db_path.is_file():
+            try:
+                import sqlite3
+
+                conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=0.2)
+                try:
+                    database_pending = bool(
+                        conn.execute(
+                            "SELECT 1 FROM turns WHERE status IN ('pending','resolving') LIMIT 1"
+                        ).fetchone()
+                    )
+                finally:
+                    conn.close()
+            except Exception:
+                database_pending = True
+        if not inbox_pending and not database_pending:
+            return False
+        time.sleep(0.2)
+    return True
+
+
 def main() -> None:
     # Child-session guard: if this SessionStart fired inside a nested `copilot -p`
     # subprocess that the skill itself spawned (e.g. the shadow judge), do nothing
@@ -113,6 +150,11 @@ def main() -> None:
 
     parts: list[str] = []
     forwarded_input = raw_input if raw_input.strip() else '{}'
+    if _wait_for_pending_upsert():
+        parts.append(
+            'Tellonce 仍在处理上一会话的偏好更新；本次注入可能暂时缺少最新一条。'
+            '处理完成后重新启动会话即可获得最终规则。'
+        )
 
     # SessionStart mode: use --session-start to inject top critical/high rules
     # without prompt matching. This replaces the v1 no-op behavior.

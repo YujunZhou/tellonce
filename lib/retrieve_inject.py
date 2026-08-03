@@ -265,16 +265,41 @@ def _frontmatter_scalar(frontmatter: str, field: str) -> str:
 
 def _load_active_projection():
     """Return the authoritative active-rule projection, or None if unavailable."""
-    path = os.path.join(MEMORY_DIR, _ACTIVE_INDEX_FILENAME)
-    try:
-        with open(path, encoding='utf-8-sig') as f:
-            payload = json.load(f)
-        active = payload.get('active')
-        if not isinstance(active, list):
-            return None
-        return [item for item in active if isinstance(item, dict) and item.get('atomic_id')]
-    except Exception:
+    db_path = os.path.join(MEMORY_DIR, memory_store.DB_FILENAME)
+    if not os.path.isfile(db_path):
         return None
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            db_active = [
+                dict(item)
+                for item in conn.execute(
+                    """
+                    SELECT r.atomic_id, r.type, r.domain, r.scope,
+                           v.description, v.rule_text, v.condition,
+                           v.confidence, v.applies_when,
+                           v.does_not_apply_when, v.content_hash
+                    FROM rules r
+                    JOIN rule_versions v
+                      ON v.atomic_id=r.atomic_id
+                     AND v.revision=r.current_revision
+                    WHERE r.status='active' AND r.superseded_by IS NULL
+                    ORDER BY r.domain, r.type, r.atomic_id
+                    """
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+        # SQLite is the sole authority. Reading the canonical rows directly
+        # prevents a project-authored projection from replacing rule content
+        # while reusing valid IDs.
+        return db_active
+    except Exception:
+        # A present-but-unreadable canonical database is not a legacy store.
+        # Fail closed instead of trusting mutable Markdown projections.
+        return []
 
 
 def _memory_scan_dirs():
@@ -1241,12 +1266,11 @@ def main():
     if RETRIEVE_BACKEND == 'progressive':
         _emit_progressive('UserPromptSubmit', presentation_key)
         return
-    clarification = _render_pending_clarifications(presentation_key)
-
     try:
         import yaml  # noqa: F401  (kept so the guard below still exits cleanly if missing)
     except ImportError:
         sys.exit(0)
+    clarification = _render_pending_clarifications(presentation_key)
 
     fps = _load_fingerprints()
 
@@ -1319,12 +1343,11 @@ def session_start_summary(data=None):
     if RETRIEVE_BACKEND == 'progressive':
         _emit_progressive('SessionStart', presentation_key)
         return
-    clarification = _render_pending_clarifications(presentation_key)
-
     try:
         import yaml
     except ImportError:
         sys.exit(0)
+    clarification = _render_pending_clarifications(presentation_key)
 
     fps = _load_fingerprints()
     memory_idx = _build_index()

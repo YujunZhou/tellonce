@@ -57,8 +57,9 @@ removes the hook registration; the hook `.sh` files stay where they are (they
 live in the skill directory, not in your project). Reinstalling restores all
 state.
 
-Use the `--purge-state` flag to delete everything (it asks for confirmation
-when run interactively).
+Use `--purge-state` to delete runtime state and logs. Add `--purge-memory` to
+also delete the memory shared by Claude Code, Copilot, and Codex (interactive
+runs ask for confirmation).
 
 ---
 

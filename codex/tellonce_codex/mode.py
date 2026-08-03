@@ -51,7 +51,12 @@ def write_mode(
             if prior.wrapper_seen and not wrapper_seen:
                 wrapper_seen = True
 
-    data = Mode(mode=mode, hooks=hooks, blocking=False, wrapper_seen=wrapper_seen)
+    data = Mode(
+        mode=mode,
+        hooks=hooks,
+        blocking=(mode == "blocking"),
+        wrapper_seen=wrapper_seen,
+    )
     secure_write_text(state_root / "mode.json", json.dumps(data.__dict__, indent=2) + "\n", atomic=True)
     return data
 

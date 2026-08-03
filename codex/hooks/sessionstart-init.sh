@@ -39,6 +39,9 @@ except Exception:
 if [[ -z "${CODEX_CWD}" || ! -d "${CODEX_CWD}" ]]; then
     exit 0
 fi
+if [[ -f "${CODEX_CWD}/.codex/tellonce.disabled" ]]; then
+    exit 0
+fi
 
 # Already initialized?
 if [[ -f "${CODEX_CWD}/.codex/tellonce/registration.json" ]]; then

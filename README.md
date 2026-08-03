@@ -16,8 +16,11 @@ language. To leave unrelated code alone. Three turns later it does it again.
 Tellonce watches each turn, records the preferences, pitfalls, and
 workflow rules it detects, and can hard-enforce the ones you care about.
 
-It is **safe by default**: out of the box it only records and reminds. It never
-blocks you and never sends your conversation anywhere until you opt in.
+It is **non-blocking by default**: out of the box it records and reminds but
+does not hard-block replies. Recording or merging a preference uses the current
+platform's CLI model on a redacted copy of that turn; installing/invoking
+Tellonce opts into that model-backed memory step. The separate per-reply shadow
+judge remains off until you enable it.
 
 ## ✨ Highlights
 
@@ -25,9 +28,9 @@ blocks you and never sends your conversation anywhere until you opt in.
   pitfall / friction signals and recorded automatically.
 - 🛡️ **Opt-in enforcement.** Turn it on and replies that violate your saved
   rules are blocked, and the agent fixes them in the same turn.
-- 🔒 **Private by default.** All records stay on your machine, and the optional
-  LLM judge is off by default — when enabled it only ever sees a redacted
-  snippet and runs through your own subscription. (Rule *retrieval* is fully
+- 🔒 **Local canonical storage.** The SQLite memory remains on your machine.
+  Model-backed upsert and the optional shadow judge receive redacted text
+  through your own platform subscription. (Rule *retrieval* is fully
   local by default — the `progressive` backend just reads your saved rule files,
   no model call; opt into small-model matching with `PT_RETRIEVE_BACKEND=cli`.)
 - ⚡ **Runs on Claude Code, Codex, and GitHub Copilot CLI** (one-command install
@@ -123,20 +126,20 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-One-command bootstrap (recommended — pinned to the immutable tag `v1.3.2`, SHA256
+One-command bootstrap (recommended — pinned to the immutable tag `v1.4.0`, SHA256
 published for pre-verification, see
 [`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
 ```
 
 It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with
@@ -184,13 +187,12 @@ python "<plugin>/lib/pt_mode.py" full      # hard blocking + LLM judge
 python "<plugin>/lib/pt_mode.py" status    # show the current mode
 ```
 
-**Privacy:** all records stay local in every mode. Only `full` sends the
-last message and reply (redacted) to `copilot -p` for scoring, on your own
-subscription. Rule retrieval is fully local by default (the `progressive`
-backend just reads your saved rule files); `PT_RETRIEVE_BACKEND=cli` opts into
-your own subscription's small model. The `full` judge additionally needs
-`PT_SHADOW_RULE_IDS` set to the rule ids you want checked — `pt_mode.py full`
-prints a reminder.
+**Privacy:** canonical storage and progressive retrieval stay local.
+Preference recording/merging calls the current platform's CLI model with a
+redacted turn, including Skill-driven manual recording when automatic hooks are
+off. `full` additionally sends the redacted latest message and reply to the CLI
+model for compliance scoring. For fully offline use, disable memory upsert and
+the shadow judge, and keep progressive retrieval.
 
 ## How it works
 

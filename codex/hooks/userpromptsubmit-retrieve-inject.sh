@@ -72,11 +72,6 @@ if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
     export B5_PROJECT_ROOT="${CODEX_CWD}"
 fi
 
-# All platforms share the project-local Tellonce truth store.
-if [[ -z "${B5_MEMORY_DIR:-}" && -n "${B5_PROJECT_ROOT:-}" ]]; then
-    export B5_MEMORY_DIR="${B5_PROJECT_ROOT}/.tellonce/memory"
-fi
-
 # Run retrieve_inject. PYTHONIOENCODING=utf-8 prevents stdout from crashing when LANG is not utf-8.
 printf '%s' "${PT_STDIN}" | PYTHONIOENCODING=utf-8 PYTHONPATH="${SHARED_LIB}" \
     _pt_timeout 30 python3 "${SHARED_LIB}/retrieve_inject.py" 2>/dev/null

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # uninstall.sh — ONE-COMMAND uninstaller for tellonce (GitHub Copilot CLI, macOS/Linux).
 #
-#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.sh | bash
 #
 # WHY THIS EXISTS: the hooks keep firing as long as the plugin is REGISTERED in
 # ~/.copilot/config.json — deleting the files alone is not enough. This removes
@@ -10,7 +10,7 @@
 # state + memory + the config mode keys:
 #   curl -fsSL .../copilot/uninstall.sh | bash -s -- --purge
 
-set -uo pipefail
+set -euo pipefail
 
 PURGE=0
 [ "${1:-}" = "--purge" ] && PURGE=1
@@ -38,27 +38,34 @@ UNREG=0
 if [ -n "$PY" ] && [ -f "${PLUGIN}/lib/uninstall.py" ]; then
     if [ "$PURGE" = "1" ]; then
         echo "Removing hook registration + state + memory..."
-        "$PY" "${PLUGIN}/lib/uninstall.py" --all || true
+        "$PY" "${PLUGIN}/lib/uninstall.py" \
+            --all --purge-memory --confirm-shared-memory || exit $?
     else
         # Non-purge keeps the user's mode keys (enforce/full) so a reinstall
         # picks them back up — README documents config reset as purge-only.
         echo "Removing hook registration..."
-        "$PY" "${PLUGIN}/lib/uninstall.py" --unregister || true
+        "$PY" "${PLUGIN}/lib/uninstall.py" --unregister || exit $?
     fi
     UNREG=1
 elif [ -n "$PY" ] && [ -f "${PLUGIN}/lib/register_plugin.py" ]; then
     echo "Removing hook registration..."
-    "$PY" "${PLUGIN}/lib/register_plugin.py" --unregister || true
+    "$PY" "${PLUGIN}/lib/register_plugin.py" --unregister || exit $?
     UNREG=1
 fi
 if [ "$UNREG" = "0" ]; then
     echo "[i] Could not run the in-plugin uninstaller (python or plugin missing)."
     echo "    Manually remove the 'tellonce' entry from ~/.copilot/config.json installedPlugins."
+    echo "    Plugin files were preserved so the registration can still be repaired."
+    exit 1
 fi
 
 # 2. Remove the plugin files.
 if [ -d "$PLUGIN_PARENT" ]; then
     rm -rf "$PLUGIN_PARENT"
+    if [ -e "$PLUGIN_PARENT" ]; then
+        echo "ERROR: failed to remove plugin files: ${PLUGIN_PARENT}" >&2
+        exit 1
+    fi
     echo "Removed plugin files: ${PLUGIN_PARENT}"
 fi
 

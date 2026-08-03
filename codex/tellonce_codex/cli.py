@@ -8,7 +8,7 @@ from .dashboard import build_dashboard
 from .doctor import run_doctor
 from .install import install
 from .migrate import preview_migration
-from .paths import ensure_registered
+from .paths import ensure_registered, find_registration
 from .promote import promote_candidate
 from .scan import scan_message
 from .uninstall import uninstall
@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         if command == "migrate":
             p.add_argument("--preview", action="store_true")
             p.add_argument("--apply", action="store_true",
-                           help="actually perform the migration (default is to print help if neither --preview nor --apply set)")
+                           help="reserved; currently rejected because migration apply is not implemented")
             p.add_argument("--source", action="append", default=[])
         if command == "install":
             # Forward --no-hooks down so the
@@ -82,8 +82,11 @@ def main(argv: list[str] | None = None) -> int:
         state = ensure_registered(project_root).state_root
         scan_message(state, args.message)
     elif args.command == "dashboard":
-        state = ensure_registered(project_root).state_root
-        print(build_dashboard(state))
+        registration = find_registration(project_root)
+        if registration is None:
+            print("Tellonce status: NOT_INSTALLED")
+        else:
+            print(build_dashboard(registration.state_root))
     elif args.command == "promote":
         if args.dry_run:
             # Placeholder candidate used only for smoke-level command viability.
@@ -124,17 +127,15 @@ def main(argv: list[str] | None = None) -> int:
         # W6 fix: preview_migration's first arg is `state_root` (it writes
         # `<state_root>/evidence/migration_preview.json` when write_report).
         # --preview is read-only — don't register or touch state_root at all.
-        # --apply needs a real state_root → register lazily.
         if args.preview:
             preview_migration(Path("/"), [Path(p) for p in args.source], write_report=False)
         else:
-            state_root = ensure_registered(project_root).state_root
-            preview_migration(state_root, [Path(p) for p in args.source], write_report=True)
             print(
-                "migrate --apply: preview written. Programmatic migration is not yet "
-                "implemented; the preview report is the audit-only artifact.",
+                "migrate --apply is not implemented; no state or preview was written. "
+                "Use --preview to inspect sources.",
                 file=sys.stderr,
             )
+            return 2
     elif args.command == "exec":
         # CX-12: enforce `--` as the separator between tellonce_codex flags
         # and the wrapped command. Without it, argparse will swallow flags

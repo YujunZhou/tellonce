@@ -4,7 +4,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from .paths import load_registration
+from .paths import find_registration
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,17 @@ def uninstall(project_root: Path, keep_data: bool = True) -> UninstallResult:
     actually deletes the state directory when False, and a refusal
     guard prevents accidental top-level wipes.
     """
-    registration = load_registration(project_root)
+    root = project_root.resolve()
+    disabled_marker = root / ".codex" / "tellonce.disabled"
+    disabled_marker.parent.mkdir(parents=True, exist_ok=True)
+    disabled_marker.write_text("disabled\n", encoding="utf-8")
+    registration = find_registration(root)
+    if registration is None:
+        return UninstallResult(
+            removed_integration=True,
+            purged_state=False,
+            state_root=None,
+        )
     state_root = registration.state_root
 
     marker = state_root / "managed_runtime.txt"

@@ -17,11 +17,8 @@ Hook layout (mirrors CC's UserPromptSubmit chain + adds PostToolUse to fill the
 gap that codex doesn't have a Stop hook):
 
   UserPromptSubmit:
-   - userpromptsubmit-memory-upsert.sh      (fast inbox enqueue; detached worker)
-   - userpromptsubmit-retrieve-inject.sh    (retrieve memory rules, inject
-      additionalContext)
-    - userpromptsubmit-shadow-alert-inject.sh (last-turn shadow violation
-      alerts -> next turn fix)
+   - userpromptsubmit-dispatch.py           (sequentially enqueue memory,
+      retrieve rules, then merge last-turn shadow alerts)
 
   PostToolUse:
     - posttooluse-deterministic-block.sh     (regex/fingerprint scan tool
@@ -36,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -56,9 +54,7 @@ PT_HOOKS_DEFAULT_DIR = Path.home() / ".codex" / "skills" / "tellonce" / "hooks"
 # before the inner subprocess finishes, silently dropping its JSON output.
 PT_HOOKS = {
     "UserPromptSubmit": [
-        ("userpromptsubmit-memory-upsert.sh", 5),
-        ("userpromptsubmit-retrieve-inject.sh", 40),
-        ("userpromptsubmit-shadow-alert-inject.sh", 25),
+        ("userpromptsubmit-dispatch.py", 45),
     ],
     "PostToolUse": [
         ("posttooluse-deterministic-block.sh", 25),
@@ -67,18 +63,23 @@ PT_HOOKS = {
         ("sessionstart-init.sh", 20),
     ],
 }
-LEGACY_HOOK_BASENAMES = {"userpromptsubmit-pending-inject.sh"}
+LEGACY_HOOK_BASENAMES = {
+    "userpromptsubmit-pending-inject.sh",
+    "userpromptsubmit-memory-upsert.sh",
+    "userpromptsubmit-retrieve-inject.sh",
+    "userpromptsubmit-shadow-alert-inject.sh",
+}
 
 
 def _load_hooks_json(path: str) -> dict:
     p = Path(path)
     if not p.is_file():
         return {}
-    try:
-        with p.open(encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    with p.open(encoding="utf-8") as f:
+        value = json.load(f)
+    if not isinstance(value, dict):
+        raise ValueError(f"hooks config must be a JSON object: {p}")
+    return value
 
 
 def _versioned_backup(path: str) -> str | None:
@@ -139,7 +140,30 @@ def _normalize_command(cmd: str) -> str:
 
 
 def _command_basename(cmd: str) -> str:
-    return _normalize_command(cmd).rsplit("/", 1)[-1]
+    norm = _normalize_command(cmd)
+    known = {
+        basename
+        for hooks in PT_HOOKS.values()
+        for basename, _timeout in hooks
+    } | LEGACY_HOOK_BASENAMES
+    for basename in known:
+        if norm.endswith(basename) or f"/{basename}" in norm:
+            return basename
+    return norm.rsplit("/", 1)[-1]
+
+
+def _command_script_path(cmd: str, basename: str) -> Path | None:
+    try:
+        tokens = shlex.split(str(cmd or ""), posix=True)
+    except ValueError:
+        return None
+    for token in tokens:
+        if _normalize_command(token).endswith(basename):
+            try:
+                return Path(token).expanduser().resolve()
+            except OSError:
+                return None
+    return None
 
 
 def _is_pt_command(cmd: str) -> bool:
@@ -159,13 +183,12 @@ def _is_pt_command(cmd: str) -> bool:
         return False
     if "/hooks/" not in norm:
         return False
-    basename = _command_basename(norm)
     known = {
         basename
         for lst in PT_HOOKS.values()
         for basename, _ in lst
     } | LEGACY_HOOK_BASENAMES
-    return basename in known
+    return any(norm.endswith(name) or f"/{name}" in norm for name in known)
 
 
 def cmd_add(hooks_path: str, hooks_dir: str) -> int:
@@ -184,10 +207,9 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
         for entry in chain:
             hooks = []
             for hook in entry.get("hooks", []) or []:
-                basename = _command_basename(
-                    _normalize_command(hook.get("command", ""))
-                )
-                if basename in LEGACY_HOOK_BASENAMES:
+                command = hook.get("command", "")
+                basename = _command_basename(_normalize_command(command))
+                if basename in LEGACY_HOOK_BASENAMES and _is_pt_command(command):
                     continue
                 hooks.append(hook)
             if hooks:
@@ -227,7 +249,12 @@ def cmd_add(hooks_path: str, hooks_dir: str) -> int:
             # space-free paths quote() is a no-op, so existing installs see
             # byte-identical commands (no re-trust churn).
             import shlex
-            cmd = shlex.quote(str(hooks_dir_p / basename))
+            script = str(hooks_dir_p / basename)
+            cmd = (
+                f"{shlex.quote(sys.executable)} {shlex.quote(script)}"
+                if basename.endswith(".py")
+                else shlex.quote(script)
+            )
             if basename in existing_basenames:
                 skipped += 1
             else:
@@ -304,28 +331,49 @@ def cmd_verify(hooks_path: str, hooks_dir: str) -> int:
     """
     hooks_dir_p = Path(hooks_dir).expanduser().resolve()
     expected_pairs = {
-        (event, str(hooks_dir_p / basename)): basename
+        (event, basename)
         for event, lst in PT_HOOKS.items()
         for basename, _ in lst
     }
-    # Map command -> set of events it's registered under.
-    cmd_to_events: dict[str, set[str]] = {}
+    basename_to_entries: dict[str, list[tuple[str, Path | None]]] = {}
     for event, chain in (data := _load_hooks_json(hooks_path)).get("hooks", {}).items():
         for entry in chain:
             for h in entry.get("hooks", []) or []:
                 cmd = h.get("command", "")
-                if not cmd:
+                if not cmd or not _is_pt_command(cmd):
                     continue
-                cmd_to_events.setdefault(_normalize_command(cmd), set()).add(event)
+                basename = _command_basename(cmd)
+                basename_to_entries.setdefault(basename, []).append(
+                    (event, _command_script_path(cmd, basename))
+                )
     print(f"  Codex tellonce hook registration status:")
     print(f"    hooks.json: {hooks_path}")
     print(f"    hooks dir:  {hooks_dir_p}")
     bad = 0
-    for (expected_event, cmd), basename in expected_pairs.items():
-        events_seen = cmd_to_events.get(_normalize_command(cmd), set())
-        if expected_event in events_seen:
+    for expected_event, basename in expected_pairs:
+        expected_path = (hooks_dir_p / basename).resolve()
+        entries = basename_to_entries.get(basename, [])
+        path_ready = expected_path.is_file() and (
+            basename.endswith(".py") or os.name == "nt" or os.access(expected_path, os.X_OK)
+        )
+        if (
+            path_ready
+            and any(event == expected_event and path == expected_path for event, path in entries)
+        ):
             print(f"    ✓ {basename} → {expected_event}")
-        elif events_seen:
+        elif any(event == expected_event and path == expected_path for event, path in entries):
+            print(f"    ⚠ {basename} path is missing or not executable: {expected_path}")
+            bad += 1
+        elif any(event == expected_event for event, _path in entries):
+            paths = ", ".join(
+                str(path) if path is not None else "<unparseable>"
+                for event, path in entries
+                if event == expected_event
+            )
+            print(f"    ⚠ {basename} uses stale path(s): {paths}; expected {expected_path}")
+            bad += 1
+        elif entries:
+            events_seen = {event for event, _path in entries}
             wrong = ", ".join(sorted(events_seen))
             print(f"    ⚠ {basename} registered to {wrong}, expected {expected_event}")
             bad += 1

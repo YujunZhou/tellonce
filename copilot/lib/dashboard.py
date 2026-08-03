@@ -14,7 +14,10 @@ Usage:
 import glob
 import json
 import os
+import shutil
+import sqlite3
 import sys
+import tempfile
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _LIB_DIR)
@@ -55,10 +58,18 @@ def _mode_label():
         return 'full     (hard block + LLM judge)', enforce, shadow
     if enforce:
         return 'enforce  (hard block, no LLM judge)', enforce, shadow
+    if shadow:
+        return 'shadow   (LLM judge, no hard block)', enforce, shadow
     return 'observe  (no hard block or shadow judge)', enforce, shadow
 
 
 def _memory_upsert_enabled():
+    value = os.environ.get(
+        'PT_MEMORY_UPSERT_ENABLED',
+        os.environ.get('B5_MEMORY_UPSERT_ENABLED'),
+    )
+    if value is not None:
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
     try:
         with open(path_config.CONFIG_PATH, encoding='utf-8-sig') as f:
             return bool(json.load(f).get('memory_upsert_enabled', False))
@@ -99,25 +110,28 @@ def _rule_counts():
     return fp, memory_only, md_files
 
 
-def _pending_count():
+def _upsert_counts():
+    db_path = os.path.join(path_config.get_memory_dir(), '.tellonce.sqlite3')
+    if not os.path.isfile(db_path):
+        return {}
     try:
-        path = path_config.get_pending_queue_path()
-        if not os.path.exists(path):
-            return 0
-        with open(path, encoding='utf-8-sig', errors='replace') as f:
-            txt = f.read().strip()
-        if not txt:
-            return 0
-        # queue may be a JSON array or JSONL — handle both
-        try:
-            obj = json.loads(txt)
-            if isinstance(obj, list):
-                return len(obj)
-            return 1
-        except Exception:
-            return len([l for l in txt.splitlines() if l.strip()])
+        with tempfile.TemporaryDirectory(prefix='tellonce-dashboard-') as td:
+            snapshot = os.path.join(td, '.tellonce.sqlite3')
+            shutil.copy2(db_path, snapshot)
+            for suffix in ('-wal', '-shm'):
+                sidecar = db_path + suffix
+                if os.path.isfile(sidecar):
+                    shutil.copy2(sidecar, snapshot + suffix)
+            conn = sqlite3.connect(snapshot)
+            try:
+                rows = conn.execute(
+                    "SELECT status, COUNT(*) AS n FROM turns GROUP BY status"
+                ).fetchall()
+            finally:
+                conn.close()
+            return {str(status): int(count) for status, count in rows}
     except Exception:
-        return None
+        return {}
 
 
 def _fmt(v):
@@ -133,7 +147,7 @@ def build_dashboard():
         path_config, 'get_observations_log_path') else None
     compliance = _count_lines(path_config.get_compliance_log_path()) if hasattr(
         path_config, 'get_compliance_log_path') else None
-    pending = _pending_count()
+    upsert_counts = _upsert_counts()
 
     if reg is True:
         reg_label = 'yes (Copilot will load the hooks)'
@@ -152,7 +166,10 @@ def build_dashboard():
         f'rules:         {_fmt(fp)} (fingerprints) + {_fmt(memory_only)} (memory-only)',
         f'memory files:  {_fmt(md_files)} (.md)',
         f'observations:  {_fmt(obs)} logged',
-        f'pending:       {_fmt(pending)} queued promotions',
+        f'upsert turns:  pending={upsert_counts.get("pending", 0)}, '
+        f'resolving={upsert_counts.get("resolving", 0)}, '
+        f'needs_user={upsert_counts.get("needs_user", 0)}, '
+        f'failed={upsert_counts.get("failed", 0)}',
         f'compliance:    {_fmt(compliance)} log entries',
         f'config:        {path_config.CONFIG_PATH}',
         f'memory dir:    {path_config.get_memory_dir()}',

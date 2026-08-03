@@ -1,6 +1,6 @@
 # uninstall.ps1 — ONE-COMMAND uninstaller for tellonce (GitHub Copilot CLI, Windows).
 #
-#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.ps1 | iex"
 #
 # WHY THIS EXISTS: the hooks keep firing as long as the plugin is REGISTERED in
 # ~/.copilot/config.json — deleting the files alone is not enough. This removes
@@ -43,23 +43,37 @@ $unregistered = $false
 if ($py -and (Test-Path (Join-Path $plugin 'lib\uninstall.py'))) {
     # Non-purge keeps the user's mode keys (enforce/full) so a reinstall picks
     # them back up — README documents config reset as purge-only.
-    $flags = if ($Purge) { @('--all') } else { @('--unregister') }
+    $flags = if ($Purge) {
+        @('--all', '--purge-memory', '--confirm-shared-memory')
+    } else {
+        @('--unregister')
+    }
     Note "Removing hook registration$(if($Purge){' + state + memory'})..."
     & $py (Join-Path $plugin 'lib\uninstall.py') @flags
+    if ($LASTEXITCODE -ne 0) {
+        throw "In-plugin uninstall failed with exit code $LASTEXITCODE; plugin files were preserved."
+    }
     $unregistered = $true
 } elseif ($py -and (Test-Path (Join-Path $plugin 'lib\register_plugin.py'))) {
     Note "Removing hook registration..."
     & $py (Join-Path $plugin 'lib\register_plugin.py') '--unregister'
+    if ($LASTEXITCODE -ne 0) {
+        throw "Plugin unregister failed with exit code $LASTEXITCODE; plugin files were preserved."
+    }
     $unregistered = $true
 }
 if (-not $unregistered) {
     Write-Host "[i] Could not run the in-plugin uninstaller (python or plugin missing)." -ForegroundColor Yellow
     Write-Host "    Manually remove the 'tellonce' entry from ~\.copilot\config.json installedPlugins." -ForegroundColor Yellow
+    throw "Plugin files were preserved because hook unregistration was not confirmed."
 }
 
 # 2. Remove the plugin files.
 if (Test-Path $pluginParent) {
-    Remove-Item -Recurse -Force $pluginParent -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $pluginParent -ErrorAction Stop
+    if (Test-Path $pluginParent) {
+        throw "Failed to remove plugin files: $pluginParent"
+    }
     Note "Removed plugin files: $pluginParent"
 }
 

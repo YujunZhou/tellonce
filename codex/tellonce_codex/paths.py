@@ -174,12 +174,40 @@ def load_registration(project_root: Path) -> Registration:
         # No prior install — create. Use env_allow so test mode and
         # explicit-opt-in users can register against /tmp / HOME.
         return register_project(root, allow_unsafe=env_allow)
-    data = _json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, _json.JSONDecodeError, TypeError) as exc:
+        raise ProjectRootError(f"invalid registration file {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ProjectRootError(f"invalid registration file {path}: expected JSON object")
     return Registration(
         project_root=Path(data.get("project_root", str(root))),
         state_root=path.parent,
         state_location=data.get("state_location", "project"),
     )
+
+
+def find_registration(project_root: Path) -> Registration | None:
+    """Read an existing registration without creating project state."""
+    import json as _json
+
+    root = resolve_project_root(project_root, allow_unsafe=True)
+    for state in (default_state_root(root), fallback_state_root(root)):
+        path = state / "registration.json"
+        if not path.is_file():
+            continue
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, _json.JSONDecodeError, TypeError) as exc:
+            raise ProjectRootError(f"invalid registration file {path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ProjectRootError(f"invalid registration file {path}: expected JSON object")
+        return Registration(
+            project_root=Path(data.get("project_root", str(root))),
+            state_root=state,
+            state_location=data.get("state_location", "project"),
+        )
+    return None
 
 
 def ensure_registered(project_root: Path) -> Registration:

@@ -93,8 +93,8 @@ bash ~/.claude/skills/tellonce/dashboard.sh
 # the skill dir. Your memory/state is kept.
 bash ~/.claude/skills/tellonce/uninstall.sh
 
-# Full removal (also state + obs_log + shared memory):
-bash ~/.claude/skills/tellonce/uninstall.sh --purge-state
+# Full removal (state + obs_log + three-platform shared memory):
+bash ~/.claude/skills/tellonce/uninstall.sh --purge-state --purge-memory
 
 # Keep the skill directory (easier reinstall):
 bash ~/.claude/skills/tellonce/uninstall.sh --keep-skill-dir

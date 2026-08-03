@@ -10,7 +10,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 - Claude Code、Copilot CLI 和 Codex 共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值，Markdown 与 active JSON 只是投影。
 - 检测到持久偏好后，只调用 `python <plugin>/lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`。`--manual` 会在自动 hook 已启用时跳过重复入队；复杂多行消息可改用 `--request-file <json>`。禁止直接写记忆 Markdown，禁止把同一轮的禁用项与替代项拆开保存。
-- enqueue 只写 inbox 并启动 detached worker，立即返回。LLM 语义判断、合并、事务和投影全部在后台运行；失败只留下 pending，不能阻塞当前回复。
+- enqueue 只写 inbox 并启动 detached worker，立即返回。LLM 语义判断、合并、事务和投影全部在后台运行；失败按退避重试，达到上限后标记 failed 并停止，不能阻塞当前回复。
 - judge 在返回 `NEEDS_USER` 前，先用当前项目根目录、最近对话和 active rules 消解指代、scope 与 activation；这些 context 只能帮助解释本轮用户原话，不能单独授权持久化。只有剩余歧义会改变未来行为时才进入轻量 clarification 队列，并在后续上下文中只问一个简短问题；下一条明确回答可关闭对应 turn。
 - 关闭自动 upsert 后 clarification 不再注入；过期项可用 `python <plugin>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
 - 自动 hook 默认关闭。设置 `memory_upsert_enabled=true` 或 `PT_MEMORY_UPSERT_ENABLED=1` 后才启用。

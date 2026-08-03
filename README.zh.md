@@ -13,16 +13,17 @@
 它又犯了。Tellonce 在每一轮观察对话，自动记录它检测到的偏好（preference）、
 陷阱（pitfall）、摩擦（friction），并能对你在意的规则做硬性强制。
 
-它**默认安全**：开箱即用只记录、只提醒，绝不打断你，也绝不把你的对话发往任何地方——
-除非你主动开启。
+它**默认不阻断**：开箱即用只记录、只提醒，不会硬拦截回复。记录或合并偏好时，
+会把当前 turn 脱敏后交给当前平台的 CLI 模型；安装或调用 Tellonce 即表示同意这一步。
+逐回复运行的 shadow judge 仍默认关闭。
 
 ## ✨ 亮点
 
 - 🧠 **从你的纠正中学习**：每一轮都会被扫描出 preference / pitfall / friction
   信号并自动记录。
 - 🛡️ **可选的强制执行**：打开后，违反你已存规则的回复会被拦下，助手在同一轮里改正。
-- 🔒 **默认私密**：所有记录只存本机；可选的 LLM 判官默认关闭，开启后也只看到
-  脱敏片段，并走你自己的订阅。（「检索相关规则」这一步默认**完全本地、零模型调用**
+- 🔒 **本机保存真值**：SQLite memory 留在本机；模型支持的 upsert 与可选 shadow
+  judge 只接收脱敏文本，并走你自己的订阅。（「检索相关规则」默认**完全本地、零模型调用**
   ——`progressive` 后端只读你已存的规则文件；想用小模型语义匹配可设
   `PT_RETRIEVE_BACKEND=cli`。）
 - ⚡ **支持 Claude Code、Codex、GitHub Copilot CLI**（Copilot 一键安装）——三者共享同一份记忆。
@@ -107,19 +108,19 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
-一键引导脚本（推荐——钉在不可变 tag `v1.3.2`、SHA256 已公布，可在管道前核对，见
+一键引导脚本（推荐——钉在不可变 tag `v1.4.0`、SHA256 已公布，可在管道前核对，见
 [`copilot/README.md`](copilot/README.md#verify-integrity)）：
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
 ```
 
 它会：下载 **Copilot 适配版插件**（`copilot/` 子插件——SessionStart 注入、
@@ -163,11 +164,10 @@ python "<plugin>/lib/pt_mode.py" full      # 硬拦截 + LLM 判官
 python "<plugin>/lib/pt_mode.py" status    # 看当前模式
 ```
 
-**隐私**：所有记录任何模式下都只存本机；只有 `full` 才把「最后一条消息 + 回复」
-（已脱敏）发给 `copilot -p` 判分，且走你自己的订阅。「检索相关规则」默认**完全本地**
-（`progressive` 后端只读你已存的规则文件、零模型调用）；`PT_RETRIEVE_BACKEND=cli`
-才走你自己订阅的小模型。`full` 的判官还需要
-设 `PT_SHADOW_RULE_IDS` 指定要检查的规则——`pt_mode.py full` 会打印提示。
+**隐私**：SQLite 真值和 `progressive` 检索留在本机。记录或合并偏好时，会把当前
+turn 脱敏后交给当前平台的 CLI 模型判断；Skill 主动记录时，即使自动 hook 关闭，
+也会执行这一步。`full` 还会把脱敏后的最近消息和回复发送给 CLI 模型做合规评分。
+如需完全离线，请关闭 memory upsert 与 shadow judge，并保持 `progressive` 检索。
 
 ## 它怎么工作
 

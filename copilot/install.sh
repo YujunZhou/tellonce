@@ -42,6 +42,14 @@ echo "Plugin root:  ${SCRIPT_DIR}"
 echo "Project root: ${PROJECT_ROOT}"
 echo ""
 
+if [ -d "${PROJECT_ROOT}/.git/info" ]; then
+    EXCLUDE_PATH="${PROJECT_ROOT}/.git/info/exclude"
+    touch "${EXCLUDE_PATH}"
+    if ! grep -Fxq ".tellonce/" "${EXCLUDE_PATH}"; then
+        printf '\n.tellonce/\n' >> "${EXCLUDE_PATH}"
+    fi
+fi
+
 # Hooks are registered as shell command strings (sh -c "<path>"), which needs
 # the exec bit; restore it in case the transport (zip download, some tars)
 # dropped it.

@@ -28,13 +28,15 @@ import redaction
 
 
 FINAL_STATUSES = {
-    "committed", "projected", "noop", "needs_user", "clarified", "dismissed"
+    "committed", "projected", "noop", "needs_user", "clarified", "dismissed",
+    "failed",
 }
 INBOX_DIRNAME = ".tellonce-inbox"
 INBOX_SUFFIX = ".json"
 TEMP_RECOVERY_AGE_SECONDS = 300
 CONFIG_PATH = Path.home() / ".tellonce.config.json"
 PRESENTATION_DIRNAME = ".tellonce-clarification-presentations"
+MAX_TURN_ATTEMPTS = 5
 
 
 def _default_turn_key() -> str:
@@ -383,6 +385,7 @@ def enqueue(
             "source_text": safe_source,
             "context": safe_context,
             "clarification_candidates": list(clarification_candidates or []),
+            "forced": bool(force),
             "judge_cli": getattr(memory_judge.pt_platform, "CLI_COMMAND", ""),
             "project_root": path_config.get_project_root(),
             "created_at": time.time(),
@@ -457,6 +460,7 @@ def ingest_request(request_file: str | Path, memory_dir=None, judge_func=None) -
     source_text = request.get("source_text", "")
     context = request.get("context", "")
     clarification_candidates = request.get("clarification_candidates") or []
+    forced = bool(request.get("forced", False))
     turn_key = str(request.get("turn_key", "")).strip()
     if (
         not turn_key
@@ -480,6 +484,7 @@ def ingest_request(request_file: str | Path, memory_dir=None, judge_func=None) -
         context,
         judge_cli=judge_cli if judge_cli in {"claude", "copilot", "codex"} else "",
         clarification_candidates=clarification_candidates,
+        forced=forced,
     )
     if existing["status"] in FINAL_STATUSES and existing["result"] is not None:
         result = _finish_clarifications(
@@ -577,8 +582,13 @@ def resolve_turn(
             plan = judge_func(source_text, active_rules, judge_context)
         except Exception as exc:
             last_error = f"judge failed: {type(exc).__name__}: {str(exc)[:800]}"
-            store.mark_turn_error(turn_key, last_error, lease_owner=lease_owner)
-            return {"status": "pending", "turn_key": turn_key, "error": last_error}
+            status = store.mark_turn_error(
+                turn_key,
+                last_error,
+                lease_owner=lease_owner,
+                max_attempts=MAX_TURN_ATTEMPTS,
+            )
+            return {"status": status, "turn_key": turn_key, "error": last_error}
         clarification_candidates = {
             item["turn_key"]
             for item in clarifications
@@ -609,8 +619,13 @@ def resolve_turn(
             continue
         except Exception as exc:
             last_error = f"commit failed: {type(exc).__name__}: {str(exc)[:800]}"
-            store.mark_turn_error(turn_key, last_error, lease_owner=lease_owner)
-            return {"status": "pending", "turn_key": turn_key, "error": last_error}
+            status = store.mark_turn_error(
+                turn_key,
+                last_error,
+                lease_owner=lease_owner,
+                max_attempts=MAX_TURN_ATTEMPTS,
+            )
+            return {"status": status, "turn_key": turn_key, "error": last_error}
         try:
             resolved = store.mark_clarifications_resolved(
                 plan.get("resolved_turn_keys", []),
@@ -630,13 +645,14 @@ def resolve_turn(
                 "error": f"{type(exc).__name__}: {str(exc)[:500]}",
             }
         return result
-    store.mark_turn_error(
+    status = store.mark_turn_error(
         turn_key,
         last_error or "snapshot changed repeatedly",
         lease_owner=lease_owner,
+        max_attempts=MAX_TURN_ATTEMPTS,
     )
     return {
-        "status": "pending",
+        "status": status,
         "turn_key": turn_key,
         "error": last_error or "snapshot changed repeatedly",
     }
@@ -664,13 +680,67 @@ def apply_plan(
     return result
 
 
-def drain(memory_dir=None, limit: int = 20, schedule_retry: bool = False) -> dict:
+def drain(
+    memory_dir=None,
+    limit: int = 20,
+    schedule_retry: bool = False,
+    forced_only: bool = False,
+) -> dict:
     store = _store(memory_dir)
     results = []
-    inbox_paths = _pending_request_paths(store.memory_dir)[: max(1, limit)]
+    attempted_turn_keys = set()
+    seen_inbox_turns = {}
+    inbox_paths = _pending_request_paths(store.memory_dir)
+    if forced_only:
+        forced_paths = []
+        for path in inbox_paths:
+            try:
+                if bool(_read_json_file(str(path)).get("forced", False)):
+                    forced_paths.append(path)
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+                continue
+        inbox_paths = forced_paths
+    inbox_paths = inbox_paths[: max(1, limit)]
     for request_path in inbox_paths:
         try:
-            results.append(ingest_request(request_path, memory_dir=store.memory_dir))
+            request = _read_json_file(str(request_path))
+            inbox_turn_key = str(request.get("turn_key", "")).strip()
+            if inbox_turn_key and inbox_turn_key in seen_inbox_turns:
+                prior_source = seen_inbox_turns[inbox_turn_key]
+                current_source = str(request.get("source_text", ""))
+                if current_source == prior_source:
+                    request_path.unlink()
+                    results.append(
+                        {
+                            "status": "duplicate",
+                            "turn_key": inbox_turn_key,
+                            "request_file": str(request_path),
+                        }
+                    )
+                else:
+                    failed_path = _quarantine_request(
+                        request_path,
+                        MemoryStoreError(
+                            f"conflicting inbox requests share turn_key {inbox_turn_key}"
+                        ),
+                    )
+                    results.append(
+                        {
+                            "status": "quarantined",
+                            "turn_key": inbox_turn_key,
+                            "request_file": str(failed_path),
+                            "error": "conflicting source_text for duplicate turn_key",
+                        }
+                    )
+                continue
+            if inbox_turn_key:
+                seen_inbox_turns[inbox_turn_key] = str(
+                    request.get("source_text", "")
+                )
+            result = ingest_request(request_path, memory_dir=store.memory_dir)
+            results.append(result)
+            if result.get("turn_key"):
+                attempted_turn_keys.add(result["turn_key"])
         except (json.JSONDecodeError, UnicodeError, ValueError, MemoryStoreError) as exc:
             try:
                 failed_path = _quarantine_request(request_path, exc)
@@ -691,8 +761,24 @@ def drain(memory_dir=None, limit: int = 20, schedule_retry: bool = False) -> dic
                     "error": f"{type(exc).__name__}: {str(exc)[:500]}",
                 }
             )
-    for turn_key in store.pending_turn_keys(limit=limit):
-        results.append(resolve_turn(turn_key, memory_dir=store.memory_dir))
+    for turn_key in store.pending_turn_keys(limit=limit, forced_only=forced_only):
+        if turn_key in attempted_turn_keys:
+            continue
+        try:
+            results.append(resolve_turn(turn_key, memory_dir=store.memory_dir))
+        except Exception as exc:
+            status = store.mark_turn_error(
+                turn_key,
+                f"resolve failed: {type(exc).__name__}: {str(exc)[:800]}",
+                max_attempts=MAX_TURN_ATTEMPTS,
+            )
+            results.append(
+                {
+                    "status": status,
+                    "turn_key": turn_key,
+                    "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+                }
+            )
     if store.projection_pending():
         try:
             results.append(store.project())
@@ -703,11 +789,26 @@ def drain(memory_dir=None, limit: int = 20, schedule_retry: bool = False) -> dic
                     "error": f"{type(exc).__name__}: {str(exc)[:500]}",
                 }
             )
-    remaining = bool(
-        _pending_request_paths(store.memory_dir)
-        or store.pending_turn_keys(limit=1)
-        or store.projection_pending()
-    )
+    if forced_only:
+        forced_inbox_remaining = False
+        for path in _pending_request_paths(store.memory_dir):
+            try:
+                if bool(_read_json_file(str(path)).get("forced", False)):
+                    forced_inbox_remaining = True
+                    break
+            except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+                continue
+        remaining = bool(
+            forced_inbox_remaining
+            or store.pending_turn_keys(limit=1, forced_only=True)
+            or store.projection_pending()
+        )
+    else:
+        remaining = bool(
+            _pending_request_paths(store.memory_dir)
+            or store.pending_turn_keys(limit=1)
+            or store.projection_pending()
+        )
     retry = None
     if remaining and schedule_retry:
         try:
@@ -735,7 +836,24 @@ def retry(memory_dir=None, delay_seconds: int = 30) -> dict:
         _retry_marker(memory_dir).unlink()
     except OSError:
         pass
-    return drain(memory_dir=memory_dir, schedule_retry=True)
+    if not hooks_enabled():
+        store = _store(memory_dir)
+        has_forced = bool(store.pending_turn_keys(limit=1, forced_only=True))
+        if not has_forced:
+            for path in _pending_request_paths(store.memory_dir):
+                try:
+                    if bool(_read_json_file(str(path)).get("forced", False)):
+                        has_forced = True
+                        break
+                except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+                    continue
+        if not has_forced:
+            return {"status": "disabled", "remaining": False}
+    return drain(
+        memory_dir=memory_dir,
+        schedule_retry=True,
+        forced_only=not hooks_enabled(),
+    )
 
 
 def inspect(memory_dir=None) -> dict:
@@ -747,6 +865,7 @@ def inspect(memory_dir=None) -> dict:
         "generation": generation,
         "active": active,
         "pending_turns": store.pending_turn_keys(limit=100),
+        "failed_turns": store.failed_turn_keys(limit=100),
         "needs_user": store.needs_user_turns(limit=100),
     }
 
@@ -771,12 +890,19 @@ def _print_json(value) -> None:
 
 
 def configure_hooks(enabled: bool | None = None) -> dict:
-    try:
-        config = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
-        if not isinstance(config, dict):
-            config = {}
-    except (OSError, json.JSONDecodeError):
+    if not CONFIG_PATH.exists():
         config = {}
+    else:
+        try:
+            config = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise MemoryStoreError(
+                f"refusing to overwrite unreadable config {CONFIG_PATH}: {exc}"
+            ) from exc
+        if not isinstance(config, dict):
+            raise MemoryStoreError(
+                f"refusing to overwrite non-object config {CONFIG_PATH}"
+            )
     if enabled is not None:
         config["memory_upsert_enabled"] = bool(enabled)
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -798,8 +924,15 @@ def configure_hooks(enabled: bool | None = None) -> dict:
                 tmp.unlink()
             except OSError:
                 pass
+    env_value = os.environ.get(
+        "PT_MEMORY_UPSERT_ENABLED",
+        os.environ.get("B5_MEMORY_UPSERT_ENABLED"),
+    )
+    effective = hooks_enabled()
     return {
-        "status": "enabled" if config.get("memory_upsert_enabled") else "disabled",
+        "status": "enabled" if effective else "disabled",
+        "configured": bool(config.get("memory_upsert_enabled")),
+        "source": "environment" if env_value is not None else "config",
         "config_path": str(CONFIG_PATH),
         "applies_to": ["claude", "copilot", "codex"],
     }

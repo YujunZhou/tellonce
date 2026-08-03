@@ -2,7 +2,7 @@
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
 #
 # It downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state dirs, seed rules, observe mode,
@@ -11,9 +11,7 @@
 
 $ErrorActionPreference = 'Stop'
 $REPO   = 'https://github.com/YujunZhou/tellonce'
-# Pinned to a release tag (immutable) for integrity. git clone --branch accepts
-# a tag; archive uses refs/tags for a tag (refs/heads for a branch).
-$REF    = 'v1.3.2'
+$REF    = 'v1.4.0'
 $REFKIND = 'tags'
 
 function Fail($msg) { Write-Host "[X] $msg" -ForegroundColor Red; exit 1 }
@@ -42,6 +40,24 @@ function Resolve-Python {
 $py = Resolve-Python
 if (-not $py) { Fail "Python 3.7+ not found. Install it from https://www.python.org/downloads/ (check 'Add to PATH'), then re-run." }
 Write-Host "[OK] Python: $py" -ForegroundColor Green
+$existingMode = 'observe'
+$restoreShadow = $false
+$existingConfig = Join-Path $env:USERPROFILE '.tellonce.config.json'
+function Test-TellonceBool($value) {
+    return @('1','true','yes','on') -contains ([string]$value).Trim().ToLowerInvariant()
+}
+if (Test-Path $existingConfig) {
+    try {
+        $cfg = Get-Content -LiteralPath $existingConfig -Raw | ConvertFrom-Json
+        $enforce = Test-TellonceBool $cfg.enforce
+        $shadow = Test-TellonceBool $cfg.shadow
+        if ($enforce -and $shadow) { $existingMode = 'full' }
+        elseif ($enforce) { $existingMode = 'enforce' }
+        elseif ($shadow) { $restoreShadow = $true }
+    } catch {
+        Fail "Existing $existingConfig is unreadable; refusing to reset its mode."
+    }
+}
 
 # 3. Download the repo (git clone if available, else zip).
 $work = Join-Path $env:TEMP ("pt-bootstrap-" + [System.Guid]::NewGuid().ToString('N').Substring(0,8))
@@ -82,7 +98,14 @@ $stage = "$dest.new-$PID"
 if (-not (Test-Path $dest)) {
     $orphan = Get-ChildItem -Path (Split-Path $dest) -Directory -Filter ((Split-Path $dest -Leaf) + '.old-*') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($orphan) {
-        Move-Item -Path $orphan.FullName -Destination $dest -ErrorAction SilentlyContinue
+        try {
+            Move-Item -Path $orphan.FullName -Destination $dest -ErrorAction Stop
+        } catch {
+            Fail "Could not restore interrupted install from $($orphan.FullName): $($_.Exception.Message)"
+        }
+        if (-not (Test-Path $dest)) {
+            Fail "Interrupted install recovery did not recreate $dest; preserving $($orphan.FullName)."
+        }
         Write-Host "[i] Restored interrupted previous install from $($orphan.Name)"
     }
 }
@@ -131,7 +154,11 @@ if ($LASTEXITCODE -eq 0) {
 # 6. Run post-install from the installed copy. Pass the resolved python so the
 # installer doesn't re-discover (and risk picking the WindowsApps stub).
 Write-Host "Running post-install..."
-& powershell -ExecutionPolicy Bypass -File (Join-Path $dest 'install.ps1') -Mode observe -Python $py
+& powershell -ExecutionPolicy Bypass -File (Join-Path $dest 'install.ps1') -Mode $existingMode -Python $py
+if ($restoreShadow) {
+    & $py (Join-Path $dest 'lib\pt_mode.py') shadow on | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail "Failed to restore the existing shadow-judge setting." }
+}
 
 # 7. Cleanup.
 Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
@@ -141,11 +168,13 @@ Write-Host "================================================================"
 Write-Host "[OK] tellonce installed." -ForegroundColor Green
 Write-Host "  >> RESTART Copilot for the hooks to load. <<"
 Write-Host ""
-Write-Host "  Default mode = observe (records your preferences, never blocks)."
+Write-Host "  Current mode preserved as $existingMode."
 Write-Host "  Turn on hard blocking later with:"
 Write-Host "    python `"$dest\lib\pt_mode.py`" enforce"
 Write-Host "  Check status anytime:"
 Write-Host "    python `"$dest\lib\doctor.py`""
 Write-Host "  Uninstall:"
+Write-Host "    copilot plugin uninstall tellonce"
 Write-Host "    python `"$dest\lib\uninstall.py`" --all"
+Write-Host "  (--all keeps shared memory; deleting it requires explicit confirmation.)"
 Write-Host "================================================================"

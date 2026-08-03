@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .ledger import SECRET_PATTERNS
 from .mode import load_mode
-from .paths import load_registration
+from .paths import find_registration
 
 
 # CX-3 fix: previously default empty + module-load-time env read. Now:
@@ -168,7 +168,12 @@ def _hooks_status() -> str:
     except Exception:
         return "FAIL"
     try:
-        from .install_codex_hooks import PT_HOOKS, _command_basename, _is_pt_command
+        from .install_codex_hooks import (
+            PT_HOOKS,
+            _command_basename,
+            _command_script_path,
+            _is_pt_command,
+        )
     except Exception:
         return "FAIL"
     expected_pairs = {
@@ -178,6 +183,11 @@ def _hooks_status() -> str:
     }
     found_pairs: set[tuple[str, str]] = set()
     found_order: dict[str, list[str]] = {}
+    paths_ready = True
+    valid_hook_dirs = {
+        (Path.home() / ".codex" / "skills" / "tellonce" / "hooks").resolve(),
+        (Path.home() / ".codex" / "skills" / "tellonce-runtime" / "hooks").resolve(),
+    }
     found_any = False
     for event, chain in (data.get("hooks") or {}).items():
         for entry in chain or []:
@@ -187,6 +197,18 @@ def _hooks_status() -> str:
                     continue
                 found_any = True
                 basename = _command_basename(cmd)
+                script_path = _command_script_path(cmd, basename)
+                if (
+                    script_path is None
+                    or script_path.parent not in valid_hook_dirs
+                    or not script_path.is_file()
+                    or (
+                        basename.endswith(".sh")
+                        and os.name != "nt"
+                        and not os.access(script_path, os.X_OK)
+                    )
+                ):
+                    paths_ready = False
                 found_pairs.add((event, basename))
                 found_order.setdefault(event, []).append(basename)
     if not found_any:
@@ -195,7 +217,7 @@ def _hooks_status() -> str:
         event: [basename for basename, _timeout in hooks]
         for event, hooks in PT_HOOKS.items()
     }
-    if found_pairs == expected_pairs and found_order == expected_order:
+    if paths_ready and found_pairs == expected_pairs and found_order == expected_order:
         return "PASS"
     return "PARTIAL"
 
@@ -206,7 +228,23 @@ def run_doctor(project_root: Path) -> DoctorReport:
     write source on every health check, defeating its read-only intent and
     making append_event slower on each run.
     """
-    registration = load_registration(project_root)
+    registration = find_registration(project_root)
+    if registration is None:
+        sections = {
+            "state": "NOT_INSTALLED",
+            "private_paths": "NOT_INSTALLED",
+            "wrapper": "NOT_USED",
+            "hooks": _hooks_status(),
+            "shadow": "DISABLED",
+        }
+        return DoctorReport(
+            sections=sections,
+            status_line=(
+                "Tellonce status: state=NOT_INSTALLED, private_paths=NOT_INSTALLED, "
+                f"wrapper=NOT_USED, hooks={sections['hooks']}, shadow=DISABLED, "
+                "install=NOT_INSTALLED"
+            ),
+        )
     state = registration.state_root
     mode = load_mode(state)
     wrapper_events = False

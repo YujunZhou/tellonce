@@ -3,8 +3,8 @@
 [English](README.md) · **中文**
 
 你的 AI 编码助手会记录你教它的偏好、陷阱和工作流规则，不再重复你已经纠正过的错误。
-**默认安全**：只**记录和提醒**，绝不打断你，也绝不把你的对话发往任何地方——除非你
-主动开启。
+它**默认不阻断**。记录或合并偏好时，会把当前 turn 脱敏后交给当前平台的 CLI 模型；
+安装或调用 Tellonce 即表示同意这一步。独立的 shadow judge 仍默认关闭。
 
 项目总览和其它平台见[仓库落地页](../README.zh.md)。
 
@@ -13,18 +13,18 @@
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。装完**重启 Copilot**。
-> 命令钉在不可变的 release tag `v1.3.2`（不会因 `main` 变动而改），更安全。
+> 命令钉在不可变的 release tag `v1.4.0`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -34,18 +34,18 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/b
 
 ### 核对脚本完整性
 
-如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.3.2`
+如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.4.0`
 公布的值）：
 
 ```bash
-# Windows: irm ".../v1.3.2/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.3.2/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.4.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.4.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| 文件 | SHA256 (v1.3.2) |
+| 文件 | SHA256 (v1.4.0) |
 |------|------------------|
-| `bootstrap.ps1` | `baac343b746efca7995c78c44ba20d3c8241b2b36bddb04e77e85d8138af8d6e` |
-| `bootstrap.sh`  | `0ed5db4145af64862b2e1c3ec2e054b51436d81210c9be2221af3423cd58b7c1` |
+| `bootstrap.ps1` | `873b42d1b90529db8a377b97a40e893c13078eebf5d0789eea7aaff34b60c0f1` |
+| `bootstrap.sh`  | `78f24c23217a9691d9a7537c7be5ab6af823350d2b918f5d1a54589fefb40d24` |
 
 ---
 
@@ -70,8 +70,9 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 > **Windows 注意**：「扫描完整性」停止闸门的 hook 在 Windows 上目前只是占位
 > （PowerShell 条目只回显一行），所以 `enforce` 模式在 Windows 上比 macOS/Linux 弱。
 
-**隐私**：`observe` / `enforce` 全程只在本机；只有 `full` 才把「最后一条消息 + 回复」
-（已脱敏）发给 `copilot -p`。
+**隐私**：SQLite 真值和 `progressive` 检索留在本机。记录或合并偏好时，会把当前
+turn 脱敏后交给当前平台的 CLI 模型；`full` 还会发送脱敏后的最近消息和回复做合规评分。
+如需完全离线，请关闭 memory upsert 与 shadow judge。
 
 ---
 
@@ -81,11 +82,11 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.sh | bash
 ```
 **卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
 `-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是
@@ -100,7 +101,8 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/u
 python "<plugin>/lib/doctor.py"                 # 自检（python / 注册 / 模式 / 钩子）
 python "<plugin>/lib/dashboard.py"              # 一眼看状态（模式 / 注册 / 规则数 / 记录数）
 python "<plugin>/lib/uninstall.py"              # dry-run：看会删什么
-python "<plugin>/lib/uninstall.py --all"        # 删当前项目的 state + memory、config 键 + 反注册（在该项目目录下运行）
+python "<plugin>/lib/uninstall.py" --all        # 删 state/config 并反注册；保留共享 memory
+python "<plugin>/lib/uninstall.py" --purge-memory --confirm-shared-memory  # 明确删除共享 memory
 copilot plugin uninstall tellonce     # 删插件代码本身
 ```
 

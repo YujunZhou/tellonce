@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
+import time
 import uuid
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +34,24 @@ def _load_stdin() -> dict:
         return value if isinstance(value, dict) else {}
     except Exception:
         return {}
+
+
+def _log_hook_error(exc: Exception) -> None:
+    try:
+        state_dir = Path(path_config.get_state_dir())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        path = state_dir / "memory_upsert_hook_errors.log"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} "
+                f"{type(exc).__name__}: {str(exc)[:500]}\n"
+            )
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    except Exception:
+        pass
 
 
 def enqueue_from_hook(data: dict, mode: str) -> dict:
@@ -102,8 +122,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         enqueue_from_hook(_load_stdin(), args.mode)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_hook_error(exc)
     return 0
 
 

@@ -3,7 +3,7 @@
 #
 # Users run a single copy-paste line (no environment fiddling required):
 #
-#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
 #
 # Downloads the plugin, drops it into Copilot's plugin folder, installs the
 # optional PyYAML dep, runs post-install (state, seed, observe mode, register,
@@ -17,8 +17,7 @@ set -euo pipefail
 main() {
 
 REPO="https://github.com/YujunZhou/tellonce"
-# Pinned to a release tag (immutable) for integrity.
-REF="v1.3.2"
+REF="v1.4.0"
 REFKIND="tags"
 
 fail() { printf '\033[31m[X] %s\033[0m\n' "$1" >&2; exit 1; }
@@ -44,6 +43,21 @@ done
 command -v python3 >/dev/null 2>&1 \
     || fail "'python3' not on PATH (only '${PY}'). The runtime hooks invoke python3; add a python3 symlink or install the python3 package, then re-run."
 echo "[OK] Python: $(command -v "${PY}")"
+
+EXISTING_MODE="observe"
+RESTORE_SHADOW=0
+if [ -f "${HOME}/.tellonce.config.json" ]; then
+    EXISTING_SETTINGS="$("${PY}" -c 'import json, os
+p=os.path.expanduser("~/.tellonce.config.json")
+c=json.load(open(p, encoding="utf-8-sig"))
+on=lambda v: str(v).strip().lower() in ("1","true","yes","on")
+enforce=on(c.get("enforce", False))
+shadow=on(c.get("shadow", False))
+print(("full" if enforce and shadow else "enforce" if enforce else "observe") + "|" + ("1" if shadow and not enforce else "0"))')" \
+        || fail "Existing ~/.tellonce.config.json is unreadable; refusing to reset its mode."
+    EXISTING_MODE="${EXISTING_SETTINGS%%|*}"
+    RESTORE_SHADOW="${EXISTING_SETTINGS##*|}"
+fi
 
 # 3. Download repo (git if available, else tarball).
 WORK="$(mktemp -d)"
@@ -130,20 +144,25 @@ fi
 
 # 6. Run post-install from installed copy. Pass the resolved python through.
 echo "Running post-install..."
-bash "${DEST}/install.sh" --mode observe --python "${PY}"
+bash "${DEST}/install.sh" --mode "${EXISTING_MODE}" --python "${PY}"
+if [ "${RESTORE_SHADOW}" = "1" ]; then
+    "${PY}" "${DEST}/lib/pt_mode.py" shadow on >/dev/null
+fi
 
 echo ""
 echo "================================================================"
 echo "[OK] tellonce installed."
 echo "  >> RESTART Copilot for the hooks to load. <<"
 echo ""
-echo "  Default mode = observe (records your preferences, never blocks)."
+echo "  Current mode preserved as ${EXISTING_MODE}."
 echo "  Turn on hard blocking later with:"
 echo "    ${PY} \"${DEST}/lib/pt_mode.py\" enforce"
 echo "  Check status anytime:"
 echo "    ${PY} \"${DEST}/lib/doctor.py\""
 echo "  Uninstall:"
+echo "    copilot plugin uninstall tellonce"
 echo "    ${PY} \"${DEST}/lib/uninstall.py\" --all"
+echo "  (--all keeps shared memory; deleting it requires an explicit confirmation flag.)"
 echo "================================================================"
 
 }

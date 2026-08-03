@@ -418,7 +418,7 @@ def _invoke_cli(prompt: str) -> str:
             if cli == "claude":
                 cmd = [cli, "-p"]
                 prompt_input = prompt
-            elif _is_windows() and len(prompt) > 16_000:
+            elif len(prompt) > 16_000:
                 fd, prompt_file = tempfile.mkstemp(
                     prefix="tellonce-memory-prompt-",
                     suffix=".txt",

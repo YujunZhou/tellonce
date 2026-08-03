@@ -3,9 +3,10 @@
 **English** · [中文](README.zh.md)
 
 Your AI coding agent records the preferences, pitfalls, and workflow rules you
-teach it — and stops repeating mistakes you already corrected. Safe by default:
-it only **records and reminds**; it never blocks you or sends your conversation
-anywhere until you opt in.
+teach it — and stops repeating mistakes you already corrected. It is
+**non-blocking by default**. Recording or merging a preference sends a redacted
+turn to the current platform's CLI model; installing/invoking Tellonce opts into
+that memory step. The separate shadow judge remains off until enabled.
 
 For the project overview and the other platforms, see the
 [repository landing page](../README.md).
@@ -16,19 +17,19 @@ For the project overview and the other platforms, see the
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.**
-> The command is pinned to the immutable release tag `v1.3.2` (it won't change
+> The command is pinned to the immutable release tag `v1.4.0` (it won't change
 > when `main` does), which is safer.
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
 ```
 
 This command automatically: downloads the plugin → copies it into Copilot's
@@ -41,17 +42,17 @@ plugin directory → installs the optional dependency → registers it with Copi
 ### Verify integrity
 
 If you'd rather not pipe a script straight into a shell, download it first, read
-it, and check its SHA256 against the value published for `v1.3.2`:
+it, and check its SHA256 against the value published for `v1.4.0`:
 
 ```bash
-# Windows: irm ".../v1.3.2/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.3.2/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.4.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.4.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| File | SHA256 (v1.3.2) |
+| File | SHA256 (v1.4.0) |
 |------|------------------|
-| `bootstrap.ps1` | `baac343b746efca7995c78c44ba20d3c8241b2b36bddb04e77e85d8138af8d6e` |
-| `bootstrap.sh`  | `0ed5db4145af64862b2e1c3ec2e054b51436d81210c9be2221af3423cd58b7c1` |
+| `bootstrap.ps1` | `873b42d1b90529db8a377b97a40e893c13078eebf5d0789eea7aaff34b60c0f1` |
+| `bootstrap.sh`  | `78f24c23217a9691d9a7537c7be5ab6af823350d2b918f5d1a54589fefb40d24` |
 
 ---
 
@@ -77,8 +78,11 @@ the full path is printed at the end of install.
 > Windows (PowerShell entry just echoes), so `enforce` mode is weaker there than
 > on macOS/Linux.
 
-**Privacy:** `observe` / `enforce` stay entirely on your machine. Only `full`
-sends the last message and reply (redacted) to `copilot -p`.
+**Privacy:** `observe` and `enforce` do not enable the shadow judge, but
+`memory_upsert_enabled=true` still calls the platform CLI model for background
+semantic merging. Skill-driven manual recording can also trigger one merge via
+`--manual --force`. For fully offline use, disable both memory upsert and the
+shadow judge, and keep progressive retrieval.
 
 ---
 
@@ -89,11 +93,11 @@ then the plugin files; your saved memory is kept):
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.3.2/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.sh | bash
 ```
 **Restart Copilot afterward.** To also wipe your saved memory/state, download the
 script and run it with `-Purge` (PowerShell) / `--purge` (bash). Note that
@@ -110,7 +114,8 @@ Manual / granular alternative:
 python "<plugin>/lib/doctor.py"                 # self-check (python / registration / mode / hooks)
 python "<plugin>/lib/dashboard.py"              # status at a glance (mode / registration / rule count / record count)
 python "<plugin>/lib/uninstall.py"              # dry-run: show what would be removed
-python "<plugin>/lib/uninstall.py --all"        # remove the current project's state + memory, config keys + unregister (run it from that project)
+python "<plugin>/lib/uninstall.py" --all        # remove state/config + unregister; shared memory is kept
+python "<plugin>/lib/uninstall.py" --purge-memory --confirm-shared-memory  # explicitly delete shared memory
 copilot plugin uninstall tellonce     # remove the plugin code itself
 ```
 

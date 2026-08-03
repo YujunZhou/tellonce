@@ -10,7 +10,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 - 三个平台共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值；`MEMORY.md`、规则 Markdown 和 `.tellonce-active.json` 都是可重建投影。
 - 检测到持久偏好后，只调用 `python <skill_dir>/lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`。`--manual` 会在自动 hook 已启用时跳过重复入队；`--force` 仅保证自动 hook 关闭时仍能主动记录。复杂多行消息也可通过 `--request-file <json>` 传入 `source_text`、`turn_key`、`context`。禁止直接新建或编辑记忆 Markdown，也禁止把同一轮的“禁用旧项”和“改用新项”拆成两条。
-- 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、NOOP/UPDATE/SUPERSEDE/NEW、事务提交和投影都在后台执行；失败保留 pending，不能阻塞用户。
+- 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、NOOP/UPDATE/SUPERSEDE/NEW、事务提交和投影都在后台执行；失败按退避重试，达到上限后标记 failed 并停止，不能阻塞用户。
 - judge 在返回 `NEEDS_USER` 前，先用当前项目根目录、最近对话和 active rules 消解指代、scope 与 activation；这些 context 只能帮助解释本轮用户原话，不能单独授权持久化。只有剩余歧义会改变未来行为时才进入轻量 clarification 队列，并在后续上下文中只问一个简短问题；下一条明确回答可关闭对应 turn。
 - 关闭自动 upsert 后 clarification 不再注入；过期项可用 `python <skill_dir>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
 - 自动 hook 默认关闭。只有 `~/.tellonce.config.json` 中 `memory_upsert_enabled=true`，或环境变量 `PT_MEMORY_UPSERT_ENABLED=1` 时，才会把完整用户消息交给当前平台的 CLI judge。

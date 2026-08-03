@@ -116,10 +116,14 @@ def parse_frontmatter(text: str):
     if not text.startswith("---\n"):
         raise ValueError("missing frontmatter")
     end = text.find("\n---\n", 4)
+    separator_length = 5
+    if end < 0 and text.endswith("\n---"):
+        end = len(text) - 4
+        separator_length = 4
     if end < 0:
         raise ValueError("unterminated frontmatter")
     raw = text[4:end]
-    body = text[end + 5 :]
+    body = text[end + separator_length :]
     data = {}
     current_key = None
     for raw_line in raw.splitlines():
@@ -412,6 +416,10 @@ class MemoryStore:
                 conn.execute(
                     "ALTER TABLE turns ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0"
                 )
+            if "forced" not in columns:
+                conn.execute(
+                    "ALTER TABLE turns ADD COLUMN forced INTEGER NOT NULL DEFAULT 0"
+                )
             transaction_columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
             }
@@ -497,6 +505,7 @@ class MemoryStore:
         context_text: str = "",
         judge_cli: str = "",
         clarification_candidates=None,
+        forced: bool = False,
     ):
         source_hash = _sha256(source_text)
         now = _utc_now()
@@ -507,6 +516,11 @@ class MemoryStore:
                 if row["source_hash"] != source_hash:
                     conn.execute("ROLLBACK")
                     raise MemoryStoreError("turn_key already exists with different source text")
+                if forced and not int(row["forced"] or 0):
+                    conn.execute(
+                        "UPDATE turns SET forced=1, updated_at=? WHERE turn_key=?",
+                        (now, turn_key),
+                    )
                 conn.execute("COMMIT")
                 result = json.loads(row["result_json"]) if row["result_json"] else None
                 return {"status": row["status"], "result": result}
@@ -515,8 +529,8 @@ class MemoryStore:
                 INSERT INTO turns(
                     turn_key, source_hash, source_text, context_text, judge_cli,
                     clarification_candidates_json,
-                    status, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                    forced, status, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                 """,
                 (
                     turn_key,
@@ -533,6 +547,7 @@ class MemoryStore:
                             )
                         )
                     ),
+                    1 if forced else 0,
                     now,
                     now,
                 ),
@@ -560,7 +575,8 @@ class MemoryStore:
                 return None
             status = row["status"]
             if status in {
-                "committed", "projected", "noop", "needs_user", "clarified", "dismissed"
+                "committed", "projected", "noop", "needs_user", "clarified",
+                "dismissed", "failed",
             }:
                 conn.execute("COMMIT")
                 return None
@@ -580,13 +596,27 @@ class MemoryStore:
             conn.execute("COMMIT")
             return owner
 
-    def pending_turn_keys(self, limit: int = 20):
+    def pending_turn_keys(self, limit: int = 20, forced_only: bool = False):
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT turn_key FROM turns
+                WHERE status IN ('pending', 'resolving')
+                {"AND forced=1" if forced_only else ""}
+                ORDER BY created_at
+                LIMIT ?
+                """,
+                (max(1, int(limit)),),
+            ).fetchall()
+            return [row["turn_key"] for row in rows]
+
+    def failed_turn_keys(self, limit: int = 20):
         with self.connection() as conn:
             rows = conn.execute(
                 """
                 SELECT turn_key FROM turns
-                WHERE status IN ('pending', 'resolving')
-                ORDER BY created_at
+                WHERE status='failed'
+                ORDER BY updated_at DESC
                 LIMIT ?
                 """,
                 (max(1, int(limit)),),
@@ -699,30 +729,56 @@ class MemoryStore:
         attempts = int(row["attempts"]) if row else 0
         return min(900, 15 * (2 ** min(attempts, 6)))
 
-    def mark_turn_error(self, turn_key: str, error: str, lease_owner: str = "") -> None:
+    def mark_turn_error(
+        self,
+        turn_key: str,
+        error: str,
+        lease_owner: str = "",
+        max_attempts: int = 5,
+    ) -> str:
         with self.connection() as conn:
+            row = conn.execute(
+                "SELECT attempt_count FROM turns WHERE turn_key=?",
+                (turn_key,),
+            ).fetchone()
+            attempts = int(row["attempt_count"]) if row else 0
+            if not lease_owner:
+                attempts += 1
+            next_status = "failed" if attempts >= max(1, int(max_attempts)) else "pending"
             if lease_owner:
                 conn.execute(
                     """
                     UPDATE turns
-                    SET status='pending', lease_owner=NULL, lease_expires_at=NULL,
+                    SET status=?, lease_owner=NULL, lease_expires_at=NULL,
                         last_error=?, updated_at=?
                     WHERE turn_key=? AND status='resolving' AND lease_owner=?
                     """,
-                    (_safe_scalar(error)[:1000], _utc_now(), turn_key, lease_owner),
+                    (
+                        next_status,
+                        _safe_scalar(error)[:1000],
+                        _utc_now(),
+                        turn_key,
+                        lease_owner,
+                    ),
                 )
             else:
                 conn.execute(
                     """
                     UPDATE turns
-                    SET status='pending', lease_owner=NULL, lease_expires_at=NULL,
-                        last_error=?, updated_at=?
+                    SET status=?, lease_owner=NULL, lease_expires_at=NULL,
+                        attempt_count=attempt_count+1, last_error=?, updated_at=?
                     WHERE turn_key=? AND status NOT IN (
-                        'committed','projected','noop','needs_user','clarified','dismissed'
+                        'committed','projected','noop','needs_user','clarified','dismissed','failed'
                     )
                     """,
-                    (_safe_scalar(error)[:1000], _utc_now(), turn_key),
+                    (
+                        next_status,
+                        _safe_scalar(error)[:1000],
+                        _utc_now(),
+                        turn_key,
+                    ),
                 )
+        return next_status
 
     def mark_needs_user(self, turn_key: str, plan: dict, lease_owner: str = "") -> dict:
         result = {
@@ -788,8 +844,7 @@ class MemoryStore:
             value += 1
         conn.execute(
             """
-            INSERT INTO id_counters(prefix, next_value) VALUES(?, ?)
-            ON CONFLICT(prefix) DO UPDATE SET next_value=excluded.next_value
+            INSERT OR REPLACE INTO id_counters(prefix, next_value) VALUES(?, ?)
             """,
             (prefix, value + 1),
         )
@@ -1208,6 +1263,25 @@ class MemoryStore:
                     _atomic_write(target, content)
                     written.append(str(target))
 
+                projected_ids = {record["atomic_id"] for record in records}
+                for stale_path in self.memory_dir.glob("*.md"):
+                    if stale_path.name == "MEMORY.md":
+                        continue
+                    if not VALID_ATOMIC_ID.fullmatch(stale_path.stem):
+                        continue
+                    if stale_path.stem not in projected_ids:
+                        try:
+                            stale_data, _stale_body = parse_frontmatter(
+                                stale_path.read_text(encoding="utf-8-sig")
+                            )
+                        except (OSError, UnicodeError, ValueError):
+                            continue
+                        if (
+                            stale_data.get("schema_version") == "tellonce-memory-v2"
+                            and stale_data.get("atomic_id") == stale_path.stem
+                        ):
+                            stale_path.unlink()
+
                 grouped = {}
                 for record in active:
                     grouped.setdefault(record["domain"], []).append(record)
@@ -1378,17 +1452,35 @@ class MemoryStore:
                 return False
         candidates = {}
         source_dirs = [self.memory_dir, *self.legacy_dirs]
+        invalid_paths = []
         for source_rank, source_dir in enumerate(source_dirs):
             if not source_dir.is_dir():
                 continue
             for path in sorted(source_dir.glob("*.md")):
                 if path.name == "MEMORY.md" or path.name.startswith("_archived_"):
                     continue
+                source_text = ""
                 try:
-                    data, body = parse_frontmatter(
-                        path.read_text(encoding="utf-8-sig", errors="replace")
+                    source_text = path.read_text(
+                        encoding="utf-8-sig",
+                        errors="replace",
                     )
-                except Exception:
+                    data, body = parse_frontmatter(source_text)
+                except Exception as exc:
+                    likely_rule = (
+                        bool(VALID_ATOMIC_ID.fullmatch(path.stem))
+                        or path.name.startswith(
+                            (
+                                "pref_", "pit_", "fric_", "usr_", "proj_",
+                                "ref_", "feedback_",
+                            )
+                        )
+                        or source_text.lstrip("\ufeff").startswith("---")
+                    )
+                    if likely_rule:
+                        invalid_paths.append(
+                            f"{path}: {type(exc).__name__}: {exc}"
+                        )
                     continue
                 atomic_id = str(data.get("atomic_id", "")).strip()
                 if not VALID_ATOMIC_ID.match(atomic_id):
@@ -1418,6 +1510,11 @@ class MemoryStore:
                         body,
                         str(path),
                     )
+        if invalid_paths:
+            raise MemoryStoreError(
+                "legacy memory migration refused unreadable rule files: "
+                + "; ".join(invalid_paths[:10])
+            )
         if not candidates:
             return False
         with self.connection() as conn:
@@ -1437,8 +1534,11 @@ class MemoryStore:
             ) in sorted(candidates.items()):
                 try:
                     record = self._legacy_record(data, body)
-                except InvalidPlanError:
-                    continue
+                except InvalidPlanError as exc:
+                    raise MemoryStoreError(
+                        "legacy memory migration refused invalid rule file: "
+                        f"{source_path}: {exc}"
+                    ) from exc
                 atomic_id = legacy_atomic_id
                 if conn.execute(
                     "SELECT 1 FROM rules WHERE atomic_id=?",

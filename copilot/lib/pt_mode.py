@@ -32,11 +32,11 @@ CONFIG_PATH = path_config.CONFIG_PATH
 def _load():
     if not os.path.exists(CONFIG_PATH):
         return {}
-    try:
-        with open(CONFIG_PATH, encoding='utf-8-sig') as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    with open(CONFIG_PATH, encoding='utf-8-sig') as f:
+        value = json.load(f)
+    if not isinstance(value, dict):
+        raise ValueError(f'config must be a JSON object: {CONFIG_PATH}')
+    return value
 
 
 def _save(cfg):
@@ -63,13 +63,23 @@ def _on(v):
 
 
 def _print_status(cfg):
-    enforce = bool(cfg.get('enforce', False))
-    shadow = bool(cfg.get('shadow', False))
-    upsert = bool(cfg.get('memory_upsert_enabled', False))
+    enforce = _on(os.environ.get('PT_ENFORCE', cfg.get('enforce', False)))
+    shadow = _on(os.environ.get('PT_SHADOW', cfg.get('shadow', False)))
+    upsert = _on(
+        os.environ.get(
+            'PT_MEMORY_UPSERT_ENABLED',
+            os.environ.get(
+                'B5_MEMORY_UPSERT_ENABLED',
+                cfg.get('memory_upsert_enabled', False),
+            ),
+        )
+    )
     if enforce and shadow:
         mode = 'full     (hard block + LLM judge)'
     elif enforce:
         mode = 'enforce  (hard block, no LLM judge)'
+    elif shadow:
+        mode = 'shadow   (LLM judge, no hard block)'
     else:
         mode = 'observe  (no hard block or shadow judge)'
     print(f'tellonce current mode: {mode}')

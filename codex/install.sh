@@ -188,7 +188,9 @@ if [[ "${SKIP_GLOBAL}" != true ]]; then
         mkdir -p "${GLOBAL_DIR}/hooks"
         if [[ -d "${SKILL_DIR}/hooks" ]]; then
             cp "${SKILL_DIR}/hooks/"*.sh "${GLOBAL_DIR}/hooks/" 2>/dev/null || true
+            cp "${SKILL_DIR}/hooks/"*.py "${GLOBAL_DIR}/hooks/" 2>/dev/null || true
             chmod +x "${GLOBAL_DIR}/hooks/"*.sh 2>/dev/null || true
+            chmod +x "${GLOBAL_DIR}/hooks/"*.py 2>/dev/null || true
         fi
         if [[ -f "${SKILL_DIR}/SKILL.md" ]]; then
             cp "${SKILL_DIR}/SKILL.md" "${GLOBAL_DIR}/SKILL.md"

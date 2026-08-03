@@ -26,7 +26,8 @@ PostToolUse only sees tool inputs/outputs).
 ## Core rules (every turn)
 
 - **Scan** every user message for `preference`, `pitfall`, `friction`, or `none`.
-- **Apply** known preferences before responding (read `<state>/index/active_memories.json`).
+- **Apply** known preferences before responding from the shared SQLite-derived
+  `.tellonce/memory/.tellonce-active.json` projection.
 - **Record** durable evidence through `tellonce_codex scan` when installed.
 - **Wrap** any subprocess that produces user-facing output via `tellonce_codex exec -- <cmd>` so its stdout is verified and audited.
 

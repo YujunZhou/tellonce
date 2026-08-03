@@ -13,9 +13,10 @@ Pass explicit flags to actually delete:
     python <plugin>/lib/uninstall.py --purge-memory  # delete the memory/ rules
     python <plugin>/lib/uninstall.py --reset-config   # remove enforce/shadow keys (back to observe)
     python <plugin>/lib/uninstall.py --unregister     # remove from Copilot's installedPlugins
-    python <plugin>/lib/uninstall.py --all            # all of the above
+    python <plugin>/lib/uninstall.py --all            # integration/state/config; memory kept
+    python <plugin>/lib/uninstall.py --purge-memory --confirm-shared-memory
 
-User data (memory rules) is preserved unless you ask for --purge-memory/--all.
+User data (memory rules) is preserved unless you ask for --purge-memory.
 """
 import json
 import os
@@ -42,35 +43,38 @@ def _state_root():
 def _rm_dir(path, dry):
     if not path or not os.path.isdir(path):
         print(f'  (skip) not present: {path}')
-        return
+        return True
     if dry:
         print(f'  would remove dir: {path}')
+        return True
     else:
         try:
             shutil.rmtree(path)
             print(f'  removed dir: {path}')
+            return True
         except Exception as e:
             print(f'  ERROR removing {path}: {type(e).__name__}: {e}')
+            return False
 
 
 def _reset_config(dry):
     p = path_config.CONFIG_PATH
     if not os.path.exists(p):
         print(f'  (skip) no config at {p}')
-        return
+        return True
     try:
         with open(p, encoding='utf-8-sig') as f:
             cfg = json.load(f)
     except Exception as e:
         print(f'  ERROR reading config: {e}')
-        return
+        return False
     removed = [k for k in ('enforce', 'shadow') if k in cfg]
     if not removed:
         print('  (skip) config has no enforce/shadow keys')
-        return
+        return True
     if dry:
         print(f'  would remove config keys {removed} from {p} (retrieve_* kept)')
-        return
+        return True
     for k in removed:
         cfg.pop(k, None)
     import tempfile
@@ -82,38 +86,50 @@ def _reset_config(dry):
             f.write('\n')
         os.replace(tmp, p)
         print(f'  reset config: removed {removed} (back to observe default)')
+        return True
     except Exception as e:
         try:
             os.remove(tmp)
         except OSError:
             pass
         print(f'  ERROR writing config: {e}')
+        return False
 
 
 def main():
     args = set(sys.argv[1:])
     do_all = '--all' in args
     purge_state = do_all or '--purge-state' in args
-    purge_memory = do_all or '--purge-memory' in args
+    purge_memory = '--purge-memory' in args
+    confirm_shared_memory = '--confirm-shared-memory' in args
     reset_config = do_all or '--reset-config' in args
     unregister = do_all or '--unregister' in args
     dry = not (purge_state or purge_memory or reset_config or unregister)
+
+    if purge_memory and not confirm_shared_memory:
+        print(
+            'ERROR: memory is shared by Claude, Copilot, and Codex. '
+            'Re-run with --purge-memory --confirm-shared-memory.',
+            file=sys.stderr,
+        )
+        return 2
 
     print('tellonce uninstall' + (' (DRY RUN — pass flags to act)' if dry else ''))
     print('-' * 60)
     print('To remove the plugin code itself, run:')
     print('  copilot plugin uninstall tellonce')
     print('-' * 60)
+    ok = True
 
     if dry or purge_state:
         print('State:')
-        _rm_dir(_state_root(), dry or not purge_state)
+        ok = _rm_dir(_state_root(), dry or not purge_state) and ok
     if dry or purge_memory:
         print('Memory rules (your saved preferences):')
-        _rm_dir(path_config.get_memory_dir(), dry or not purge_memory)
+        ok = _rm_dir(path_config.get_memory_dir(), dry or not purge_memory) and ok
     if dry or reset_config:
         print('Config mode keys:')
-        _reset_config(dry or not reset_config)
+        ok = _reset_config(dry or not reset_config) and ok
     if dry or unregister:
         print('Copilot plugin registration:')
         if dry or not unregister:
@@ -121,18 +137,29 @@ def main():
         else:
             try:
                 import subprocess
-                subprocess.run([sys.executable, os.path.join(_LIB_DIR, 'register_plugin.py'),
-                                '--unregister'], check=False)
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        os.path.join(_LIB_DIR, 'register_plugin.py'),
+                        '--unregister',
+                    ],
+                    check=False,
+                )
+                if completed.returncode != 0:
+                    print(f'  ERROR: unregister exited {completed.returncode}')
+                    ok = False
             except Exception as e:
                 print(f'  ERROR: {e}')
+                ok = False
 
     print('-' * 60)
     if dry:
-        print('Nothing was deleted. Re-run with --purge-state / --purge-memory / '
-              '--reset-config / --unregister / --all to actually remove.')
+        print('Nothing was deleted. Re-run with --purge-state / --reset-config / '
+              '--unregister / --all. Shared memory needs --purge-memory '
+              '--confirm-shared-memory.')
     else:
-        print('Done.')
-    return 0
+        print('Done.' if ok else 'Completed with errors.')
+    return 0 if ok else 1
 
 
 if __name__ == '__main__':

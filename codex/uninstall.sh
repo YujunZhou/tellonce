@@ -59,29 +59,39 @@ if [[ "${PURGE_SKILL}" == true && "${PURGE_HOOKS}" != true ]]; then
     PURGE_HOOKS=true
 fi
 
-# 1. Project-level uninstall via tellonce_codex
+# 1. Project-level uninstall via tellonce_codex. Cleanup requested for global
+# hooks/runtime must still run if project state is corrupt, but the final exit
+# code must report the failure.
+PROJECT_RC=0
 PYTHONPATH="${PYTHON_PATH_ROOT}" "${PYTHON}" -m tellonce_codex uninstall \
-    ${PASSTHRU[@]+"${PASSTHRU[@]}"} || true
+    ${PASSTHRU[@]+"${PASSTHRU[@]}"} || PROJECT_RC=$?
+if [[ "${PROJECT_RC}" -ne 0 ]]; then
+    echo "⚠ project-level uninstall failed (rc=${PROJECT_RC}); continuing with requested global cleanup" >&2
+fi
 
 # 2. Optionally drop hook registrations from ~/.codex/hooks.json
+HOOK_RC=0
 if [[ "${PURGE_HOOKS}" == true ]]; then
     if [[ -f "${HOOKS_JSON}" ]]; then
         echo "Removing Tellonce hook registrations from ${HOOKS_JSON}"
         PYTHONPATH="${PYTHON_PATH_ROOT}" "${PYTHON}" -m tellonce_codex.install_codex_hooks \
             --hooks-json "${HOOKS_JSON}" \
-            --remove || true
+            --remove || HOOK_RC=$?
     fi
 else
     echo "(skipping hook registration removal — pass --purge-hooks to drop ~/.codex/hooks.json entries)"
 fi
 
 # 3. Optionally remove global skill dir + shell wrapper
-if [[ "${PURGE_SKILL}" == true ]]; then
+if [[ "${PURGE_SKILL}" == true && "${HOOK_RC}" -eq 0 ]]; then
     if [[ -d "${GLOBAL_DIR}" ]]; then
         RESOLVED_GLOBAL="$(cd "${GLOBAL_DIR}" && pwd -P)"
         if [[ "${RESOLVED_GLOBAL}" == "/" ]] || [[ "${RESOLVED_GLOBAL}" == "${HOME}" ]]; then
             echo "❌ refusing to remove suspicious skill dir: ${RESOLVED_GLOBAL}"
             exit 1
+        fi
+        if [[ "${PURGE_SKILL}" == true && "${HOOK_RC}" -ne 0 ]]; then
+            echo "⚠ preserving ${GLOBAL_DIR} because hook registration removal failed" >&2
         fi
         echo "Removing global skill dir ${GLOBAL_DIR}"
         rm -rf "${GLOBAL_DIR}"
@@ -98,4 +108,9 @@ if [[ "${PURGE_SKILL}" == true ]]; then
 fi
 
 echo ""
+if [[ "${PROJECT_RC}" -ne 0 || "${HOOK_RC}" -ne 0 ]]; then
+    echo "⚠ codex tellonce cleanup completed with errors" >&2
+    [[ "${PROJECT_RC}" -ne 0 ]] && exit "${PROJECT_RC}"
+    exit "${HOOK_RC}"
+fi
 echo "✓ codex tellonce uninstall complete"

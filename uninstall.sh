@@ -3,13 +3,13 @@
 #
 # Usage:
 #   bash ~/.claude/skills/tellonce/uninstall.sh
-#       [--keep-skill-dir] [--purge-state] [--keep-config]
+#       [--keep-skill-dir] [--purge-state] [--purge-memory] [--keep-config]
 #
 # Steps:
 #   1. Unregister hooks (versioned backup, then remove PT hooks with Python)
 #   2. rm hooks .sh
 #   3. Ask the user whether to rm ~/.claude/skills/tellonce/
-#   4. Leave memory + state untouched (user data preserved unless --purge-state)
+#   4. Leave memory + state untouched unless separately requested
 #   5. Clean ~/.tellonce.config.json (unless --keep-config)
 #
 # Hardening:
@@ -27,11 +27,11 @@ HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"
 STATE_DIR="${PT_STATE_DIR:-${B5_STATE_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/runtime}}"
 OBS_LOG_DIR="${PT_OBS_LOG_DIR:-${B5_OBS_LOG_DIR:-${PROJECT_ROOT}/.claude/tellonce-state/obs_log}}"
-MEMORY_DIR="$(PYTHONPATH="${SKILL_DIR}/lib${PYTHONPATH:+:${PYTHONPATH}}" python3 -c 'import path_config; print(path_config.get_memory_dir())')"
 CONFIG_FILE="${HOME}/.tellonce.config.json"
 
 KEEP_SKILL_DIR=false
 PURGE_STATE=false
+PURGE_MEMORY=false
 KEEP_CONFIG=false
 KEEP_GLOBAL=false
 PURGE_LEGACY_HOOKS=false
@@ -39,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --keep-skill-dir) KEEP_SKILL_DIR=true; shift ;;
         --purge-state) PURGE_STATE=true; shift ;;
+        --purge-memory) PURGE_MEMORY=true; shift ;;
         --keep-config) KEEP_CONFIG=true; shift ;;
         --keep-global) KEEP_GLOBAL=true; shift ;;
         --purge-legacy-project-hooks) PURGE_LEGACY_HOOKS=true; shift ;;
@@ -46,6 +47,10 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown arg: $1 (see --help)"; exit 1 ;;
     esac
 done
+
+# Memory is shared by all three runtimes. Resolve its default from the explicit
+# project root, not from a possibly stale global config path.
+MEMORY_DIR="${PT_MEMORY_DIR:-${B5_MEMORY_DIR:-${PROJECT_ROOT}/.tellonce/memory}}"
 
 # Refuse uninstall when PROJECT_ROOT is HOME — that means the user probably ran
 # `cd ~ && uninstall` and would otherwise blow away their global ~/.claude/hooks
@@ -184,15 +189,11 @@ fi
 echo ""
 echo "[4/5] state + memory:"
 if [[ "${PURGE_STATE}" == true ]]; then
-    echo "  - rm state + obs_log + shared memory (--purge-state):"
+    echo "  - rm Claude runtime state + obs_log (--purge-state):"
     _refuse_dangerous_path STATE_DIR "${STATE_DIR}"
     _refuse_dangerous_path OBS_LOG_DIR "${OBS_LOG_DIR}"
-    _refuse_dangerous_path MEMORY_DIR "${MEMORY_DIR}"
-    # Interactive confirm before destroying observation history (matches the
-    # header's "double-confirm on --purge-state" promise). Non-interactive
-    # callers (no tty) keep the old behavior: the flag itself is the consent.
     if [[ -t 0 ]]; then
-        read -p "  Really delete ${STATE_DIR}, ${OBS_LOG_DIR}, and ${MEMORY_DIR}? (y/N) " ans || ans="N"
+        read -p "  Really delete ${STATE_DIR} and ${OBS_LOG_DIR}? (y/N) " ans || ans="N"
         if [[ "${ans}" != "y" && "${ans}" != "Y" ]]; then
             echo "  - keeping state + obs_log (declined)"
             PURGE_STATE=false
@@ -200,17 +201,27 @@ if [[ "${PURGE_STATE}" == true ]]; then
     fi
 fi
 if [[ "${PURGE_STATE}" == true ]]; then
-    rm -rf "${STATE_DIR}" "${OBS_LOG_DIR}" "${MEMORY_DIR}"
+    rm -rf "${STATE_DIR}" "${OBS_LOG_DIR}"
     echo "    rm -rf ${STATE_DIR}"
     echo "    rm -rf ${OBS_LOG_DIR}"
-    echo "    rm -rf ${MEMORY_DIR}"
 else
-    echo "  - state + obs_log + memory kept (user data)"
+    echo "  - state + obs_log kept"
     echo "    state: ${STATE_DIR}"
     echo "    obs_log: ${OBS_LOG_DIR}"
-    echo "    memory: ${MEMORY_DIR} (untouched)"
-    echo ""
-    echo "  Full delete: bash ${SKILL_DIR}/uninstall.sh --purge-state"
+fi
+if [[ "${PURGE_MEMORY}" == true ]]; then
+    _refuse_dangerous_path MEMORY_DIR "${MEMORY_DIR}"
+    if [[ -t 0 ]]; then
+        read -p "  Delete SHARED Claude/Copilot/Codex memory at ${MEMORY_DIR}? Type DELETE: " ans || ans=""
+        [[ "${ans}" == "DELETE" ]] || PURGE_MEMORY=false
+    fi
+fi
+if [[ "${PURGE_MEMORY}" == true ]]; then
+    rm -rf "${MEMORY_DIR}"
+    echo "    rm -rf ${MEMORY_DIR}"
+else
+    echo "  - shared memory kept: ${MEMORY_DIR}"
+    echo "    Delete only with explicit --purge-memory"
 fi
 
 # 5. ~/.tellonce.config.json: strip only the PATH-ANCHOR keys (so a reinstall

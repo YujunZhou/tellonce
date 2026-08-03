@@ -52,6 +52,11 @@ def _try_register_global_hooks() -> tuple[bool, str]:
 
 
 def install(project_root: Path, register_hooks: bool = True) -> InstallRecord:
+    disabled_marker = project_root.resolve() / ".codex" / "tellonce.disabled"
+    try:
+        disabled_marker.unlink()
+    except OSError:
+        pass
     registration = register_project(project_root)
     state = registration.state_root
     secure_write_text(state / "install_record.json", '{"status":"installed"}\n')

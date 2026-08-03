@@ -41,6 +41,9 @@ except Exception:
 ' 2>/dev/null)"
 
 if [[ -n "${CODEX_CWD}" && -d "${CODEX_CWD}" ]]; then
+    if [[ -f "${CODEX_CWD}/.codex/tellonce.disabled" ]]; then
+        exit 0
+    fi
     export B5_PROJECT_ROOT="${CODEX_CWD}"
     export CODEX_PROJECT_ROOT="${CODEX_CWD}"
 fi

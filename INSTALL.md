@@ -167,7 +167,8 @@ bash ~/.claude/skills/tellonce/uninstall.sh
 
 By default this keeps your accumulated compliance log / state directory /
 preference-memory files and only removes the hook registration. Add
-`--purge-state` to wipe everything. To also delete the old `.sh` files an earlier
+`--purge-state` to wipe runtime state and logs; add `--purge-memory` to also
+delete the memory shared by all three platforms. To also delete the old `.sh` files an earlier
 install left in `<project>/.claude/hooks/` (PT v1+ no longer manages those and
 keeps them by default in case you have a same-named hook of your own):
 `--purge-legacy-project-hooks`.

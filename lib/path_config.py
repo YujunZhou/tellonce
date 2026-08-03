@@ -245,8 +245,22 @@ def get_obs_log_dir() -> str:
 def get_memory_dir() -> str:
     """Memory rules directory. Default from pt_platform.default_memory_dir(project_root)
     (per-variant location, including any migration fallback)."""
-    return _resolve('B5_MEMORY_DIR', 'memory_dir',
-                    lambda: pt_platform.default_memory_dir(get_project_root()))
+    explicit = _read_env('B5_MEMORY_DIR')
+    if explicit:
+        return explicit
+    cfg = _read_config_file()
+    if cfg.get('memory_dir'):
+        return cfg['memory_dir']
+    project_root = Path(get_project_root()).expanduser().resolve()
+    candidate = Path(
+        pt_platform.default_memory_dir(str(project_root))
+    ).expanduser()
+    expected = project_root / '.tellonce' / 'memory'
+    if candidate.resolve() != expected:
+        raise ValueError(
+            f"default memory path escapes project root through a symlink/junction: {candidate}"
+        )
+    return str(candidate)
 
 
 def get_legacy_memory_dirs() -> list[str]:
