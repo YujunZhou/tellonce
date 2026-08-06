@@ -10,7 +10,8 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 - 三个平台共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值；`MEMORY.md`、规则 Markdown 和 `.tellonce-active.json` 都是可重建投影。
 - 检测到持久偏好后，只调用 `python <skill_dir>/lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`。`--manual` 会在自动 hook 已启用时跳过重复入队；`--force` 仅保证自动 hook 关闭时仍能主动记录。复杂多行消息也可通过 `--request-file <json>` 传入 `source_text`、`turn_key`、`context`。禁止直接新建或编辑记忆 Markdown，也禁止把同一轮的“禁用旧项”和“改用新项”拆成两条。
-- 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、NOOP/UPDATE/SUPERSEDE/NEW、事务提交和投影都在后台执行；失败按退避重试，达到上限后标记 failed 并停止，不能阻塞用户。
+- 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、NOOP/UPDATE/SUPERSEDE/SPLIT/NEW、事务提交和投影都在后台执行；失败按退避重试，达到上限后标记 failed 并停止，不能阻塞用户。
+- 一条纠正包含多个可独立触发、修改或废止的 durable policy 时使用 `SPLIT`，并让每个 child 独立执行 `NOOP|UPDATE|SUPERSEDE|NEW`。一般规则与其例外、边界、理由或操作后果仍是一条规则，不得误拆。
 - judge 在返回 `NEEDS_USER` 前，先用当前项目根目录、最近对话和 active rules 消解指代、scope 与 activation；这些 context 只能帮助解释本轮用户原话，不能单独授权持久化。只有剩余歧义会改变未来行为时才进入轻量 clarification 队列，并在后续上下文中只问一个简短问题；下一条明确回答可关闭对应 turn。
 - 关闭自动 upsert 后 clarification 不再注入；过期项可用 `python <skill_dir>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
 - 自动 hook 默认关闭。只有 `~/.tellonce.config.json` 中 `memory_upsert_enabled=true`，或环境变量 `PT_MEMORY_UPSERT_ENABLED=1` 时，才会把完整用户消息交给当前平台的 CLI judge。
@@ -303,7 +304,8 @@ name: <short name>
 description: <one-line description, used to judge relevance in the future, be specific>
 type: preference | pitfall | friction | user | project | reference
 domain: formatting | language | workflow | coding | tools | experiment | writing | communication | other
-scope: global | project:<project_name>
+scope: global | project | task | unclear
+scope_anchor: <project/task identifier; empty for global>
 condition: "<optional, applicable condition, e.g. when writing shell scripts>"
 confidence: high | medium | low
 atomic_id: <domain_abbrev>-<type_abbrev>-<3-digit sequence>
@@ -493,7 +495,7 @@ Suggested new MEMORY.md structure:
 
 ## Conflict Resolution Algorithm
 
-> **本节旧的手工文件流程已废弃。** 冲突解析现在只能由后台 `memory_upsert` worker 执行：一次读取全部 active rules，把完整 user turn 聚合为一个 plan，再用 SQLite 事务提交 NOOP/UPDATE/SUPERSEDE/NEW。下方关于直接 Write/Edit Markdown、手工分配 atomic_id 或手工改 `MEMORY.md` 的步骤仅保留为历史说明，禁止执行。
+> **本节旧的手工文件流程已废弃。** 冲突解析现在只能由后台 `memory_upsert` worker 执行：一次读取全部 active rules，把完整 user turn 聚合为一个 plan，再用 SQLite 事务提交 NOOP/UPDATE/SUPERSEDE/SPLIT/NEW。`SPLIT` 只用于多个可独立成立、独立更新或独立废止的要求；每个 child 仍需单独解析 lifecycle。下方关于直接 Write/Edit Markdown、手工分配 atomic_id 或手工改 `MEMORY.md` 的步骤仅保留为历史说明，禁止执行。
 
 历史伪代码，仅用于解释旧版本为何会碎片化；禁止执行：
 
@@ -525,7 +527,7 @@ Suggested new MEMORY.md structure:
 
 ```
 **I checked**: memory/<domain>/*.md, candidates considered = [<atomic_id_1>, <atomic_id_2>, ...]
-**Decision**: NOOP | UPDATE existing <atomic_id> | SUPERSEDE existing <atomic_id> | NEW — because <one-sentence reason>
+**Decision**: NOOP | UPDATE existing <atomic_id> | SUPERSEDE existing <atomic_id> | SPLIT | NEW — because <one-sentence reason>
 ```
 
 **Why**: an advisory rule alone isn't enough — the agent tends to short-circuit conflict resolution during intensive writing. Explicitly writing out "what was checked + the decision" = a forcing function: it ensures the dedup / conflict judgment is actually done before each memory write.
@@ -581,7 +583,7 @@ If the user has said "stop asking, just record it" / "no need to confirm":
 
 ### ⚠ Key: when detected=true, confirmation_text can never be empty (including NOOP/UPDATE)
 
-**Stop hook hard check**: `detection.detected=true AND action.confirmation_text empty → block stop`. This is independent of conflict_resolution (NOOP / UPDATE / SUPERSEDE / NEW) — even if you decide not to write a new file (NOOP) or only update an existing file (UPDATE), the `confirmation_text` field must contain a non-empty string telling the user what you detected.
+**Stop hook hard check**: `detection.detected=true AND action.confirmation_text empty → block stop`. This is independent of conflict_resolution (NOOP / UPDATE / SUPERSEDE / SPLIT / NEW) — even if you decide not to write a new file (NOOP) or only update an existing file (UPDATE), the `confirmation_text` field must contain a non-empty string telling the user what you detected.
 
 **Easy trap**: mistakenly equating "NOOP = don't write a new memory" with "silent = no need to confirm". This is wrong. NOOP means **nothing is written at the memory layer**, but the user-facing **CONFIRM layer still runs**.
 
@@ -592,6 +594,7 @@ If the user has said "stop asking, just record it" / "no need to confirm":
 | **NEW**    | which new preference was recorded + atomic_id, and invite a correction. E.g.: `Recorded preference [<atomic_id>]: <one line>. Let me know if that's wrong.` |
 | **UPDATE** | which existing preference was updated + the added increment, with the original rule kept. E.g.: `Updated [<atomic_id>] with <delta>; original rule kept.` |
 | **SUPERSEDE** | which old preference it conflicts with, which new one was created to supersede it, the old file marked superseded_by. E.g.: `Conflicts with [<old id>]; created [<new id>] to supersede it.` |
+| **SPLIT** | which independently maintainable child rules were resolved, including each child's real operation and atomic_id. |
 | **NOOP**   | what preference was detected, which existing atomic_id already covers it, not rewritten. E.g.: `Detected "<content>" — already covered by [<existing id>], no new file.` |
 
 **For a soft `preference` / `pitfall`** (see the Actionability gate): if you could not confidently compile an actionable rule, the `confirmation_text` must also carry the user's original wording **and** your proposed actionable version, so the user can sharpen it.

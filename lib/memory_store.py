@@ -18,13 +18,15 @@ import uuid
 from contextlib import contextmanager
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DB_FILENAME = ".tellonce.sqlite3"
 ACTIVE_INDEX_FILENAME = ".tellonce-active.json"
-VALID_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "NEW", "NEEDS_USER"}
+VALID_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "SPLIT", "NEW", "NEEDS_USER"}
+SPLIT_CHILD_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "NEW"}
 VALID_ATOMIC_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 VALID_EXTRA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 VALID_CONFIDENCE = {"high", "medium", "low"}
+VALID_SCOPES = {"global", "project", "task", "unclear"}
 
 DOMAIN_ABBREVIATIONS = {
     "formatting": "fmt",
@@ -62,6 +64,7 @@ RECORD_FIELDS = (
     "type",
     "domain",
     "scope",
+    "scope_anchor",
     "condition",
     "confidence",
     "rule_text",
@@ -164,6 +167,7 @@ def _render_frontmatter(data: dict, body: str) -> str:
         "type",
         "domain",
         "scope",
+        "scope_anchor",
         "condition",
         "confidence",
         "status",
@@ -304,6 +308,7 @@ class MemoryStore:
             conn.close()
 
     def initialize(self) -> None:
+        projection_required = False
         with self.connection() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(
@@ -334,6 +339,7 @@ class MemoryStore:
                     type TEXT NOT NULL,
                     domain TEXT NOT NULL,
                     scope TEXT NOT NULL,
+                    scope_anchor TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
                     current_revision INTEGER NOT NULL,
                     superseded_by TEXT,
@@ -390,6 +396,10 @@ class MemoryStore:
                 (str(SCHEMA_VERSION),),
             )
             conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('generation', '0')")
+            conn.execute(
+                "INSERT OR IGNORE INTO meta(key, value) "
+                "VALUES('projection_required', '0')"
+            )
             columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(turns)").fetchall()
             }
@@ -420,6 +430,38 @@ class MemoryStore:
                 conn.execute(
                     "ALTER TABLE turns ADD COLUMN forced INTEGER NOT NULL DEFAULT 0"
                 )
+            rule_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(rules)").fetchall()
+            }
+            legacy_scope_rows = bool(
+                conn.execute(
+                    "SELECT 1 FROM rules WHERE scope LIKE 'project:%' LIMIT 1"
+                ).fetchone()
+            )
+            projection_required = (
+                "scope_anchor" not in rule_columns or legacy_scope_rows
+            )
+            if projection_required:
+                # Persist the retry marker before changing schema or canonical
+                # rows, so interruption cannot leave stale projections unmarked.
+                conn.execute(
+                    "UPDATE meta SET value='1' WHERE key='projection_required'"
+                )
+            if "scope_anchor" not in rule_columns:
+                conn.execute(
+                    "ALTER TABLE rules ADD COLUMN scope_anchor TEXT NOT NULL DEFAULT ''"
+                )
+            migrated_scopes = conn.execute(
+                """
+                UPDATE rules
+                SET scope_anchor=CASE
+                        WHEN scope_anchor='' THEN substr(scope, length('project:') + 1)
+                        ELSE scope_anchor
+                    END,
+                    scope='project'
+                WHERE scope LIKE 'project:%'
+                """
+            )
             transaction_columns = {
                 row["name"] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
             }
@@ -436,7 +478,23 @@ class MemoryStore:
                 WHERE status='committed' AND committed_generation IS NULL
                 """
             )
+            conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
+                (str(SCHEMA_VERSION),),
+            )
         if self._import_legacy_if_empty():
+            with self.connection() as conn:
+                conn.execute(
+                    "UPDATE meta SET value='1' WHERE key='projection_required'"
+                )
+        with self.connection() as conn:
+            projection_required = (
+                conn.execute(
+                    "SELECT value FROM meta WHERE key='projection_required'"
+                ).fetchone()["value"]
+                == "1"
+            )
+        if projection_required:
             self.project()
 
     def generation(self) -> int:
@@ -455,6 +513,7 @@ class MemoryStore:
             "type": row["type"],
             "domain": row["domain"],
             "scope": row["scope"],
+            "scope_anchor": row["scope_anchor"],
             "name": row["name"],
             "description": row["description"],
             "condition": row["condition"],
@@ -856,13 +915,34 @@ class MemoryStore:
         base = base or {}
         out = {}
         for field in RECORD_FIELDS:
+            if field in {"scope", "scope_anchor"}:
+                continue
             incoming = record[field] if field in record else base.get(field, "")
             if incoming is None:
                 incoming = ""
             out[field] = _safe_scalar(incoming) if field != "body" else str(incoming or "").strip()
+        if "scope" in record:
+            out["scope"] = _safe_scalar(record.get("scope", ""))
+            out["scope_anchor"] = _safe_scalar(record.get("scope_anchor", ""))
+        elif "scope_anchor" in record:
+            out["scope"] = _safe_scalar(base.get("scope", ""))
+            out["scope_anchor"] = _safe_scalar(record.get("scope_anchor", ""))
+        else:
+            out["scope"] = _safe_scalar(base.get("scope", ""))
+            out["scope_anchor"] = _safe_scalar(base.get("scope_anchor", ""))
         out["type"] = out["type"] or "preference"
         out["domain"] = out["domain"] or "other"
         out["scope"] = out["scope"] or "global"
+        legacy_anchor = ""
+        if out["scope"].startswith("project:"):
+            legacy_anchor = out["scope"][len("project:"):].strip()
+            out["scope"] = "project"
+        if legacy_anchor:
+            if out["scope_anchor"] and out["scope_anchor"] != legacy_anchor:
+                raise InvalidPlanError(
+                    "record.scope_anchor conflicts with legacy project:<name> scope"
+                )
+            out["scope_anchor"] = legacy_anchor
         out["confidence"] = out["confidence"] or "medium"
         out["rule_text"] = out["rule_text"] or out["description"]
         out["description"] = out["description"] or out["rule_text"]
@@ -877,12 +957,18 @@ class MemoryStore:
             raise InvalidPlanError(f"unsupported record.type: {out['type']}")
         if out["confidence"] not in VALID_CONFIDENCE:
             raise InvalidPlanError(f"unsupported record.confidence: {out['confidence']}")
-        if out["scope"] != "global":
-            project_scope = out["scope"][len("project:"):].strip() if out["scope"].startswith("project:") else ""
-            if not project_scope:
-                raise InvalidPlanError(
-                    "record.scope must be 'global' or 'project:<non-empty-name>'"
-                )
+        if out["scope"] not in VALID_SCOPES:
+            raise InvalidPlanError(
+                "record.scope must be global, project, task, or unclear"
+            )
+        if out["scope"] in {"project", "task"} and not out["scope_anchor"]:
+            raise InvalidPlanError(
+                f"record.scope_anchor is required for {out['scope']} scope"
+            )
+        if out["scope"] == "global" and out["scope_anchor"]:
+            raise InvalidPlanError(
+                "record.scope_anchor must be empty for global scope"
+            )
         reserved = set(RECORD_FIELDS) | {
             "schema_version",
             "atomic_id",
@@ -925,11 +1011,19 @@ class MemoryStore:
         conn.execute(
             """
             INSERT INTO rules(
-                atomic_id, type, domain, scope, status, current_revision,
+                atomic_id, type, domain, scope, scope_anchor, status, current_revision,
                 superseded_by, created_at, updated_at
-            ) VALUES(?, ?, ?, ?, 'active', 1, NULL, ?, ?)
+            ) VALUES(?, ?, ?, ?, ?, 'active', 1, NULL, ?, ?)
             """,
-            (atomic_id, record["type"], record["domain"], record["scope"], now, now),
+            (
+                atomic_id,
+                record["type"],
+                record["domain"],
+                record["scope"],
+                record["scope_anchor"],
+                now,
+                now,
+            ),
         )
         self._insert_version(conn, atomic_id, 1, record, source_text, now)
 
@@ -992,6 +1086,83 @@ class MemoryStore:
             (old_id, new_id, relation, turn_key, _utc_now()),
         )
 
+    def _validate_mutation(
+        self,
+        conn,
+        mutation: dict,
+        label: str,
+        claimed_targets: set[str],
+        allowed_operations: set[str],
+    ):
+        if not isinstance(mutation, dict):
+            raise InvalidPlanError(f"{label} must be an object")
+        operation = str(mutation.get("operation", "")).upper()
+        if operation not in allowed_operations:
+            raise InvalidPlanError(f"unsupported operation: {operation}")
+        target_ids = mutation.get("target_ids") or []
+        if not isinstance(target_ids, list) or not all(
+            isinstance(item, str) for item in target_ids
+        ):
+            raise InvalidPlanError(f"{label}.target_ids must be string list")
+        if len(target_ids) != len(set(target_ids)):
+            raise InvalidPlanError(f"{label} repeats a target")
+        overlap = claimed_targets.intersection(target_ids)
+        if overlap:
+            raise InvalidPlanError(
+                f"target appears in multiple mutations: {sorted(overlap)}"
+            )
+        claimed_targets.update(target_ids)
+        if operation in {"UPDATE", "SUPERSEDE"} and not target_ids:
+            raise InvalidPlanError(f"{operation} requires target_ids")
+        if operation == "NOOP" and not target_ids:
+            raise InvalidPlanError(
+                "NOOP must identify the active rule that entails the turn"
+            )
+        if operation in {"NEW", "SPLIT"} and target_ids:
+            raise InvalidPlanError(f"{operation} cannot target an existing rule")
+        for atomic_id in target_ids:
+            if not VALID_ATOMIC_ID.match(atomic_id):
+                raise InvalidPlanError(f"invalid target atomic_id: {atomic_id}")
+            if (
+                operation in {"NOOP", "UPDATE", "SUPERSEDE"}
+                and not self._active_record(conn, atomic_id)
+            ):
+                raise InvalidPlanError(f"target rule is not active: {atomic_id}")
+        record = mutation.get("record") or {}
+        if not isinstance(record, dict):
+            raise InvalidPlanError(f"{operation} requires a record object")
+        children = mutation.get("children") or []
+        if not isinstance(children, list):
+            raise InvalidPlanError(f"{label}.children must be a list")
+        if operation == "SPLIT":
+            if record:
+                raise InvalidPlanError("SPLIT parent record must be empty")
+            if len(children) < 2:
+                raise InvalidPlanError("SPLIT requires at least two children")
+            normalized_children = [
+                self._validate_mutation(
+                    conn,
+                    child,
+                    f"{label}.children[{child_index}]",
+                    claimed_targets,
+                    SPLIT_CHILD_OPERATIONS,
+                )
+                for child_index, child in enumerate(children)
+            ]
+        else:
+            if children:
+                raise InvalidPlanError(
+                    f"{label}.children must be empty for {operation}"
+                )
+            normalized_children = []
+        return {
+            "operation": operation,
+            "target_ids": target_ids,
+            "record": record,
+            "children": normalized_children,
+            "reason": _safe_scalar(mutation.get("reason", "")),
+        }
+
     def _validate_plan(self, conn, plan: dict):
         mutations = plan.get("mutations")
         if not isinstance(mutations, list):
@@ -999,41 +1170,14 @@ class MemoryStore:
         claimed_targets = set()
         normalized = []
         for index, mutation in enumerate(mutations):
-            if not isinstance(mutation, dict):
-                raise InvalidPlanError(f"mutation {index} must be an object")
-            operation = str(mutation.get("operation", "")).upper()
-            if operation not in VALID_OPERATIONS:
-                raise InvalidPlanError(f"unsupported operation: {operation}")
-            target_ids = mutation.get("target_ids") or []
-            if not isinstance(target_ids, list) or not all(isinstance(item, str) for item in target_ids):
-                raise InvalidPlanError(f"mutation {index}.target_ids must be string list")
-            if len(target_ids) != len(set(target_ids)):
-                raise InvalidPlanError(f"mutation {index} repeats a target")
-            overlap = claimed_targets.intersection(target_ids)
-            if overlap:
-                raise InvalidPlanError(f"target appears in multiple mutations: {sorted(overlap)}")
-            claimed_targets.update(target_ids)
-            if operation in {"UPDATE", "SUPERSEDE"} and not target_ids:
-                raise InvalidPlanError(f"{operation} requires target_ids")
-            if operation == "NOOP" and not target_ids:
-                raise InvalidPlanError("NOOP must identify the active rule that entails the turn")
-            if operation in {"NEW", "NOOP", "NEEDS_USER"} and target_ids and operation == "NEW":
-                raise InvalidPlanError("NEW cannot target an existing rule")
-            for atomic_id in target_ids:
-                if not VALID_ATOMIC_ID.match(atomic_id):
-                    raise InvalidPlanError(f"invalid target atomic_id: {atomic_id}")
-                if operation in {"NOOP", "UPDATE", "SUPERSEDE"} and not self._active_record(conn, atomic_id):
-                    raise InvalidPlanError(f"target rule is not active: {atomic_id}")
-            record = mutation.get("record") or {}
-            if operation in {"NEW", "UPDATE", "SUPERSEDE"} and not isinstance(record, dict):
-                raise InvalidPlanError(f"{operation} requires a record object")
             normalized.append(
-                {
-                    "operation": operation,
-                    "target_ids": target_ids,
-                    "record": record,
-                    "reason": _safe_scalar(mutation.get("reason", "")),
-                }
+                self._validate_mutation(
+                    conn,
+                    mutation,
+                    f"mutation {index}",
+                    claimed_targets,
+                    VALID_OPERATIONS,
+                )
             )
         return normalized
 
@@ -1093,25 +1237,23 @@ class MemoryStore:
             )
             results = []
             changed = False
-            for mutation in normalized:
+            def apply_mutation(mutation):
                 operation = mutation["operation"]
                 target_ids = mutation["target_ids"]
                 if operation == "NOOP":
-                    results.append(
+                    return (
                         {
                             "operation": operation,
                             "atomic_id": target_ids[0] if target_ids else "",
                             "reason": mutation["reason"],
-                        }
+                        },
+                        False,
                     )
-                    continue
                 if operation == "NEW":
                     record = self._normalize_record(mutation["record"])
                     atomic_id = self._allocate_atomic_id(conn, record["domain"], record["type"])
                     self._insert_rule(conn, atomic_id, record, source_text)
-                    results.append({"operation": operation, "atomic_id": atomic_id})
-                    changed = True
-                    continue
+                    return {"operation": operation, "atomic_id": atomic_id}, True
                 if operation == "UPDATE":
                     primary_id = target_ids[0]
                     primary = self._active_record(conn, primary_id)
@@ -1121,13 +1263,15 @@ class MemoryStore:
                     conn.execute(
                         """
                         UPDATE rules
-                        SET type=?, domain=?, scope=?, current_revision=?, updated_at=?
+                        SET type=?, domain=?, scope=?, scope_anchor=?,
+                            current_revision=?, updated_at=?
                         WHERE atomic_id=?
                         """,
                         (
                             record["type"],
                             record["domain"],
                             record["scope"],
+                            record["scope_anchor"],
                             revision,
                             _today(),
                             primary_id,
@@ -1135,30 +1279,51 @@ class MemoryStore:
                     )
                     for old_id in target_ids[1:]:
                         self._retire_rule(conn, old_id, primary_id, "consolidated_into", turn_key)
-                    results.append(
+                    return (
                         {
                             "operation": operation,
                             "atomic_id": primary_id,
                             "revision": revision,
                             "consolidated_ids": target_ids[1:],
-                        }
+                        },
+                        True,
                     )
-                    changed = True
-                    continue
                 if operation == "SUPERSEDE":
                     record = self._normalize_record(mutation["record"])
                     new_id = self._allocate_atomic_id(conn, record["domain"], record["type"])
                     self._insert_rule(conn, new_id, record, source_text)
                     for old_id in target_ids:
                         self._retire_rule(conn, old_id, new_id, "superseded_by", turn_key)
-                    results.append(
+                    return (
                         {
                             "operation": operation,
                             "atomic_id": new_id,
                             "superseded_ids": target_ids,
+                        },
+                        True,
+                    )
+                raise InvalidPlanError(f"unsupported executable operation: {operation}")
+
+            for mutation in normalized:
+                if mutation["operation"] == "SPLIT":
+                    child_results = []
+                    split_changed = False
+                    for child in mutation["children"]:
+                        child_result, child_changed = apply_mutation(child)
+                        child_results.append(child_result)
+                        split_changed = split_changed or child_changed
+                    results.append(
+                        {
+                            "operation": "SPLIT",
+                            "children": child_results,
+                            "reason": mutation["reason"],
                         }
                     )
-                    changed = True
+                    changed = changed or split_changed
+                    continue
+                mutation_result, mutation_changed = apply_mutation(mutation)
+                results.append(mutation_result)
+                changed = changed or mutation_changed
 
             new_generation = generation + 1 if changed else generation
             if changed:
@@ -1232,6 +1397,7 @@ class MemoryStore:
                         "type": record["type"],
                         "domain": record["domain"],
                         "scope": record["scope"],
+                        "scope_anchor": record["scope_anchor"],
                         "condition": record["condition"],
                         "confidence": record["confidence"],
                         "status": record["status"],
@@ -1320,6 +1486,7 @@ class MemoryStore:
                             "type": item["type"],
                             "domain": item["domain"],
                             "scope": item["scope"],
+                            "scope_anchor": item["scope_anchor"],
                             "description": item["description"],
                             "rule_text": item["rule_text"],
                             "condition": item["condition"],
@@ -1368,6 +1535,9 @@ class MemoryStore:
                         """,
                         (now, turn_key),
                     )
+                conn.execute(
+                    "UPDATE meta SET value='0' WHERE key='projection_required'"
+                )
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
@@ -1384,6 +1554,10 @@ class MemoryStore:
             return bool(
                 conn.execute(
                     "SELECT 1 FROM transactions WHERE status='committed' LIMIT 1"
+                ).fetchone()
+                or conn.execute(
+                    "SELECT 1 FROM meta "
+                    "WHERE key='projection_required' AND value='1'"
                 ).fetchone()
             )
 
@@ -1412,6 +1586,7 @@ class MemoryStore:
         legacy_domain = str(data.get("domain", "other")).strip()
         legacy_confidence = str(data.get("confidence", "medium")).strip()
         legacy_scope = str(data.get("scope", "global")).strip()
+        legacy_scope_anchor = str(data.get("scope_anchor", "")).strip()
         if legacy_type not in TYPE_ABBREVIATIONS:
             legacy_type = "preference"
         if legacy_domain not in DOMAIN_ABBREVIATIONS:
@@ -1424,18 +1599,28 @@ class MemoryStore:
                 if self.memory_dir.parent.name == ".tellonce"
                 else "legacy"
             )
-            legacy_scope = f"project:{project_name}"
-        elif legacy_scope != "global" and not (
-            legacy_scope.startswith("project:")
-            and legacy_scope[len("project:"):].strip()
-        ):
+            legacy_scope_anchor = legacy_scope_anchor or project_name
+        elif legacy_scope.startswith("project:"):
+            legacy_scope_anchor = (
+                legacy_scope_anchor
+                or legacy_scope[len("project:"):].strip()
+            )
+            legacy_scope = "project"
+        elif legacy_scope == "task":
+            if not legacy_scope_anchor:
+                legacy_scope = "global"
+        elif legacy_scope == "global":
+            legacy_scope_anchor = ""
+        elif legacy_scope not in VALID_SCOPES:
             legacy_scope = "global"
+            legacy_scope_anchor = ""
         record = {
             "name": data.get("name", ""),
             "description": data.get("description") or data.get("rule_text", ""),
             "type": legacy_type,
             "domain": legacy_domain,
             "scope": legacy_scope,
+            "scope_anchor": legacy_scope_anchor,
             "condition": data.get("condition", ""),
             "confidence": legacy_confidence,
             "rule_text": data.get("rule_text") or data.get("description", ""),
@@ -1560,15 +1745,16 @@ class MemoryStore:
                 conn.execute(
                     """
                     INSERT INTO rules(
-                        atomic_id, type, domain, scope, status, current_revision,
+                        atomic_id, type, domain, scope, scope_anchor, status, current_revision,
                         superseded_by, created_at, updated_at
-                    ) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?)
+                    ) VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
                     (
                         atomic_id,
                         record["type"],
                         record["domain"],
                         record["scope"],
+                        record["scope_anchor"],
                         status,
                         superseded_by or None,
                         created,

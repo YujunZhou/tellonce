@@ -273,11 +273,21 @@ def _load_active_projection():
         conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
         conn.row_factory = sqlite3.Row
         try:
+            rule_columns = {
+                row['name']
+                for row in conn.execute('PRAGMA table_info(rules)').fetchall()
+            }
+            anchor_select = (
+                'r.scope_anchor'
+                if 'scope_anchor' in rule_columns
+                else "'' AS scope_anchor"
+            )
             db_active = [
                 dict(item)
                 for item in conn.execute(
-                    """
+                    f"""
                     SELECT r.atomic_id, r.type, r.domain, r.scope,
+                           {anchor_select},
                            v.description, v.rule_text, v.condition,
                            v.confidence, v.applies_when,
                            v.does_not_apply_when, v.content_hash
@@ -348,6 +358,7 @@ def _build_index():
             ).strip()
             meta_idx[atomic_id] = {
                 'scope': str(item.get('scope') or '').strip(),
+                'scope_anchor': str(item.get('scope_anchor') or '').strip(),
                 'does_not_apply_when': str(
                     item.get('does_not_apply_when') or ''
                 ).strip(),
@@ -391,6 +402,7 @@ def _build_index():
                 desc_idx[atomic_id] = description
             meta_idx[atomic_id] = {
                 'scope': _frontmatter_scalar(fm, 'scope'),
+                'scope_anchor': _frontmatter_scalar(fm, 'scope_anchor'),
                 'does_not_apply_when': _frontmatter_scalar(
                     fm,
                     'does_not_apply_when',
@@ -421,7 +433,7 @@ def read_rule_metadata(atomic_id: str) -> dict[str, str]:
         _build_index()
     return (_RULE_META_INDEX or {}).get(
         atomic_id,
-        {'scope': '', 'does_not_apply_when': ''},
+        {'scope': '', 'scope_anchor': '', 'does_not_apply_when': ''},
     )
 
 
@@ -468,6 +480,7 @@ def _collect_all_rules():
                 'desc': str(item.get('description') or item.get('rule_text') or '').strip(),
                 'when': str(item.get('applies_when') or item.get('condition') or '').strip(),
                 'scope': str(item.get('scope') or '').strip(),
+                'scope_anchor': str(item.get('scope_anchor') or '').strip(),
                 'except': str(item.get('does_not_apply_when') or '').strip(),
                 'path': os.path.join(MEMORY_DIR, f"{item.get('atomic_id', '')}.md"),
             })
@@ -514,6 +527,7 @@ def _collect_all_rules():
             or _frontmatter_scalar(fm, 'condition')
         )
         scope = _frontmatter_scalar(fm, 'scope')
+        scope_anchor = _frontmatter_scalar(fm, 'scope_anchor')
         exception = _frontmatter_scalar(fm, 'does_not_apply_when')
         tier_text = _frontmatter_scalar(fm, 'priority_tier')
         if tier_text.isdigit():
@@ -527,6 +541,7 @@ def _collect_all_rules():
                     'description': description,
                     'when': applies_when,
                     'scope': scope,
+                    'scope_anchor': scope_anchor,
                     'except': exception,
                 },
                 ensure_ascii=False,
@@ -549,6 +564,7 @@ def _collect_all_rules():
             'desc': description,
             'when': applies_when,
             'scope': scope,
+            'scope_anchor': scope_anchor,
             'except': exception,
             'path': path,
         })
@@ -643,6 +659,8 @@ def _render_progressive_lines(rules):
             line += f" | when: {r['when'][:200]}"
         if r['scope']:
             line += f" | scope: {r['scope'][:120]}"
+        if r.get('scope_anchor'):
+            line += f" | anchor: {r['scope_anchor'][:120]}"
         if r['except'] and r['except'].lower() not in {'(none)', 'none'}:
             line += f" | except: {r['except'][:800]}"
         lines.append(line)
@@ -1008,6 +1026,7 @@ def _build_rules_for_prompt(fps_dict, memory_idx):
             'desc': desc,
             'applies_when': effective_when[:200],
             'scope': metadata['scope'][:120],
+            'scope_anchor': metadata.get('scope_anchor', '')[:120],
             'does_not_apply_when': metadata['does_not_apply_when'][:800],
             'priority': rule.get('priority', 'normal'),
             'action': (rule.get('action') or '')[:140],
@@ -1023,6 +1042,7 @@ def _build_rules_for_prompt(fps_dict, memory_idx):
             'desc': read_rule_description(atomic_id)[:140],
             'applies_when': effective_when[:200],
             'scope': metadata['scope'][:120],
+            'scope_anchor': metadata.get('scope_anchor', '')[:120],
             'does_not_apply_when': metadata['does_not_apply_when'][:800],
             'priority': 'normal',
             'action': '',
@@ -1035,6 +1055,7 @@ def _build_llm_prompt_text(user_prompt, rules_for_prompt):
         f"- {r['id']}: {r['desc']}"
         + (f" | applies_when: {r['applies_when']}" if r['applies_when'] else '')
         + (f" | scope: {r['scope']}" if r.get('scope') else '')
+        + (f" | anchor: {r['scope_anchor']}" if r.get('scope_anchor') else '')
         + (
             f" | does_not_apply_when: {r['does_not_apply_when']}"
             if r.get('does_not_apply_when')
@@ -1316,6 +1337,8 @@ def main():
             lines.append(f"    • condition: {condition[:120]}")
         if metadata['scope']:
             lines.append(f"    • scope: {metadata['scope'][:120]}")
+        if metadata.get('scope_anchor'):
+            lines.append(f"    • scope_anchor: {metadata['scope_anchor'][:120]}")
         exception = metadata['does_not_apply_when']
         if exception and exception.lower() not in {'(none)', 'none', '[]', '[ ]'}:
             lines.append(f"    • does_not_apply_when: {exception[:800]}")
@@ -1398,6 +1421,8 @@ def session_start_summary(data=None):
             lines.append(f"    • condition: {condition[:120]}")
         if metadata['scope']:
             lines.append(f"    • scope: {metadata['scope'][:120]}")
+        if metadata.get('scope_anchor'):
+            lines.append(f"    • scope_anchor: {metadata['scope_anchor'][:120]}")
         exception = metadata['does_not_apply_when']
         if exception and exception.lower() not in {'(none)', 'none', '[]', '[ ]'}:
             lines.append(f"    • does_not_apply_when: {exception[:800]}")

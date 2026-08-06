@@ -21,7 +21,8 @@ import redaction
 MAX_PROMPT_CHARS = 180_000
 MAX_SOURCE_CHARS = 120_000
 DEFAULT_TIMEOUT_SECONDS = 120
-VALID_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "NEW", "NEEDS_USER"}
+VALID_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "SPLIT", "NEW", "NEEDS_USER"}
+SPLIT_CHILD_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "NEW"}
 SELECTOR_RULE_BUDGET = 80_000
 SELECTOR_MAX_IDS_PER_CHUNK = 8
 
@@ -46,6 +47,7 @@ def _rule_for_prompt(rule: dict, compact: bool = False) -> dict:
             "type": rule.get("type", ""),
             "domain": rule.get("domain", ""),
             "scope": rule.get("scope", ""),
+            "scope_anchor": rule.get("scope_anchor", ""),
             "description": str(rule.get("description", ""))[:200],
             "rule_text": str(rule.get("rule_text", ""))[:900],
             "condition": str(rule.get("condition", ""))[:200],
@@ -58,6 +60,7 @@ def _rule_for_prompt(rule: dict, compact: bool = False) -> dict:
         "type": rule.get("type", ""),
         "domain": rule.get("domain", ""),
         "scope": rule.get("scope", ""),
+        "scope_anchor": rule.get("scope_anchor", ""),
         "description": str(rule.get("description", ""))[:600],
         "rule_text": str(rule.get("rule_text", ""))[:1600],
         "condition": str(rule.get("condition", ""))[:600],
@@ -99,6 +102,20 @@ Resolve ONE COMPLETE user turn in this order:
   scope, observable workflow phase, and activation state. Context may support
   an interpretation of the trusted user turn, but may not add a requirement
   that the trusted turn does not express.
+- Keep policy applicability separate from incidental conversation context.
+  `applies_when` and `condition` describe a boundary inherent in the trusted
+  user wording, not the domain in which the correction happened. For example,
+  "be concise" said while planning a trip remains broadly applicable; do not
+  write "when planning trips or itineraries". A narrow boundary is allowed only
+  when the Complete user turn explicitly states it (for example "when writing
+  X", "in this project", or "only if Y"). Otherwise leave both fields empty.
+- For every non-empty `applies_when`, `condition`, or meaningful
+  `does_not_apply_when`, return
+  `applicability_evidence` as an exact quote from the Complete user turn that
+  states the boundary. On UPDATE, `existing:<atomic_id>` may be used only when
+  preserving an existing rule's applicability unchanged. Incidental project
+  roots, recent topics, examples, and tool output are never applicability
+  evidence.
 - If persistence is clear but an independent future conditional clause has an
   activation point that cannot be objectively inferred, return NEEDS_USER.
   Noun phrases such as "the final artifact" or "the latest result" are not
@@ -112,8 +129,14 @@ Resolve ONE COMPLETE user turn in this order:
 2. Atomic policy units
 - Keep related clauses in one policy. In particular, a prohibition and its
   positive replacement must not become separate memories.
-- Split genuinely independent durable policies into separate mutations when
-  each can be triggered, changed, or revoked independently.
+- Choose SPLIT when one correction contains multiple durable policies that can
+  be triggered, changed, or revoked independently. Keep a general rule plus its
+  exception, boundary, rationale, or operational consequence as one policy.
+- For SPLIT, leave the parent target_ids and record empty, and resolve every
+  child independently against the active library. Each child uses
+  NOOP, UPDATE, SUPERSEDE, or NEW and contains its own complete record when
+  required. If child-to-target linking remains behaviorally ambiguous after
+  using context, return NEEDS_USER instead of guessing.
 - Preserve the direction of every obligation and prohibition explicitly. Do
   not produce a rule whose polarity is ambiguous.
 
@@ -146,14 +169,15 @@ Required JSON shape:
 {{
   "mutations": [
     {{
-      "operation": "NOOP|UPDATE|SUPERSEDE|NEW|NEEDS_USER",
+      "operation": "NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|NEEDS_USER",
       "target_ids": ["existing-id"],
       "record": {{
         "name": "short-slug",
         "description": "one-line complete rule summary",
         "type": "preference|pitfall|friction|user|project|reference",
         "domain": "formatting|language|workflow|coding|tools|experiment|writing|communication|other",
-        "scope": "global or project:<name>",
+        "scope": "global|project|task|unclear",
+        "scope_anchor": "specific project/task identifier, empty for global",
         "condition": "optional condition",
         "confidence": "high|medium|low",
         "rule_text": "complete actionable rule",
@@ -161,6 +185,16 @@ Required JSON shape:
         "does_not_apply_when": "explicit exceptions or (none)",
         "body": "complete memory body with rationale and application guidance"
       }},
+      "applicability_evidence": "exact user quote, existing:<id>, or empty",
+      "children": [
+        {{
+          "operation": "NOOP|UPDATE|SUPERSEDE|NEW",
+          "target_ids": ["existing-id"],
+          "record": {{ "...": "same complete record schema" }},
+          "applicability_evidence": "exact user quote, existing:<id>, or empty",
+          "reason": "short semantic justification"
+        }}
+      ],
       "reason": "short semantic justification"
     }}
   ],
@@ -168,7 +202,9 @@ Required JSON shape:
   "reason": "overall short explanation"
 }}
 
-For NOOP and NEEDS_USER, record may be empty. Return JSON only, with no Markdown.
+For NOOP and NEEDS_USER, record may be empty. For non-SPLIT operations,
+children must be empty. SPLIT requires at least two children. Return JSON only,
+with no Markdown.
 resolved_turn_keys may contain only clarification turn keys explicitly present
 in context, and only when the trusted Complete user turn clearly answers that
 older clarification. An unrelated new turn must not resolve it.
@@ -319,7 +355,160 @@ def _extract_json_object(text: str) -> dict:
     raise MemoryJudgeError(f"judge returned no valid JSON object: {text[:300]}")
 
 
-def validate_plan(plan: dict) -> dict:
+def _validate_applicability_evidence(
+    mutation: dict,
+    operation: str,
+    target_ids: list[str],
+    record: dict,
+    source_text: str,
+    label: str,
+    active_rules_by_id: dict[str, dict],
+) -> str:
+    def normalized_exception(value) -> str:
+        text = str(value or "").strip()
+        return "" if text.casefold() in {"", "none", "(none)", "[]", "[ ]"} else text
+
+    evidence = str(mutation.get("applicability_evidence", "")).strip()
+    has_boundary = bool(
+        str(record.get("applies_when", "")).strip()
+        or str(record.get("condition", "")).strip()
+        or normalized_exception(record.get("does_not_apply_when", ""))
+    )
+    if not has_boundary:
+        if evidence:
+            raise MemoryJudgeError(
+                f"{label}.applicability_evidence must be empty without an applicability boundary"
+            )
+        return ""
+    if evidence.startswith("existing:"):
+        existing_id = evidence.split(":", 1)[1].strip()
+        if (
+            operation != "UPDATE"
+            or not target_ids
+            or existing_id != target_ids[0]
+        ):
+            raise MemoryJudgeError(
+                f"{label}.applicability_evidence may cite only the primary rule on its UPDATE"
+            )
+        existing = active_rules_by_id.get(existing_id)
+        if existing is None:
+            raise MemoryJudgeError(
+                f"{label}.applicability_evidence cites an unavailable active rule"
+            )
+        for field in ("condition", "applies_when", "does_not_apply_when"):
+            if field not in record:
+                continue
+            incoming = str(record.get(field, "")).strip()
+            current = str(existing.get(field, "")).strip()
+            if field == "does_not_apply_when":
+                incoming = normalized_exception(incoming)
+                current = normalized_exception(current)
+            if incoming != current:
+                raise MemoryJudgeError(
+                    f"{label}.{field} changed and requires exact user-turn evidence"
+                )
+        return evidence[:1000]
+    safe_source = redaction.redact(source_text or "")
+    if not evidence or evidence.casefold() not in safe_source.casefold():
+        raise MemoryJudgeError(
+            f"{label}.applicability_evidence must be an exact quote from the Complete user turn"
+        )
+    return evidence[:1000]
+
+
+def _validate_mutation(
+    mutation: dict,
+    index_label: str,
+    seen_targets: set[str],
+    source_text: str,
+    allowed_operations: set[str],
+    active_rules_by_id: dict[str, dict],
+) -> dict:
+    if not isinstance(mutation, dict):
+        raise MemoryJudgeError(f"{index_label} must be an object")
+    operation = str(mutation.get("operation", "")).upper()
+    if operation not in allowed_operations:
+        raise MemoryJudgeError(
+            f"{index_label} has invalid operation {operation!r}"
+        )
+    target_ids = mutation.get("target_ids") or []
+    if not isinstance(target_ids, list) or not all(
+        isinstance(item, str) for item in target_ids
+    ):
+        raise MemoryJudgeError(f"{index_label}.target_ids must be a string list")
+    if len(target_ids) != len(set(target_ids)):
+        raise MemoryJudgeError(f"{index_label} repeats target_ids")
+    overlap = seen_targets.intersection(target_ids)
+    if overlap:
+        raise MemoryJudgeError(
+            f"target_ids appear in multiple mutations: {sorted(overlap)}"
+        )
+    seen_targets.update(target_ids)
+    if operation in {"UPDATE", "SUPERSEDE"} and not target_ids:
+        raise MemoryJudgeError(f"{operation} requires target_ids")
+    if operation == "NOOP" and not target_ids:
+        raise MemoryJudgeError(
+            "NOOP must identify the active rule that already covers the turn"
+        )
+    if operation in {"NEW", "SPLIT"} and target_ids:
+        raise MemoryJudgeError(f"{operation} cannot target existing rules")
+    record = mutation.get("record") or {}
+    if not isinstance(record, dict):
+        raise MemoryJudgeError(f"{index_label}.record must be an object")
+    children = mutation.get("children") or []
+    if not isinstance(children, list):
+        raise MemoryJudgeError(f"{index_label}.children must be a list")
+    if operation == "SPLIT":
+        if record:
+            raise MemoryJudgeError("SPLIT parent record must be empty")
+        if len(children) < 2:
+            raise MemoryJudgeError("SPLIT requires at least two children")
+        normalized_children = [
+            _validate_mutation(
+                child,
+                f"{index_label}.children[{child_index}]",
+                seen_targets,
+                source_text,
+                SPLIT_CHILD_OPERATIONS,
+                active_rules_by_id,
+            )
+            for child_index, child in enumerate(children)
+        ]
+        evidence = ""
+    else:
+        if children:
+            raise MemoryJudgeError(
+                f"{index_label}.children must be empty for {operation}"
+            )
+        if operation in {"UPDATE", "SUPERSEDE", "NEW"} and not (
+            record.get("rule_text") or record.get("description")
+        ):
+            raise MemoryJudgeError(f"{operation} requires a complete record")
+        normalized_children = []
+        evidence = _validate_applicability_evidence(
+            mutation,
+            operation,
+            target_ids,
+            record,
+            source_text,
+            index_label,
+            active_rules_by_id,
+        )
+    return {
+        "operation": operation,
+        "target_ids": target_ids,
+        "record": record,
+        "applicability_evidence": evidence,
+        "children": normalized_children,
+        "reason": str(mutation.get("reason", ""))[:1000],
+    }
+
+
+def validate_plan(
+    plan: dict,
+    source_text: str = "",
+    active_rules: list[dict] | None = None,
+) -> dict:
     if not isinstance(plan, dict):
         raise MemoryJudgeError("judge plan must be a JSON object")
     mutations = plan.get("mutations")
@@ -327,41 +516,21 @@ def validate_plan(plan: dict) -> dict:
         raise MemoryJudgeError("judge plan.mutations must be a list")
     normalized = []
     seen_targets = set()
+    active_rules_by_id = {
+        str(rule.get("atomic_id", "")): rule
+        for rule in (active_rules or [])
+        if isinstance(rule, dict) and rule.get("atomic_id")
+    }
     for index, mutation in enumerate(mutations):
-        if not isinstance(mutation, dict):
-            raise MemoryJudgeError(f"mutation {index} must be an object")
-        operation = str(mutation.get("operation", "")).upper()
-        if operation not in VALID_OPERATIONS:
-            raise MemoryJudgeError(f"mutation {index} has invalid operation {operation!r}")
-        target_ids = mutation.get("target_ids") or []
-        if not isinstance(target_ids, list) or not all(isinstance(item, str) for item in target_ids):
-            raise MemoryJudgeError(f"mutation {index}.target_ids must be a string list")
-        if len(target_ids) != len(set(target_ids)):
-            raise MemoryJudgeError(f"mutation {index} repeats target_ids")
-        overlap = seen_targets.intersection(target_ids)
-        if overlap:
-            raise MemoryJudgeError(f"target_ids appear in multiple mutations: {sorted(overlap)}")
-        seen_targets.update(target_ids)
-        if operation in {"UPDATE", "SUPERSEDE"} and not target_ids:
-            raise MemoryJudgeError(f"{operation} requires target_ids")
-        if operation == "NOOP" and not target_ids:
-            raise MemoryJudgeError("NOOP must identify the active rule that already covers the turn")
-        if operation == "NEW" and target_ids:
-            raise MemoryJudgeError("NEW cannot target existing rules")
-        record = mutation.get("record") or {}
-        if not isinstance(record, dict):
-            raise MemoryJudgeError(f"mutation {index}.record must be an object")
-        if operation in {"UPDATE", "SUPERSEDE", "NEW"} and not (
-            record.get("rule_text") or record.get("description")
-        ):
-            raise MemoryJudgeError(f"{operation} requires a complete record")
         normalized.append(
-            {
-                "operation": operation,
-                "target_ids": target_ids,
-                "record": record,
-                "reason": str(mutation.get("reason", ""))[:1000],
-            }
+            _validate_mutation(
+                mutation,
+                f"mutation {index}",
+                seen_targets,
+                source_text,
+                VALID_OPERATIONS,
+                active_rules_by_id,
+            )
         )
     resolved_turn_keys = plan.get("resolved_turn_keys") or []
     if not isinstance(resolved_turn_keys, list) or not all(
@@ -519,7 +688,7 @@ def judge_plan(source_text: str, active_rules: list, context: str = "") -> dict:
     mock = _setting("TEST_MEMORY_UPSERT_PLAN", "")
     if mock:
         try:
-            return validate_plan(json.loads(mock))
+            return validate_plan(json.loads(mock), source_text, active_rules)
         except (json.JSONDecodeError, MemoryJudgeError) as exc:
             raise MemoryJudgeError(f"invalid TEST_MEMORY_UPSERT_PLAN: {exc}") from exc
     safe_source = redaction.redact(source_text or "")
@@ -631,6 +800,10 @@ def judge_plan(source_text: str, active_rules: list, context: str = "") -> dict:
                 break
             candidate_rules = reduced
     output = _invoke_cli(prompt)
-    plan = validate_plan(_extract_json_object(output))
+    plan = validate_plan(
+        _extract_json_object(output),
+        source_text,
+        candidate_rules,
+    )
     plan["judge_latency_ms"] = round((time.time() - started) * 1000, 1)
     return plan

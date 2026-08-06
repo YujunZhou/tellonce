@@ -668,11 +668,18 @@ def apply_plan(
     """Synchronous deterministic entry used by tests and manual recovery."""
     store = _store(memory_dir)
     safe_source = redaction.redact(source_text)
+    if not safe_source.strip():
+        raise ValueError("source_text is required for apply-plan")
     safe_context = redaction.redact(context or "")
     turn_key = turn_key.strip() or _default_turn_key()
     store.ensure_turn(turn_key, safe_source, safe_context)
-    generation, _rules = store.snapshot()
-    result = store.commit_plan(turn_key, safe_source, memory_judge.validate_plan(plan), generation)
+    generation, active_rules = store.snapshot()
+    validated = memory_judge.validate_plan(
+        plan,
+        safe_source,
+        active_rules,
+    )
+    result = store.commit_plan(turn_key, safe_source, validated, generation)
     if result["status"] in {"committed", "noop"}:
         result["projection"] = store.project()
         if result["status"] == "committed":

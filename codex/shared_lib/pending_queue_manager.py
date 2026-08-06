@@ -423,7 +423,7 @@ def _write_pending_alert(queue):
             f.write('## Action\n\n')
             f.write('1. Review each entry above.\n')
             f.write('2. For each → apply the conflict-resolution algorithm '
-                    '(NOOP / UPDATE / SUPERSEDE / NEW).\n')
+                    '(NOOP / UPDATE / SUPERSEDE / SPLIT / NEW).\n')
             f.write(f'3. Run `python3 {_LIB_DIR}/'
                     'pending_queue_manager.py prune` to drop resolved entries from queue.\n')
         # Alert MD echoes user content; restrict.
@@ -465,7 +465,7 @@ def inject_for_userprompt():
                      f'source_obs_entry_id={e.get("source_obs_entry_id")}')
     lines.append('')
     lines.append('Action required THIS session before substantive work: review each, '
-                 'apply NOOP / UPDATE / SUPERSEDE / NEW, then run '
+                 'apply NOOP / UPDATE / SUPERSEDE / SPLIT / NEW, then run '
                  f'`python3 {_LIB_DIR}/'
                  'pending_queue_manager.py prune`. For entries whose '
                  '`proposed_atomic_id` is `<unknown>` or non-canonical (cannot be '
