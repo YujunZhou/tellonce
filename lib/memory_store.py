@@ -21,8 +21,13 @@ from contextlib import contextmanager
 SCHEMA_VERSION = 2
 DB_FILENAME = ".tellonce.sqlite3"
 ACTIVE_INDEX_FILENAME = ".tellonce-active.json"
-VALID_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "SPLIT", "NEW", "NEEDS_USER"}
-SPLIT_CHILD_OPERATIONS = {"NOOP", "UPDATE", "SUPERSEDE", "NEW"}
+VALID_OPERATIONS = {
+    "NOOP", "UPDATE", "SUPERSEDE", "SPLIT", "NEW", "NEEDS_USER",
+    "REJECT", "ARCHIVE", "RESTORE",
+}
+SPLIT_CHILD_OPERATIONS = {
+    "NOOP", "UPDATE", "SUPERSEDE", "NEW", "REJECT", "ARCHIVE", "RESTORE",
+}
 VALID_ATOMIC_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 VALID_EXTRA_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 VALID_CONFIDENCE = {"high", "medium", "low"}
@@ -395,6 +400,18 @@ class MemoryStore:
                 "INSERT OR IGNORE INTO meta(key, value) VALUES('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
+            stored_version_row = conn.execute(
+                "SELECT value FROM meta WHERE key='schema_version'"
+            ).fetchone()
+            try:
+                stored_version = int(stored_version_row["value"])
+            except (TypeError, ValueError):
+                stored_version = 0
+            if stored_version > SCHEMA_VERSION:
+                raise MemoryStoreError(
+                    f"database schema {stored_version} is newer than supported "
+                    f"schema {SCHEMA_VERSION}; upgrade tellonce before opening it"
+                )
             conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('generation', '0')")
             conn.execute(
                 "INSERT OR IGNORE INTO meta(key, value) "
@@ -635,7 +652,7 @@ class MemoryStore:
             status = row["status"]
             if status in {
                 "committed", "projected", "noop", "needs_user", "clarified",
-                "dismissed", "failed",
+                "dismissed", "rejected", "failed",
             }:
                 conn.execute("COMMIT")
                 return None
@@ -681,6 +698,52 @@ class MemoryStore:
                 (max(1, int(limit)),),
             ).fetchall()
             return [row["turn_key"] for row in rows]
+
+    def rejected_turns(self, limit: int = 20):
+        limit = max(1, int(limit))
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT turn_key, status, result_json, created_at
+                FROM turns
+                WHERE status='rejected' OR result_json LIKE '%"REJECT"%'
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (max(100, limit * 4),),
+            ).fetchall()
+        result = []
+
+        def rejected_mutations(mutations):
+            rejected = []
+            for mutation in mutations or []:
+                if not isinstance(mutation, dict):
+                    continue
+                if str(mutation.get("operation", "")).upper() == "REJECT":
+                    rejected.append(mutation)
+                rejected.extend(rejected_mutations(mutation.get("children")))
+            return rejected
+
+        for row in rows:
+            parsed = {}
+            try:
+                parsed = json.loads(row["result_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                pass
+            rejected = rejected_mutations(parsed.get("mutations", []))
+            if not rejected:
+                continue
+            result.append(
+                {
+                    "turn_key": row["turn_key"],
+                    "status": row["status"],
+                    "mutations": rejected,
+                    "created_at": row["created_at"],
+                }
+            )
+            if len(result) >= limit:
+                break
+        return result
 
     def needs_user_turns(self, limit: int = 20, exclude_turn_key: str = ""):
         with self.connection() as conn:
@@ -827,7 +890,8 @@ class MemoryStore:
                     SET status=?, lease_owner=NULL, lease_expires_at=NULL,
                         attempt_count=attempt_count+1, last_error=?, updated_at=?
                     WHERE turn_key=? AND status NOT IN (
-                        'committed','projected','noop','needs_user','clarified','dismissed','failed'
+                        'committed','projected','noop','needs_user','clarified',
+                        'dismissed','rejected','failed'
                     )
                     """,
                     (
@@ -1093,6 +1157,7 @@ class MemoryStore:
         label: str,
         claimed_targets: set[str],
         allowed_operations: set[str],
+        source_text: str,
     ):
         if not isinstance(mutation, dict):
             raise InvalidPlanError(f"{label} must be an object")
@@ -1112,22 +1177,40 @@ class MemoryStore:
                 f"target appears in multiple mutations: {sorted(overlap)}"
             )
         claimed_targets.update(target_ids)
-        if operation in {"UPDATE", "SUPERSEDE"} and not target_ids:
+        if operation in {
+            "UPDATE", "SUPERSEDE", "ARCHIVE", "RESTORE",
+        } and not target_ids:
             raise InvalidPlanError(f"{operation} requires target_ids")
         if operation == "NOOP" and not target_ids:
             raise InvalidPlanError(
                 "NOOP must identify the active rule that entails the turn"
             )
-        if operation in {"NEW", "SPLIT"} and target_ids:
+        if operation in {"NEW", "SPLIT", "REJECT", "NEEDS_USER"} and target_ids:
             raise InvalidPlanError(f"{operation} cannot target an existing rule")
+        target_revisions = {}
         for atomic_id in target_ids:
             if not VALID_ATOMIC_ID.match(atomic_id):
                 raise InvalidPlanError(f"invalid target atomic_id: {atomic_id}")
-            if (
-                operation in {"NOOP", "UPDATE", "SUPERSEDE"}
-                and not self._active_record(conn, atomic_id)
+            row = conn.execute(
+                "SELECT status, current_revision FROM rules WHERE atomic_id=?",
+                (atomic_id,),
+            ).fetchone()
+            if operation == "ARCHIVE":
+                if not row or row["status"] not in {"active", "archived"}:
+                    raise InvalidPlanError(
+                        f"target rule cannot be archived: {atomic_id}"
+                    )
+            elif operation == "RESTORE":
+                if not row or row["status"] not in {"active", "archived"}:
+                    raise InvalidPlanError(
+                        f"target rule cannot be restored: {atomic_id}"
+                    )
+            elif operation in {"NOOP", "UPDATE", "SUPERSEDE"} and (
+                not row or row["status"] != "active"
             ):
                 raise InvalidPlanError(f"target rule is not active: {atomic_id}")
+            if row:
+                target_revisions[atomic_id] = int(row["current_revision"])
         record = mutation.get("record") or {}
         if not isinstance(record, dict):
             raise InvalidPlanError(f"{operation} requires a record object")
@@ -1146,6 +1229,7 @@ class MemoryStore:
                     f"{label}.children[{child_index}]",
                     claimed_targets,
                     SPLIT_CHILD_OPERATIONS,
+                    source_text,
                 )
                 for child_index, child in enumerate(children)
             ]
@@ -1155,15 +1239,139 @@ class MemoryStore:
                     f"{label}.children must be empty for {operation}"
                 )
             normalized_children = []
+        if operation in {
+            "NOOP", "NEEDS_USER", "REJECT", "ARCHIVE", "RESTORE",
+        } and record:
+            raise InvalidPlanError(f"{operation} record must be empty")
+        evidence_spans = mutation.get("evidence_spans")
+        if not isinstance(evidence_spans, list) or not all(
+            isinstance(span, str) and span.strip() for span in evidence_spans
+        ):
+            raise InvalidPlanError(f"{label}.evidence_spans must be a string list")
+        evidence_spans = list(
+            dict.fromkeys(span.strip() for span in evidence_spans)
+        )
+        if len(evidence_spans) > 8:
+            raise InvalidPlanError(
+                f"{label}.evidence_spans may contain at most 8 quotes"
+            )
+        for span in evidence_spans:
+            if len(span) > 500 or span not in source_text:
+                raise InvalidPlanError(
+                    f"{label}.evidence_spans must be short exact user-turn quotes"
+                )
+        if operation not in {"NEEDS_USER", "SPLIT"} and not evidence_spans:
+            raise InvalidPlanError(f"{operation} requires user-turn evidence")
+
+        def normalized_exception(value) -> str:
+            text = str(value or "").strip()
+            return (
+                ""
+                if text.casefold() in {"", "none", "(none)", "[]", "[ ]"}
+                else text
+            )
+
+        applicability_evidence = str(
+            mutation.get("applicability_evidence", "")
+        ).strip()
+        has_boundary = bool(
+            str(record.get("applies_when", "")).strip()
+            or str(record.get("condition", "")).strip()
+            or normalized_exception(record.get("does_not_apply_when", ""))
+        )
+        if operation in {
+            "NOOP", "SPLIT", "NEEDS_USER", "REJECT", "ARCHIVE", "RESTORE",
+        }:
+            applicability_evidence = ""
+        elif not has_boundary:
+            boundary_fields_present = any(
+                field in record
+                for field in (
+                    "condition",
+                    "applies_when",
+                    "does_not_apply_when",
+                )
+            )
+            preserves_omitted_boundary = (
+                operation == "UPDATE"
+                and not boundary_fields_present
+                and target_ids
+                and applicability_evidence == f"existing:{target_ids[0]}"
+            )
+            if not preserves_omitted_boundary:
+                existing_had_boundary = False
+                for atomic_id in target_ids:
+                    existing = self._active_record(conn, atomic_id)
+                    existing_had_boundary = existing_had_boundary or bool(
+                        str(existing.get("applies_when", "")).strip()
+                        or str(existing.get("condition", "")).strip()
+                        or normalized_exception(
+                            existing.get("does_not_apply_when", "")
+                        )
+                    )
+                if existing_had_boundary:
+                    if (
+                        not applicability_evidence
+                        or applicability_evidence not in source_text
+                    ):
+                        raise InvalidPlanError(
+                            f"{label}.applicability_evidence must quote the user "
+                            "removing the existing applicability boundary"
+                        )
+                elif applicability_evidence:
+                    raise InvalidPlanError(
+                        f"{label}.applicability_evidence must be empty without "
+                        "an applicability boundary"
+                    )
+        elif applicability_evidence.startswith("existing:"):
+            existing_id = applicability_evidence.split(":", 1)[1].strip()
+            if (
+                operation != "UPDATE"
+                or not target_ids
+                or existing_id != target_ids[0]
+            ):
+                raise InvalidPlanError(
+                    f"{label}.applicability_evidence may cite only the primary "
+                    "rule on its UPDATE"
+                )
+            existing = self._active_record(conn, existing_id)
+            for field in (
+                "condition",
+                "applies_when",
+                "does_not_apply_when",
+            ):
+                if field not in record:
+                    continue
+                incoming = str(record.get(field, "")).strip()
+                current = str(existing.get(field, "")).strip()
+                if field == "does_not_apply_when":
+                    incoming = normalized_exception(incoming)
+                    current = normalized_exception(current)
+                if incoming != current:
+                    raise InvalidPlanError(
+                        f"{label}.{field} changed and requires exact "
+                        "user-turn evidence"
+                    )
+        elif (
+            not applicability_evidence
+            or applicability_evidence not in source_text
+        ):
+            raise InvalidPlanError(
+                f"{label}.applicability_evidence must be an exact user-turn quote"
+            )
         return {
             "operation": operation,
             "target_ids": target_ids,
+            "target_revisions": target_revisions,
             "record": record,
+            "evidence_spans": evidence_spans,
+            "applicability_evidence": applicability_evidence[:1000],
             "children": normalized_children,
             "reason": _safe_scalar(mutation.get("reason", "")),
+            "reason_code": _safe_scalar(mutation.get("reason_code", "")),
         }
 
-    def _validate_plan(self, conn, plan: dict):
+    def _validate_plan(self, conn, plan: dict, source_text: str):
         mutations = plan.get("mutations")
         if not isinstance(mutations, list):
             raise InvalidPlanError("plan.mutations must be a list")
@@ -1177,8 +1385,20 @@ class MemoryStore:
                     f"mutation {index}",
                     claimed_targets,
                     VALID_OPERATIONS,
+                    source_text,
                 )
             )
+
+        def collect_operations(items):
+            operations = set()
+            for item in items:
+                operations.add(item["operation"])
+                operations.update(collect_operations(item.get("children", [])))
+            return operations
+
+        operations = collect_operations(normalized)
+        if {"REJECT", "NEEDS_USER"}.issubset(operations):
+            raise InvalidPlanError("REJECT and NEEDS_USER cannot appear in one plan")
         return normalized
 
     def commit_plan(
@@ -1200,11 +1420,22 @@ class MemoryStore:
                 raise StaleSnapshotError(
                     f"memory changed while judging: expected generation {expected_generation}, got {generation}"
                 )
-            turn = conn.execute("SELECT status, result_json FROM turns WHERE turn_key=?", (turn_key,)).fetchone()
+            turn = conn.execute(
+                "SELECT status, result_json, source_text FROM turns WHERE turn_key=?",
+                (turn_key,),
+            ).fetchone()
             if not turn:
                 conn.execute("ROLLBACK")
                 raise MemoryStoreError("turn must be registered before commit")
-            if turn["status"] in {"committed", "projected", "noop", "needs_user"}:
+            if source_text != turn["source_text"]:
+                conn.execute("ROLLBACK")
+                raise InvalidPlanError(
+                    "commit source_text does not match the registered trusted turn"
+                )
+            source_text = turn["source_text"]
+            if turn["status"] in {
+                "committed", "projected", "noop", "needs_user", "rejected",
+            }:
                 conn.execute("COMMIT")
                 return json.loads(turn["result_json"]) if turn["result_json"] else {
                     "status": turn["status"],
@@ -1222,10 +1453,12 @@ class MemoryStore:
                 if not ownership:
                     conn.execute("ROLLBACK")
                     raise StaleSnapshotError("worker lease no longer owns the turn")
-            normalized = self._validate_plan(conn, plan)
+            normalized = self._validate_plan(conn, plan, source_text)
             if any(item["operation"] == "NEEDS_USER" for item in normalized):
                 conn.execute("ROLLBACK")
                 return self.mark_needs_user(turn_key, plan, lease_owner=lease_owner)
+            committed_plan = dict(plan)
+            committed_plan["mutations"] = normalized
 
             conn.execute(
                 """
@@ -1233,7 +1466,7 @@ class MemoryStore:
                     txn_id, turn_key, status, base_generation, plan_json, created_at
                 ) VALUES(?, ?, 'applying', ?, ?, ?)
                 """,
-                (txn_id, turn_key, generation, _json(plan), now),
+                (txn_id, turn_key, generation, _json(committed_plan), now),
             )
             results = []
             changed = False
@@ -1248,6 +1481,65 @@ class MemoryStore:
                             "reason": mutation["reason"],
                         },
                         False,
+                    )
+                if operation == "REJECT":
+                    return (
+                        {
+                            "operation": operation,
+                            "reason": mutation["reason"],
+                            "reason_code": mutation["reason_code"] or "unsafe_rule",
+                        },
+                        False,
+                    )
+                if operation == "ARCHIVE":
+                    archived_ids = []
+                    already_archived_ids = []
+                    for atomic_id in target_ids:
+                        updated = conn.execute(
+                            """
+                            UPDATE rules
+                            SET status='archived', superseded_by=NULL, updated_at=?
+                            WHERE atomic_id=? AND status='active'
+                            """,
+                            (_today(), atomic_id),
+                        )
+                        if updated.rowcount:
+                            archived_ids.append(atomic_id)
+                        else:
+                            already_archived_ids.append(atomic_id)
+                    return (
+                        {
+                            "operation": operation,
+                            "archived_ids": archived_ids,
+                            "already_archived_ids": already_archived_ids,
+                            "reason": mutation["reason"],
+                        },
+                        bool(archived_ids),
+                    )
+                if operation == "RESTORE":
+                    restored_ids = []
+                    already_active_ids = []
+                    for atomic_id in target_ids:
+                        updated = conn.execute(
+                            """
+                            UPDATE rules
+                            SET status='active', superseded_by=NULL, updated_at=?
+                            WHERE atomic_id=? AND status='archived'
+                            """,
+                            (_today(), atomic_id),
+                        )
+                        if updated.rowcount:
+                            restored_ids.append(atomic_id)
+                        else:
+                            already_active_ids.append(atomic_id)
+                    return (
+                        {
+                            "operation": operation,
+                            "restored_ids": restored_ids,
+                            "already_active_ids": already_active_ids,
+                            "reason": mutation["reason"],
+                        },
+                        bool(restored_ids),
                     )
                 if operation == "NEW":
                     record = self._normalize_record(mutation["record"])
@@ -1331,7 +1623,18 @@ class MemoryStore:
                     "UPDATE meta SET value=? WHERE key='generation'",
                     (str(new_generation),),
                 )
-            status = "committed" if changed else "noop"
+            has_reject = any(
+                item["operation"] == "REJECT"
+                or (
+                    item["operation"] == "SPLIT"
+                    and any(
+                        child["operation"] == "REJECT"
+                        for child in item["children"]
+                    )
+                )
+                for item in normalized
+            )
+            status = "committed" if changed else ("rejected" if has_reject else "noop")
             result = {
                 "status": status,
                 "turn_key": turn_key,
@@ -1339,14 +1642,21 @@ class MemoryStore:
                 "generation": new_generation,
                 "mutations": results,
             }
+            transaction_status = "rejected" if status == "rejected" else "committed"
             conn.execute(
                 """
                 UPDATE transactions
-                SET status='committed', result_json=?, committed_at=?,
+                SET status=?, result_json=?, committed_at=?,
                     committed_generation=?
                 WHERE txn_id=?
                 """,
-                (_json(result), _utc_now(), new_generation, txn_id),
+                (
+                    transaction_status,
+                    _json(result),
+                    _utc_now(),
+                    new_generation,
+                    txn_id,
+                ),
             )
             conn.execute(
                 """
@@ -1355,7 +1665,13 @@ class MemoryStore:
                     plan_json=?, result_json=?, last_error=NULL, updated_at=?
                 WHERE turn_key=?
                 """,
-                (status, _json(plan), _json(result), _utc_now(), turn_key),
+                (
+                    status,
+                    _json(committed_plan),
+                    _json(result),
+                    _utc_now(),
+                    turn_key,
+                ),
             )
             conn.execute("COMMIT")
         return result
@@ -1381,14 +1697,17 @@ class MemoryStore:
                 generation = int(generation_row["value"]) if generation_row else 0
                 records = self._current_records(conn, active_only=False)
                 supersedes = self._relations_for_projection(conn)
+                projected_records = [
+                    record for record in records if record["status"] != "archived"
+                ]
                 active = [
                     record
-                    for record in records
+                    for record in projected_records
                     if record["status"] == "active" and not record["superseded_by"]
                 ]
 
                 written = []
-                for record in records:
+                for record in projected_records:
                     frontmatter = {
                         "schema_version": "tellonce-memory-v2",
                         "atomic_id": record["atomic_id"],
@@ -1429,7 +1748,9 @@ class MemoryStore:
                     _atomic_write(target, content)
                     written.append(str(target))
 
-                projected_ids = {record["atomic_id"] for record in records}
+                projected_ids = {
+                    record["atomic_id"] for record in projected_records
+                }
                 for stale_path in self.memory_dir.glob("*.md"):
                     if stale_path.name == "MEMORY.md":
                         continue
@@ -1740,7 +2061,7 @@ class MemoryStore:
                 updated = _safe_scalar(data.get("updated", "")) or created
                 superseded_by = _safe_scalar(data.get("superseded_by", ""))
                 status = _safe_scalar(data.get("status", ""))
-                if status not in {"active", "superseded"}:
+                if status not in {"active", "superseded", "archived"}:
                     status = "superseded" if superseded_by else "active"
                 conn.execute(
                     """

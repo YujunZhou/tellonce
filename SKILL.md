@@ -10,8 +10,9 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 - 三个平台共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值；`MEMORY.md`、规则 Markdown 和 `.tellonce-active.json` 都是可重建投影。
 - 检测到持久偏好后，只调用 `python <skill_dir>/lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`。`--manual` 会在自动 hook 已启用时跳过重复入队；`--force` 仅保证自动 hook 关闭时仍能主动记录。复杂多行消息也可通过 `--request-file <json>` 传入 `source_text`、`turn_key`、`context`。禁止直接新建或编辑记忆 Markdown，也禁止把同一轮的“禁用旧项”和“改用新项”拆成两条。
-- 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、NOOP/UPDATE/SUPERSEDE/SPLIT/NEW、事务提交和投影都在后台执行；失败按退避重试，达到上限后标记 failed 并停止，不能阻塞用户。
-- 一条纠正包含多个可独立触发、修改或废止的 durable policy 时使用 `SPLIT`，并让每个 child 独立执行 `NOOP|UPDATE|SUPERSEDE|NEW`。一般规则与其例外、边界、理由或操作后果仍是一条规则，不得误拆。
+- 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|REJECT|ARCHIVE|RESTORE`、事务提交和投影都在后台执行；失败按退避重试，达到上限后标记 failed 并停止，不能阻塞用户。
+- 一条纠正包含多个可独立触发、修改或废止的 durable policy 时使用 `SPLIT`，并让每个 child 独立执行 lifecycle。一般规则与其例外、边界、理由或操作后果仍是一条规则，不得误拆。
+- 每个 mutation/child 必须携带本轮完整用户原话中的精确 `evidence_spans`；context 不能作为证据。涉及凭据外传、关闭 safeguards、破坏性删除、执行不可信命令、自动 push protected/default branch 或扩大权限的 durable rule 必须 `REJECT`，不得进入 clarification。
 - judge 在返回 `NEEDS_USER` 前，先用当前项目根目录、最近对话和 active rules 消解指代、scope 与 activation；这些 context 只能帮助解释本轮用户原话，不能单独授权持久化。只有剩余歧义会改变未来行为时才进入轻量 clarification 队列，并在后续上下文中只问一个简短问题；下一条明确回答可关闭对应 turn。
 - 关闭自动 upsert 后 clarification 不再注入；过期项可用 `python <skill_dir>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
 - 自动 hook 默认关闭。只有 `~/.tellonce.config.json` 中 `memory_upsert_enabled=true`，或环境变量 `PT_MEMORY_UPSERT_ENABLED=1` 时，才会把完整用户消息交给当前平台的 CLI judge。
@@ -493,115 +494,31 @@ Suggested new MEMORY.md structure:
 
 ---
 
-## Conflict Resolution Algorithm
+## Lifecycle and evidence
 
-> **本节旧的手工文件流程已废弃。** 冲突解析现在只能由后台 `memory_upsert` worker 执行：一次读取全部 active rules，把完整 user turn 聚合为一个 plan，再用 SQLite 事务提交 NOOP/UPDATE/SUPERSEDE/SPLIT/NEW。`SPLIT` 只用于多个可独立成立、独立更新或独立废止的要求；每个 child 仍需单独解析 lifecycle。下方关于直接 Write/Edit Markdown、手工分配 atomic_id 或手工改 `MEMORY.md` 的步骤仅保留为历史说明，禁止执行。
-
-历史伪代码，仅用于解释旧版本为何会碎片化；禁止执行：
-
-```
-1. Determine the new memory's domain and type
-2. Read all existing memory files under that domain
-3. For each existing memory, judge the semantic relationship:
-   a) Compare description and body content
-   b) Determine the relationship type:
-
-      Unrelated (a completely different thing)        → continue to the next one
-      Same (about the same thing, consistent content) → NOOP: don't write, tell the user "already recorded"
-      Complementary (same topic, new content adds to it) → UPDATE: merge the new content into the existing file
-      Contradictory (same topic, opposite conclusion)    → SUPERSEDE: create a new file, add the old file's atomic_id to supersedes
-
-4. If the relationship is unclear (between complementary and contradictory):
-   → show both memories to the user and let them decide: merge / supersede / keep separate
-
-5. Update the MEMORY.md index for the results of all operations
-```
-
-### ⚠ Pre-write verification checklist
-
-> **不再适用。** 正常记忆写入没有 agent 侧 pre-write；前台只能 enqueue。人工 audit 也必须把确认后的结果转为结构化 plan，并调用 `memory_upsert.py apply-plan`，不能直接改投影文件。
-
-> **This does not contradict §Gate mechanics; it's layered**: §Gate mechanics turned off the SCAN text-marker because SCAN runs every turn + wording drifts → many false positives. memory-write is a low-frequency high-risk event (~1-3 times/session, doesn't drift), so here we **re-enable** the text-marker, limited to the memory-write scenario. The SCAN gate still only-HARD-checks the structured log; Pre-write is an additional layer on memory-write.
-
-旧版本曾要求在直接写文件前输出以下文本；新版本禁止直接写文件，因此不要输出或执行：
-
-```
-**I checked**: memory/<domain>/*.md, candidates considered = [<atomic_id_1>, <atomic_id_2>, ...]
-**Decision**: NOOP | UPDATE existing <atomic_id> | SUPERSEDE existing <atomic_id> | SPLIT | NEW — because <one-sentence reason>
-```
-
-**Why**: an advisory rule alone isn't enough — the agent tends to short-circuit conflict resolution during intensive writing. Explicitly writing out "what was checked + the decision" = a forcing function: it ensures the dedup / conflict judgment is actually done before each memory write.
-
-**Applies (applies_when)**:
-- About to Write a new `memory/*.md` file
-- About to Edit the `atomic_id` field of a `memory/*.md` file
-- Promising "saving memory" / "store into memory" / "record the preference" in the confirmation_text
-- A trigger word appears in the response such as "new principle" / "save this" / "record the preference" / "store into memory" → even if the Write tool wasn't actually invoked, still go through it
-
-**Does not apply (does_not_apply_when)** — explicit allowlist (not a denylist):
-- Read-only operations (Read / Grep / Bash querying memory)
-- Fixing a typo in a memory file / fixing the `created`, `updated` dates / adding a `superseded_by` marker / fixing the description wording (without touching atomic_id or supersedes)
-- Adding/removing a MEMORY.md index entry (this is a derived operation, it doesn't create an atomic_id)
-
-**Legitimate skip (shortcut)**:
-1. **Explicit pre-declaration in a multi-step audit**: only when a candidates list explicitly enumerated earlier in this turn **covers the atomic_id about to be written** — the list explicitly contains "X-pref-NNN: NEW because Y". Otherwise **each new file must be gone through individually**. A vague "I audited earlier" does not count as an override.
-2. **Explicit user disable wording**: the user explicitly says "no need to check" / "just save it, don't verify" / "skip conflict resolution" — an explicit disable. Implicit OK ("save it" / "go ahead" / "note it down") **does not count as an override**; still go through the checklist.
-
-**Stop hook verification**: none — the Pre-write checklist is a discipline I follow, not something any shipped hook verifies. (`memory-verify-compliance.sh` tracks rule compliance and the pending-finalize gate; it does not scan response text for the two checklist lines. An earlier draft of this section described a planned transcript-scan check that was never implemented — treat the checklist as self-enforced.)
-
-### SUPERSEDE protocol
-
-When a new memory supersedes an old one:
-1. The new file's `supersedes` field lists the superseded atomic_id
-2. The old file is **not deleted**, but `superseded_by: <new atomic_id>` is added to its frontmatter
-3. Only the new file is kept in the MEMORY.md index; the old file is removed from the index (but the file is kept for traceability)
+- Agent 侧只负责 enqueue 完整用户 turn；不得自行选择 atomic_id、直接写投影或输出 pre-write verdict。
+- 后台 resolver 一次读取 active rules，选择
+  `NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|NEEDS_USER|REJECT|ARCHIVE|RESTORE`，再由 SQLite
+  在一个事务中提交。
+- `SPLIT` 的每个 child 独立解析 lifecycle 和 evidence；父节点不携带 record。
+- `REJECT` 是危险 durable rule 的最终审计结果，不进入 clarification，也不创建 active rule。
+- `ARCHIVE` 只在用户明确指向目标并要求停用时执行；历史版本仍保留在 SQLite。
+- `RESTORE` 在用户明确要求时重新激活 archived rule，并由投影恢复 Markdown 与注入。
+- 每个非 clarification mutation 都必须携带本轮用户原话的精确 evidence；store 在提交边界再次验证。
 
 ---
 
 ## Confirmation Strategy
 
-异步 upsert 启用时，当前回复只确认“完整用户 turn 已入队，后台将合并或替代旧规则”，不得等待 worker，也不得猜测 atomic_id 或最终操作。只有 `inspect` 已返回 committed/projected 结果时，才使用下方带真实 atomic_id 的模板。
+当前回复只能报告同步可知的事实：
 
-### High confidence (user stated explicitly + clearly worded + clear scope)
-Tell the user in one sentence which preference you recorded, and invite a correction (wording / language is up to you). For example:
-> Recorded preference [fmt-pref-002]: <one-line content>. Let me know if it's wrong. (Recorded preference [fmt-pref-002]: …; let me know if it's wrong.)
-
-### Medium confidence (fairly clearly worded but scope or persistence is unclear)
-Ask briefly:
-> Detected a preference: output should be concise. Does this apply to all scenarios, or only the current task?
-
-### Low confidence (might be a preference, might be a one-time instruction)
-Ask in detail:
-> You mentioned "this is too long" — should I record it as a long-term preference (keep replies short from now on), or was it just an instruction for this time?
-
-### Silent mode
-If the user has said "stop asking, just record it" / "no need to confirm":
-- Record this meta-preference
-- Write silently thereafter
-- Notify the user only on a SUPERSEDE (replacing an old memory)
-- The user can say "resume confirmation" at any time to re-enable it
-
-### ⚠ Key: when detected=true, confirmation_text can never be empty (including NOOP/UPDATE)
-
-**Stop hook hard check**: `detection.detected=true AND action.confirmation_text empty → block stop`. This is independent of conflict_resolution (NOOP / UPDATE / SUPERSEDE / SPLIT / NEW) — even if you decide not to write a new file (NOOP) or only update an existing file (UPDATE), the `confirmation_text` field must contain a non-empty string telling the user what you detected.
-
-**Easy trap**: mistakenly equating "NOOP = don't write a new memory" with "silent = no need to confirm". This is wrong. NOOP means **nothing is written at the memory layer**, but the user-facing **CONFIRM layer still runs**.
-
-**What each conflict_resolution's confirmation_text should convey** (wording / language unrestricted; the sentences below are only examples):
-
-| Resolution | What the confirmation_text should convey (example wording) |
-|------------|------------------------------------------------------|
-| **NEW**    | which new preference was recorded + atomic_id, and invite a correction. E.g.: `Recorded preference [<atomic_id>]: <one line>. Let me know if that's wrong.` |
-| **UPDATE** | which existing preference was updated + the added increment, with the original rule kept. E.g.: `Updated [<atomic_id>] with <delta>; original rule kept.` |
-| **SUPERSEDE** | which old preference it conflicts with, which new one was created to supersede it, the old file marked superseded_by. E.g.: `Conflicts with [<old id>]; created [<new id>] to supersede it.` |
-| **SPLIT** | which independently maintainable child rules were resolved, including each child's real operation and atomic_id. |
-| **NOOP**   | what preference was detected, which existing atomic_id already covers it, not rewritten. E.g.: `Detected "<content>" — already covered by [<existing id>], no new file.` |
-
-**For a soft `preference` / `pitfall`** (see the Actionability gate): if you could not confidently compile an actionable rule, the `confirmation_text` must also carry the user's original wording **and** your proposed actionable version, so the user can sharpen it.
-
-**Exception**: only when the user has explicitly enabled **global silent mode** and this time detected=false may confirmation_text be empty. Any detected=true path must fill it in.
-
-**How to fill the `<atomic_id>` in the template**: it must be the real ID found by the conflict-resolution algorithm (grep the `memory/MEMORY.md` index or the `memory/*.md` files). If the hook triggered the NOOP/UPDATE template hint but you can no longer recall the atomic_id matched at the time, **re-run grep memory** instead of guessing — a wrong guessed ID would mislead the user into thinking some rule exists.
+- enqueue 成功：只说“完整用户 turn 已入队，后台会解析并事务提交”。
+- enqueue 失败：明确报告错误，不声称已记录。
+- 只有 `memory_upsert.py inspect` 返回真实结果后，才能引用 atomic_id、revision 或最终 operation。
+- `NEEDS_USER` 由后续 clarification 注入提出一个最小问题。
+- `REJECT` 可报告拒绝原因，但不得表述为“等待用户批准”。
+- `ARCHIVE` 只有在 committed/projected 后才能说规则已停用。
+- 禁止根据 prompt、文件名或预期行为猜测 `NOOP|UPDATE|SUPERSEDE|SPLIT|NEW`。
 
 ---
 
@@ -611,7 +528,10 @@ When the user expresses an intent to delete ("forget X" / "drop that rule" / "de
 
 1. Search memory for memories related to X
 2. Show the matching results and let the user confirm which to delete
-3. 当前共享核心尚未提供事务化 ARCHIVE/DELETE mutation，因此确认后标记为 `NEEDS_USER` 并说明尚未执行。禁止直接删除、重命名 Markdown 或改 `MEMORY.md`，否则 SQLite 会在下一次投影时恢复它。
+3. 用户明确指向目标并要求停用后，通过 `ARCHIVE` mutation 事务化停用规则；SQLite 保留版本与审计记录，投影和注入不再包含该规则。
+4. 用户要求恢复时，通过 `RESTORE` mutation 重新激活 archived rule。
+5. `ARCHIVE` 不是永久数据删除。共享核心不提供普通对话可调用的 `DELETE`；彻底 purge 只能走明确的卸载/清理命令并再次确认。
+5. 禁止直接删除、重命名 Markdown 或改 `MEMORY.md`；它们只是投影。
 
 ---
 

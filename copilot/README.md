@@ -4,9 +4,11 @@
 
 Your AI coding agent records the preferences, pitfalls, and workflow rules you
 teach it — and stops repeating mistakes you already corrected. It is
-**non-blocking by default**. Recording or merging a preference sends a redacted
-turn to the current platform's CLI model; installing/invoking Tellonce opts into
-that memory step. The separate shadow judge remains off until enabled.
+**non-blocking by default**. Installation enables local retrieval, while
+automatic model-backed memory upsert remains off until you run
+`python "<plugin>/lib/memory_upsert.py" enable-hooks`. Once enabled, a detached
+worker sends a redacted turn to the current platform's CLI model. The separate
+shadow judge remains off until enabled.
 
 For the project overview and the other platforms, see the
 [repository landing page](../README.md).
@@ -17,19 +19,19 @@ For the project overview and the other platforms, see the
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.**
-> The command is pinned to the immutable release tag `v1.4.0` (it won't change
+> The command is pinned to the immutable release tag `v1.5.0` (it won't change
 > when `main` does), which is safer.
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.sh | bash
 ```
 
 This command automatically: downloads the plugin → copies it into Copilot's
@@ -42,17 +44,17 @@ plugin directory → installs the optional dependency → registers it with Copi
 ### Verify integrity
 
 If you'd rather not pipe a script straight into a shell, download it first, read
-it, and check its SHA256 against the value published for `v1.4.0`:
+it, and check its SHA256 against the value published for `v1.5.0`:
 
 ```bash
-# Windows: irm ".../v1.4.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.4.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.5.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.5.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| File | SHA256 (v1.4.0) |
+| File | SHA256 (v1.5.0) |
 |------|------------------|
-| `bootstrap.ps1` | `873b42d1b90529db8a377b97a40e893c13078eebf5d0789eea7aaff34b60c0f1` |
-| `bootstrap.sh`  | `78f24c23217a9691d9a7537c7be5ab6af823350d2b918f5d1a54589fefb40d24` |
+| `bootstrap.ps1` | `22716ad67bea8232d7b8103d80fe538ee9ebd402a65d7fd2b050646efc49c1f6` |
+| `bootstrap.sh`  | `8fc56a18423d5cf964325963e3c117d12ad97812f68cb7817525dded0a4edaa3` |
 
 ---
 
@@ -70,7 +72,7 @@ the full path is printed at the end of install.
 
 | Mode | Hard block | LLM judge | Description |
 |------|------------|-----------|-------------|
-| **observe** (default) | off | off | Records preferences and reminds you; never interrupts. |
+| **observe** (default) | off | off | Retrieves saved rules locally; automatic memory upsert is controlled by its separate opt-in switch. |
 | **enforce** | on | off | Deterministic hard-block layer **plus the scan-completeness stop gate**. The deterministic layer ships with **no built-in rules** (an opt-in extension point), so it blocks no content on its own; the stop gate self-seeds on first run. |
 | **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against the recorded preferences you list in `PT_SHADOW_RULE_IDS` (comma-separated atomic_ids; `pt_mode.py full` prints a reminder when it's unset) — costs time / credit. |
 
@@ -84,6 +86,12 @@ semantic merging. Skill-driven manual recording can also trigger one merge via
 `--manual --force`. For fully offline use, disable both memory upsert and the
 shadow judge, and keep progressive retrieval.
 
+Memory mutation outcomes are
+`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|NEEDS_USER|REJECT|ARCHIVE|RESTORE`. Each mutation cites
+exact user-turn evidence. Unsafe durable rules end as audited `REJECT` records,
+not clarification requests. `ARCHIVE` stops explicitly identified rules from
+being injected while preserving SQLite history; `RESTORE` reactivates them.
+
 ---
 
 ## Self-check / uninstall
@@ -93,11 +101,11 @@ then the plugin files; your saved memory is kept):
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/uninstall.sh | bash
 ```
 **Restart Copilot afterward.** To also wipe your saved memory/state, download the
 script and run it with `-Purge` (PowerShell) / `--purge` (bash). Note that

@@ -29,7 +29,7 @@ import redaction
 
 FINAL_STATUSES = {
     "committed", "projected", "noop", "needs_user", "clarified", "dismissed",
-    "failed",
+    "rejected", "failed",
 }
 INBOX_DIRNAME = ".tellonce-inbox"
 INBOX_SUFFIX = ".json"
@@ -429,15 +429,32 @@ def _schedule_recovery(memory_dir, delay_seconds: int) -> dict:
         return {"retry_error": f"{type(exc).__name__}: {str(exc)[:300]}"}
 
 
+def _plan_contains_terminal_outcome(plan: dict) -> bool:
+    def contains_terminal(mutation):
+        if str(mutation.get("operation", "")).upper() in {
+            "NEEDS_USER",
+            "REJECT",
+        }:
+            return True
+        return any(
+            contains_terminal(child)
+            for child in mutation.get("children") or []
+            if isinstance(child, dict)
+        )
+
+    return any(
+        contains_terminal(mutation)
+        for mutation in plan.get("mutations", [])
+        if isinstance(mutation, dict)
+    )
+
+
 def _finish_clarifications(store, turn: dict, result: dict) -> dict:
     try:
         committed_plan = json.loads(turn.get("plan_json") or "{}")
     except (TypeError, json.JSONDecodeError):
         committed_plan = {}
-    if any(
-        str(mutation.get("operation", "")).upper() == "NEEDS_USER"
-        for mutation in committed_plan.get("mutations", [])
-    ):
+    if _plan_contains_terminal_outcome(committed_plan):
         return result
     candidates = set(committed_plan.get("clarification_candidates", []))
     resolved = store.mark_clarifications_resolved(
@@ -539,6 +556,11 @@ def resolve_turn(
     last_error = None
     for _attempt in range(max(1, max_retries)):
         generation, active_rules = store.snapshot()
+        active_rules.extend(
+            record
+            for record in store.all_records()
+            if record.get("status") == "archived"
+        )
         try:
             candidate_keys = json.loads(
                 turn.get("clarification_candidates_json") or "[]"
@@ -626,15 +648,18 @@ def resolve_turn(
                 max_attempts=MAX_TURN_ATTEMPTS,
             )
             return {"status": status, "turn_key": turn_key, "error": last_error}
-        try:
-            resolved = store.mark_clarifications_resolved(
-                plan.get("resolved_turn_keys", []),
-                resolved_by=turn_key,
-            )
-            if resolved:
-                result["resolved_turn_keys"] = resolved
-        except Exception as exc:
-            result["clarification_error"] = f"{type(exc).__name__}: {str(exc)[:500]}"
+        if not _plan_contains_terminal_outcome(plan):
+            try:
+                resolved = store.mark_clarifications_resolved(
+                    plan.get("resolved_turn_keys", []),
+                    resolved_by=turn_key,
+                )
+                if resolved:
+                    result["resolved_turn_keys"] = resolved
+            except Exception as exc:
+                result["clarification_error"] = (
+                    f"{type(exc).__name__}: {str(exc)[:500]}"
+                )
         try:
             projection = store.project()
             result["projection"] = projection
@@ -674,10 +699,13 @@ def apply_plan(
     turn_key = turn_key.strip() or _default_turn_key()
     store.ensure_turn(turn_key, safe_source, safe_context)
     generation, active_rules = store.snapshot()
+    plan = json.loads(json.dumps(plan))
+
     validated = memory_judge.validate_plan(
         plan,
         safe_source,
         active_rules,
+        strict_evidence=True,
     )
     result = store.commit_plan(turn_key, safe_source, validated, generation)
     if result["status"] in {"committed", "noop"}:
@@ -874,6 +902,7 @@ def inspect(memory_dir=None) -> dict:
         "pending_turns": store.pending_turn_keys(limit=100),
         "failed_turns": store.failed_turn_keys(limit=100),
         "needs_user": store.needs_user_turns(limit=100),
+        "rejected_turns": store.rejected_turns(limit=100),
     }
 
 

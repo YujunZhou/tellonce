@@ -19,6 +19,15 @@ import sys
 from datetime import datetime
 
 
+for stream_name in ("stdout", "stderr"):
+    stream = getattr(sys, stream_name, None)
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 # Hooks definition (name → (event, timeout, desc)).
 # Order matches the README architecture diagram. NOTE: Claude Code runs the
 # matching hooks of an event in PARALLEL — the registration order below is

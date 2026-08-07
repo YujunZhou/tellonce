@@ -9,8 +9,9 @@ description: Use when handling any user message; records and enforces user prefe
 
 - 三个平台共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值；旧的 `.codex/tellonce/memories/active` 只作为首次迁移来源。
 - 持久偏好只能通过 `shared_lib/memory_upsert.py enqueue` 入队；agent 主动记录使用 `python <skill_dir>/shared_lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`，自动 hook 已启用时会跳过重复入队。复杂多行消息可改用 `--request-file <json>`。禁止直接写 active Markdown；`promote_candidate()` 也只保留为入队兼容入口。
-- UserPromptSubmit 前台只写 inbox 并启动 detached worker，立即返回。LLM 判断（NOOP/UPDATE/SUPERSEDE/SPLIT/NEW）与 SQLite 提交都在后台进行，任何失败都不能阻塞用户。
-- 一条纠正包含多个可独立触发、修改或废止的 durable policy 时使用 `SPLIT`，并让每个 child 独立执行 `NOOP|UPDATE|SUPERSEDE|NEW`。一般规则与其例外、边界、理由或操作后果仍是一条规则，不得误拆。
+- UserPromptSubmit 自动 upsert 默认关闭；启用后前台只写 inbox 并启动 detached worker，立即返回。LLM 判断（`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|REJECT|ARCHIVE|RESTORE`）与 SQLite 提交都在后台进行，任何失败都不能阻塞用户。
+- 一条纠正包含多个可独立触发、修改或废止的 durable policy 时使用 `SPLIT`，并让每个 child 独立执行 lifecycle。一般规则与其例外、边界、理由或操作后果仍是一条规则，不得误拆。
+- 每个 mutation/child 必须携带本轮完整用户原话中的精确 `evidence_spans`；危险 durable rule 使用 `REJECT`，明确停用规则使用事务化 `ARCHIVE`，恢复 archived rule 使用 `RESTORE`。
 - judge 在返回 `NEEDS_USER` 前，先用当前项目根目录、最近对话和 active rules 消解指代、scope 与 activation；这些 context 只能帮助解释本轮用户原话，不能单独授权持久化。只有剩余歧义会改变未来行为时才进入轻量 clarification 队列，并在后续上下文中只问一个简短问题；下一条明确回答可关闭对应 turn。
 - 关闭自动 upsert 后 clarification 不再注入；过期项可用 `python <skill_dir>/shared_lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
 - 自动 hook 默认关闭。设置 `memory_upsert_enabled=true` 或 `PT_MEMORY_UPSERT_ENABLED=1` 后才启用。

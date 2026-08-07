@@ -2,9 +2,10 @@
 
 [English](README.md) · **中文**
 
-你的 AI 编码助手会记录你教它的偏好、陷阱和工作流规则，不再重复你已经纠正过的错误。
-它**默认不阻断**。记录或合并偏好时，会把当前 turn 脱敏后交给当前平台的 CLI 模型；
-安装或调用 Tellonce 即表示同意这一步。独立的 shadow judge 仍默认关闭。
+你的 AI 编码助手可以记录你教它的偏好、陷阱和工作流规则，不再重复你已经纠正过的错误。
+它**默认不阻断，也不自动调用模型记录**。安装后本地检索可用；只有运行
+`python "<plugin>/lib/memory_upsert.py" enable-hooks` 后，detached worker 才会把
+脱敏 turn 交给当前平台的 CLI 模型。独立的 shadow judge 仍默认关闭。
 
 项目总览和其它平台见[仓库落地页](../README.zh.md)。
 
@@ -13,18 +14,18 @@
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。装完**重启 Copilot**。
-> 命令钉在不可变的 release tag `v1.4.0`（不会因 `main` 变动而改），更安全。
+> 命令钉在不可变的 release tag `v1.5.0`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -34,18 +35,18 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/b
 
 ### 核对脚本完整性
 
-如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.4.0`
+如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.5.0`
 公布的值）：
 
 ```bash
-# Windows: irm ".../v1.4.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.4.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.5.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.5.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| 文件 | SHA256 (v1.4.0) |
+| 文件 | SHA256 (v1.5.0) |
 |------|------------------|
-| `bootstrap.ps1` | `873b42d1b90529db8a377b97a40e893c13078eebf5d0789eea7aaff34b60c0f1` |
-| `bootstrap.sh`  | `78f24c23217a9691d9a7537c7be5ab6af823350d2b918f5d1a54589fefb40d24` |
+| `bootstrap.ps1` | `22716ad67bea8232d7b8103d80fe538ee9ebd402a65d7fd2b050646efc49c1f6` |
+| `bootstrap.sh`  | `8fc56a18423d5cf964325963e3c117d12ad97812f68cb7817525dded0a4edaa3` |
 
 ---
 
@@ -63,16 +64,21 @@ python "<plugin>/lib/pt_mode.py" status      # 看当前模式
 
 | 模式 | 硬拦截 | LLM 判官 | 说明 |
 |------|--------|----------|------|
-| **observe**（默认） | 关 | 关 | 只记录偏好并提醒，绝不打断 |
+| **observe**（默认） | 关 | 关 | 本地检索已存规则；自动 memory upsert 由独立 opt-in 开关控制 |
 | **enforce** | 开 | 关 | 确定性硬拦截层 **加上"扫描完整性"停止闸门**。确定性层**不带任何内置规则**（opt-in 扩展点），所以不会拦你的内容；停止闸门首次运行会自动播种 |
 | **full** | 开 | 开 | `enforce` + 小模型 LLM 判官，按 `PT_SHADOW_RULE_IDS` 里列出的已记录偏好（逗号分隔的 atomic_id）逐条检查回复；未设置时 `pt_mode.py full` 会打印提醒（多花时间/额度） |
 
 > **Windows 注意**：「扫描完整性」停止闸门的 hook 在 Windows 上目前只是占位
 > （PowerShell 条目只回显一行），所以 `enforce` 模式在 Windows 上比 macOS/Linux 弱。
 
-**隐私**：SQLite 真值和 `progressive` 检索留在本机。记录或合并偏好时，会把当前
-turn 脱敏后交给当前平台的 CLI 模型；`full` 还会发送脱敏后的最近消息和回复做合规评分。
-如需完全离线，请关闭 memory upsert 与 shadow judge。
+**隐私**：SQLite 真值和 `progressive` 检索留在本机。启用 memory upsert 后，记录或
+合并偏好才会把脱敏 turn 交给当前平台的 CLI 模型；`full` 还会发送脱敏后的最近消息和
+回复做合规评分。如需完全离线，请保持 memory upsert 与 shadow judge 关闭。
+
+Memory mutation 结果为
+`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|NEEDS_USER|REJECT|ARCHIVE|RESTORE`，每条 mutation
+都引用本轮用户原话证据。危险 durable rule 直接进入可审计 `REJECT` 终态；
+`ARCHIVE` 停止注入用户明确指定的规则并保留 SQLite 历史，`RESTORE` 可重新激活。
 
 ---
 
@@ -82,11 +88,11 @@ turn 脱敏后交给当前平台的 CLI 模型；`full` 还会发送脱敏后的
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/uninstall.sh | bash
 ```
 **卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
 `-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是

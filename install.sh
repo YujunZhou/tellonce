@@ -123,7 +123,7 @@ mkdir -p "${SKILL_DIR}" 2>/dev/null || true
 # log() stdout from the log, breaking `cat install.log` troubleshooting.
 exec > >(tee "${LOG_FILE}") 2>&1
 
-log "Tellonce install — version 1.4.0"
+log "Tellonce install — version 1.5.0"
 log "  HOME: ${HOME}"
 log "  PROJECT: ${PROJECT_ROOT}"
 log "  SKILL_DIR: ${SKILL_DIR}"

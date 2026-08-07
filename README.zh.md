@@ -10,17 +10,17 @@
 > 任务上的留出偏好违规率从 **100% 降到 2.0%**（分布外任务，见下方研究背书）。
 
 你让助手别往 `/tmp` 写临时文件、让它用你的语言回复、让它别动无关代码——结果三轮之后
-它又犯了。Tellonce 在每一轮观察对话，自动记录它检测到的偏好（preference）、
-陷阱（pitfall）、摩擦（friction），并能对你在意的规则做硬性强制。
+它又犯了。Tellonce 可以扫描对话中的偏好（preference）、陷阱（pitfall）和摩擦
+（friction），把它们保存到共享本地真值，并对你在意的规则做硬性强制。
 
-它**默认不阻断**：开箱即用只记录、只提醒，不会硬拦截回复。记录或合并偏好时，
-会把当前 turn 脱敏后交给当前平台的 CLI 模型；安装或调用 Tellonce 即表示同意这一步。
-逐回复运行的 shadow judge 仍默认关闭。
+它**默认不阻断，也不自动调用模型记录**：安装后只启用本地规则检索；
+`memory_upsert_enabled`、硬拦截和逐回复 shadow judge 都默认关闭。显式运行
+`memory_upsert.py enable-hooks` 后，detached worker 才会把完整用户 turn 脱敏后交给
+当前平台的 CLI 模型解析。
 
 ## ✨ 亮点
 
-- 🧠 **从你的纠正中学习**：每一轮都会被扫描出 preference / pitfall / friction
-  信号并自动记录。
+- 🧠 **按需从纠正中学习**：自动 memory upsert 是 opt-in；本地规则检索不调用模型。
 - 🛡️ **可选的强制执行**：打开后，违反你已存规则的回复会被拦下，助手在同一轮里改正。
 - 🔒 **本机保存真值**：SQLite memory 留在本机；模型支持的 upsert 与可选 shadow
   judge 只接收脱敏文本，并走你自己的订阅。（「检索相关规则」默认**完全本地、零模型调用**
@@ -61,8 +61,10 @@ Tellonce 是 **TRACE**（Test-time Rule Acquisition and Compiled Enforcement，
 /plugin install tellonce@tellonce
 ```
 
-hooks 会自动注册，开个新会话即生效。默认进安全的 `observe` 模式（只记录提醒，绝不
-拦截）；想开硬拦截，在 shell 里 `export PT_ENFORCE=1`。
+hooks 会自动注册，开个新会话即生效。默认进安全的 `observe` 模式（本地检索、不自动
+upsert、绝不拦截）。要启用后台记录，运行
+`python3 <plugin>/lib/memory_upsert.py enable-hooks`；硬拦截仍需单独设置
+`export PT_ENFORCE=1`。
 
 <details>
 <summary>或手动安装（git clone + 注册）</summary>
@@ -88,7 +90,7 @@ codex plugin add tellonce --marketplace tellonce
 # 验证: codex plugin list --marketplace tellonce  ->  installed, enabled
 ```
 
-默认进安全的 `audit_only` 模式（只记录，不拦截）。
+默认进安全的 `audit_only` 模式（只审计，不拦截）；自动 memory upsert 仍需显式启用。
 （安装动词是 `codex plugin add`，不是 `install`。）Codex 的清单已对现行 Codex CLI 验证通过
 （`codex plugin marketplace add` + 插件 validator 都过）；如果 `/plugin install` 在你的
 Codex 版本上没装上 hooks，请用下面的手动安装。
@@ -108,19 +110,19 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
-一键引导脚本（推荐——钉在不可变 tag `v1.4.0`、SHA256 已公布，可在管道前核对，见
+一键引导脚本（推荐——钉在不可变 tag `v1.5.0`、SHA256 已公布，可在管道前核对，见
 [`copilot/README.md`](copilot/README.md#verify-integrity)）：
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.sh | bash
 ```
 
 它会：下载 **Copilot 适配版插件**（`copilot/` 子插件——SessionStart 注入、
@@ -142,18 +144,24 @@ Copilot 的 Stop 拦截约定、Windows `run.ps1` 垫片）→ 放进 Copilot �
 | **Codex** | 实验性 | `/plugin install`（见上） | [`codex/docs/README.md`](codex/docs/README.md) |
 | **GitHub Copilot CLI** | 支持（一键安装） | 一条命令（见上） | [`copilot/README.md`](copilot/README.md) |
 
-三者共享同一份用户偏好记忆与设计哲学（Iron Law / Gate Function / scan → record →
-confirm）。底层机制按运行时适配：Claude Code 和 Copilot 走 `Stop` hook，而 Codex
-没有 `Stop` hook，改走 wrapper。详见
+三者共享同一份用户偏好记忆。Claude Code 与 Codex 在 `UserPromptSubmit` 注入规则，
+Copilot 只在 `SessionStart` 注入；Claude Code 与 Copilot 可用 `Stop` 检查最终回复，
+Codex 使用原生工具 hooks，并可选用 wrapper 检查 subprocess 最终输出。详见
 [`codex/docs/CC_PARITY_MATRIX.md`](codex/docs/CC_PARITY_MATRIX.md)。
 
 ## 三种模式
 
 | 模式 | 硬拦截 | LLM 判官 | 说明 |
 |---|---|---|---|
-| **observe**（默认） | 关 | 关 | 记录偏好并提醒，绝不打断 |
+| **observe**（默认） | 关 | 关 | 本地检索已存规则；自动 memory upsert 由独立 opt-in 开关控制 |
 | **enforce** | 开 | 关 | 确定性硬拦截层 **加上"扫描完整性"停止闸门**。确定性层**不带任何内置规则**（opt-in 扩展点），所以不会拦你的内容；停止闸门首次运行会自动播种 |
 | **full** | 开 | 开 | `enforce` + 小模型 LLM 判官，按你记录的偏好逐条检查回复（多花时间/额度） |
+
+每个完整用户 turn 只提交一个 SQLite transaction，mutation 集合为
+`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|NEEDS_USER|REJECT|ARCHIVE|RESTORE`。每个 mutation
+必须引用该 turn 的精确短引文，context 不能授权规则。危险 durable rule 直接记为
+`REJECT`，不澄清、不安装；`ARCHIVE` 会停止检索用户明确指定的规则并保留 SQLite
+版本历史，`RESTORE` 可重新激活。
 
 随时切换（Copilot 版）：
 
@@ -164,17 +172,17 @@ python "<plugin>/lib/pt_mode.py" full      # 硬拦截 + LLM 判官
 python "<plugin>/lib/pt_mode.py" status    # 看当前模式
 ```
 
-**隐私**：SQLite 真值和 `progressive` 检索留在本机。记录或合并偏好时，会把当前
-turn 脱敏后交给当前平台的 CLI 模型判断；Skill 主动记录时，即使自动 hook 关闭，
-也会执行这一步。`full` 还会把脱敏后的最近消息和回复发送给 CLI 模型做合规评分。
-如需完全离线，请关闭 memory upsert 与 shadow judge，并保持 `progressive` 检索。
+**隐私**：SQLite 真值和 `progressive` 检索留在本机。启用后，记录或合并偏好会把
+当前 turn 脱敏后交给当前平台的 CLI 模型判断；显式手工 `--force` enqueue 在自动 hook
+关闭时也会执行一次。`full` 还会把脱敏后的最近消息和回复发送给 CLI 模型做合规评分。
+如需完全离线，请保持 memory upsert 与 shadow judge 关闭。
 
 ## 它怎么工作
 
 1. **规则注入**——Claude Code / Codex 上每次提交消息（UserPromptSubmit）都注入
    已存规则；Copilot 上每个会话开始时注入一次（它唯一的注入点）。
-2. **每轮结束（`Stop`）**——扫描该轮中新的 preference / pitfall / friction 信号，
-   记录到观察日志。
+2. **观察与 memory upsert 分离**——平台 hook 可以写本地观察日志，但只有显式启用
+   `memory_upsert_enabled`（或手工 forced enqueue）才会执行模型支持的记忆 mutation。
 3. **在 `full` 下**——小模型 LLM 判官按你在 `PT_SHADOW_RULE_IDS` 里列出的规则逐条
    检查回复，标出违规让助手改正。（`enforce` 的确定性层**不带任何内置规则**，是
    opt-in 扩展点，不会拦你的内容。）

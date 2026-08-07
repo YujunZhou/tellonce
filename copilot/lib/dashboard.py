@@ -127,9 +127,27 @@ def _upsert_counts():
                 rows = conn.execute(
                     "SELECT status, COUNT(*) AS n FROM turns GROUP BY status"
                 ).fetchall()
+                plans = conn.execute(
+                    "SELECT result_json FROM turns WHERE result_json IS NOT NULL"
+                ).fetchall()
             finally:
                 conn.close()
-            return {str(status): int(count) for status, count in rows}
+            counts = {str(status): int(count) for status, count in rows}
+
+            def count_rejects(mutations):
+                total = 0
+                for mutation in mutations or []:
+                    if not isinstance(mutation, dict):
+                        continue
+                    total += str(mutation.get('operation', '')).upper() == 'REJECT'
+                    total += count_rejects(mutation.get('children'))
+                return total
+
+            counts['rejected_mutations'] = sum(
+                count_rejects(json.loads(row[0] or '{}').get('mutations', []))
+                for row in plans
+            )
+            return counts
     except Exception:
         return {}
 
@@ -169,6 +187,8 @@ def build_dashboard():
         f'upsert turns:  pending={upsert_counts.get("pending", 0)}, '
         f'resolving={upsert_counts.get("resolving", 0)}, '
         f'needs_user={upsert_counts.get("needs_user", 0)}, '
+        f'rejected={upsert_counts.get("rejected", 0)}, '
+        f'rejected_mutations={upsert_counts.get("rejected_mutations", 0)}, '
         f'failed={upsert_counts.get("failed", 0)}',
         f'compliance:    {_fmt(compliance)} log entries',
         f'config:        {path_config.CONFIG_PATH}',

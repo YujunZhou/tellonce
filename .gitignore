@@ -71,5 +71,6 @@ copilot/seed_memory.user/
 # tests - verified locally, kept out of the public tree (run locally: pytest lib/, codex/, etc.)
 test_*.py
 !checks/test_memory_upsert.py
+!checks/test_memory_judge_semantic.py
 conftest.py
 **/tests/

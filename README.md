@@ -13,19 +13,20 @@
 
 You told your agent to stop writing scratch files to `/tmp`. To reply in your
 language. To leave unrelated code alone. Three turns later it does it again.
-Tellonce watches each turn, records the preferences, pitfalls, and
-workflow rules it detects, and can hard-enforce the ones you care about.
+Tellonce can scan turns for preferences, pitfalls, and workflow rules, record
+them in a shared local store, and hard-enforce the ones you care about.
 
-It is **non-blocking by default**: out of the box it records and reminds but
-does not hard-block replies. Recording or merging a preference uses the current
-platform's CLI model on a redacted copy of that turn; installing/invoking
-Tellonce opts into that model-backed memory step. The separate per-reply shadow
-judge remains off until you enable it.
+It is **non-blocking and privacy-conservative by default**: installation enables
+local rule retrieval, but automatic model-backed memory upsert and hard
+enforcement are both off. Enable memory upsert explicitly with
+`memory_upsert.py enable-hooks`; it then sends a redacted copy of each complete
+user turn to the current platform's CLI model in a detached worker. The separate
+per-reply shadow judge also remains off until enabled.
 
 ## ✨ Highlights
 
-- 🧠 **Learns from your corrections.** Every turn is scanned for preference /
-  pitfall / friction signals and recorded automatically.
+- 🧠 **Learns from your corrections when enabled.** Automatic memory upsert is
+  opt-in; local retrieval works without a model call.
 - 🛡️ **Opt-in enforcement.** Turn it on and replies that violate your saved
   rules are blocked, and the agent fixes them in the same turn.
 - 🔒 **Local canonical storage.** The SQLite memory remains on your machine.
@@ -75,8 +76,9 @@ The native way — run these two commands **inside Claude Code**:
 ```
 
 The hooks auto-register; start a new session to activate. Tellonce begins in the
-safe `observe` mode (records + reminds, never blocks); turn on hard blocking in a
-shell with `export PT_ENFORCE=1`.
+safe `observe` mode (local retrieval, no automatic memory upsert, never blocks).
+Enable background recording with `python3 <plugin>/lib/memory_upsert.py
+enable-hooks`; turn on hard blocking separately with `export PT_ENFORCE=1`.
 
 <details>
 <summary>Or install manually (git clone + register)</summary>
@@ -105,7 +107,8 @@ codex plugin add tellonce --marketplace tellonce
 # verify: codex plugin list --marketplace tellonce  ->  installed, enabled
 ```
 
-Tellonce begins in the safe `audit_only` mode (records, never blocks).
+Tellonce begins in the safe `audit_only` mode (audits, never blocks); automatic
+memory upsert remains off until explicitly enabled.
 (The install verb is `codex plugin add`, not `install`.) The Codex marketplace
 manifest is validated against the current Codex CLI (`codex plugin marketplace
 add` + the plugin validator pass); if `/plugin install` doesn't load the hooks on
@@ -126,20 +129,20 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-One-command bootstrap (recommended — pinned to the immutable tag `v1.4.0`, SHA256
+One-command bootstrap (recommended — pinned to the immutable tag `v1.5.0`, SHA256
 published for pre-verification, see
 [`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.4.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.0/copilot/bootstrap.sh | bash
 ```
 
 It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with
@@ -164,19 +167,27 @@ path. **Restart Copilot when it's done.**
 | **Codex** | Experimental | `/plugin install` (above) | [`codex/docs/README.md`](codex/docs/README.md) |
 | **GitHub Copilot CLI** | Supported (one-command install) | one command (above) | [`copilot/README.md`](copilot/README.md) |
 
-All three share the same user-preference memory and design philosophy (Iron Law /
-Gate Function / scan → record → confirm). The underlying mechanism is adapted per
-runtime: Claude Code and Copilot use `Stop` hooks, while Codex has no `Stop` hook
-and runs through a wrapper instead. See
+All three share the same user-preference memory. Rule injection follows each
+runtime's actual hook surface: Claude Code and Codex inject on
+`UserPromptSubmit`; Copilot injects on `SessionStart`. Claude Code and Copilot
+can inspect final responses with `Stop`; Codex uses native tool hooks and an
+optional wrapper for final subprocess output. See
 [`codex/docs/CC_PARITY_MATRIX.md`](codex/docs/CC_PARITY_MATRIX.md).
 
 ## Modes
 
 | Mode | Hard block | LLM judge | What it does |
 |---|---|---|---|
-| **observe** (default) | off | off | Records preferences and reminds you. Never interrupts. |
+| **observe** (default) | off | off | Retrieves saved rules locally. Automatic memory upsert is controlled by a separate opt-in switch. |
 | **enforce** | on | off | Deterministic hard-block layer **plus the scan-completeness stop gate**. The deterministic layer ships with **no built-in rules** (an opt-in extension point), so it blocks no content on its own; the stop gate self-seeds on first run. |
 | **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against your recorded preferences (costs time / credit). |
+
+Memory mutations use one SQLite transaction per complete user turn:
+`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|NEEDS_USER|REJECT|ARCHIVE|RESTORE`. Each mutation
+must cite short exact spans from that user turn; context cannot authorize a
+rule. Unsafe durable rules are audited as `REJECT` rather than clarified or
+installed. `ARCHIVE` removes an explicitly identified rule from retrieval while
+preserving its SQLite version history; `RESTORE` reactivates it.
 
 Switch at any time (Copilot variant):
 
@@ -188,19 +199,22 @@ python "<plugin>/lib/pt_mode.py" status    # show the current mode
 ```
 
 **Privacy:** canonical storage and progressive retrieval stay local.
-Preference recording/merging calls the current platform's CLI model with a
-redacted turn, including Skill-driven manual recording when automatic hooks are
-off. `full` additionally sends the redacted latest message and reply to the CLI
-model for compliance scoring. For fully offline use, disable memory upsert and
-the shadow judge, and keep progressive retrieval.
+When enabled, preference recording/merging calls the current platform's CLI
+model with a redacted turn. An explicit manual `--force` enqueue can do the same
+while automatic hooks are off. `full` additionally sends the redacted latest
+message and reply to the CLI model for compliance scoring. For fully offline
+use, leave memory upsert and the shadow judge disabled and keep progressive
+retrieval.
 
 ## How it works
 
 1. **Rule injection** — on Claude Code and Codex your saved rules are injected
    on every prompt (UserPromptSubmit); on Copilot once per session at
    SessionStart (its only injection point).
-2. **Each turn ends (`Stop`)** — the turn is scanned for new preference / pitfall
-   / friction signals, which are recorded to an observation log.
+2. **Observation and memory upsert are separate** — platform hooks may append a
+   local observation record, but no model-backed memory mutation runs unless
+   `memory_upsert_enabled` is explicitly enabled (or a manual forced enqueue is
+   requested).
 3. **In `full`** — a small-model LLM judge checks each reply against the rules
    you list in `PT_SHADOW_RULE_IDS` and flags violations for the agent to fix.
    (The `enforce` deterministic layer ships with **no built-in rules** — it is
