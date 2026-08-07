@@ -91,6 +91,23 @@ class InvalidPlanError(MemoryStoreError):
     pass
 
 
+def _normalize_exact_quote(value: str, source_text: str) -> str:
+    text = str(value or "").strip()
+    if text in source_text:
+        return text
+    quote_pairs = {
+        '"': '"',
+        "'": "'",
+        "\u201c": "\u201d",
+        "\u2018": "\u2019",
+    }
+    if len(text) >= 2 and quote_pairs.get(text[0]) == text[-1]:
+        inner = text[1:-1]
+        if inner and inner in source_text:
+            return inner
+    return text
+
+
 def _utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -1249,7 +1266,10 @@ class MemoryStore:
         ):
             raise InvalidPlanError(f"{label}.evidence_spans must be a string list")
         evidence_spans = list(
-            dict.fromkeys(span.strip() for span in evidence_spans)
+            dict.fromkeys(
+                _normalize_exact_quote(span, source_text)
+                for span in evidence_spans
+            )
         )
         if len(evidence_spans) > 8:
             raise InvalidPlanError(
@@ -1274,6 +1294,11 @@ class MemoryStore:
         applicability_evidence = str(
             mutation.get("applicability_evidence", "")
         ).strip()
+        if not applicability_evidence.startswith("existing:"):
+            applicability_evidence = _normalize_exact_quote(
+                applicability_evidence,
+                source_text,
+            )
         has_boundary = bool(
             str(record.get("applies_when", "")).strip()
             or str(record.get("condition", "")).strip()

@@ -64,6 +64,23 @@ class MemoryJudgeError(RuntimeError):
     pass
 
 
+def _normalize_exact_quote(value: str, source_text: str) -> str:
+    text = str(value or "").strip()
+    if text in source_text:
+        return text
+    quote_pairs = {
+        '"': '"',
+        "'": "'",
+        "\u201c": "\u201d",
+        "\u2018": "\u2019",
+    }
+    if len(text) >= 2 and quote_pairs.get(text[0]) == text[-1]:
+        inner = text[1:-1]
+        if inner and inner in source_text:
+            return inner
+    return text
+
+
 def _setting(name: str, default: str = "") -> str:
     return (
         os.environ.get(f"PT_{name}")
@@ -444,7 +461,10 @@ def _validate_applicability_evidence(
         text = str(value or "").strip()
         return "" if text.casefold() in {"", "none", "(none)", "[]", "[ ]"} else text
 
+    safe_source = redaction.redact(source_text or "")
     evidence = str(mutation.get("applicability_evidence", "")).strip()
+    if not evidence.startswith("existing:"):
+        evidence = _normalize_exact_quote(evidence, safe_source)
     has_boundary = bool(
         str(record.get("applies_when", "")).strip()
         or str(record.get("condition", "")).strip()
@@ -481,7 +501,6 @@ def _validate_applicability_evidence(
             for target_id in target_ids
         )
         if existing_had_boundary:
-            safe_source = redaction.redact(source_text or "")
             if not evidence or evidence not in safe_source:
                 raise MemoryJudgeError(
                     f"{label}.applicability_evidence must quote the user removing "
@@ -521,7 +540,6 @@ def _validate_applicability_evidence(
                     f"{label}.{field} changed and requires exact user-turn evidence"
                 )
         return evidence[:1000]
-    safe_source = redaction.redact(source_text or "")
     if not evidence or evidence not in safe_source:
         raise MemoryJudgeError(
             f"{label}.applicability_evidence must be an exact quote from the Complete user turn"
@@ -543,10 +561,15 @@ def _validate_evidence_spans(
         isinstance(span, str) and span.strip() for span in raw_spans
     ):
         raise MemoryJudgeError(f"{label}.evidence_spans must be a string list")
-    spans = list(dict.fromkeys(span.strip() for span in raw_spans))
+    safe_source = redaction.redact(source_text or "")
+    spans = list(
+        dict.fromkeys(
+            _normalize_exact_quote(span, safe_source)
+            for span in raw_spans
+        )
+    )
     if len(spans) > 8:
         raise MemoryJudgeError(f"{label}.evidence_spans may contain at most 8 quotes")
-    safe_source = redaction.redact(source_text or "")
     for span in spans:
         if len(span) > 500:
             raise MemoryJudgeError(

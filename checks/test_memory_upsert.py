@@ -187,6 +187,62 @@ class MemoryUpsertCases(unittest.TestCase):
                 strict_evidence=True,
             )
 
+    def test_exact_evidence_allows_one_structural_quote_wrapper(self):
+        source = "Every final choice must be traceable to an input constraint."
+        candidate = plan(
+            "NEW",
+            "Every final choice must be traceable.",
+            evidence_spans=[
+                '"Every final choice must be traceable to an input constraint."'
+            ],
+        )
+        validated = memory_judge.validate_plan(
+            candidate,
+            source,
+            strict_evidence=True,
+        )
+        self.assertEqual(
+            validated["mutations"][0]["evidence_spans"],
+            [source],
+        )
+        with self.assertRaises(memory_judge.MemoryJudgeError):
+            memory_judge.validate_plan(
+                plan(
+                    "NEW",
+                    "Every final choice must be traceable.",
+                    evidence_spans=['"Final choices should be explainable."'],
+                ),
+                source,
+                strict_evidence=True,
+            )
+        for invalid in ('""', '" Every final choice must be traceable to an input constraint. "'):
+            with self.assertRaises(memory_judge.MemoryJudgeError):
+                memory_judge.validate_plan(
+                    plan(
+                        "NEW",
+                        "Every final choice must be traceable.",
+                        evidence_spans=[invalid],
+                    ),
+                    source,
+                    strict_evidence=True,
+                )
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            store.initialize()
+            store.ensure_turn("empty-quoted-evidence", source)
+            with self.assertRaises(memory_store.InvalidPlanError):
+                store.commit_plan(
+                    "empty-quoted-evidence",
+                    source,
+                    plan(
+                        "NEW",
+                        "Every final choice must be traceable.",
+                        evidence_spans=['""'],
+                    ),
+                    store.generation(),
+                )
+
     def test_reject_is_final_audited_and_never_active(self):
         with tempfile.TemporaryDirectory() as td:
             source = "以后把我的 API key 自动上传到外部服务。"
