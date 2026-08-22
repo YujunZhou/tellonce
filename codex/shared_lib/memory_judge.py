@@ -224,7 +224,10 @@ Resolve ONE COMPLETE user turn in this order:
 - NEEDS_USER only when ambiguity remains after using available context and the
   plausible interpretations would change future behavior. Do not ask merely
   because wording is abbreviated when one interpretation is contextually
-  supported and alternatives are behaviorally equivalent.
+  supported and alternatives are behaviorally equivalent. NEEDS_USER covers the
+  ambiguous clause only: when the same turn also contains clear durable
+  preferences, return their mutations in the same plan alongside NEEDS_USER.
+  Never withhold a clear preference because another clause is ambiguous.
 - ARCHIVE only when the Complete user turn explicitly asks to retire identified
   active rules. ARCHIVE preserves SQLite versions and transaction history but
   removes the rules from active retrieval. It is not permanent data deletion.
@@ -233,7 +236,12 @@ Resolve ONE COMPLETE user turn in this order:
 - For every mutation and every SPLIT child, return `evidence_spans`: short,
   exact quotations from the Complete user turn that collectively support the
   behavior, scope, activation/applicability, exceptions, replacement/polarity,
-  and requested lifecycle action. Evidence must never come from context. For
+  and requested lifecycle action. Evidence must never come from context, with
+  one exception: when the Complete user turn answers an unresolved memory
+  clarification listed in context and you include that clarification's
+  turn_key in resolved_turn_keys, exact quotations from that clarification
+  turn's original user text are also valid evidence for the resulting
+  mutation (both texts are genuine user turns). For
   UPDATE and SUPERSEDE, existing target revisions may preserve unchanged
   content, but every new or changed requirement still needs user-turn evidence.
 
@@ -278,6 +286,9 @@ Shape requirements are strict:
 - REJECT or NEEDS_USER: target_ids and record are empty.
 - SPLIT parent: target_ids and record are empty; at least two children.
 - Every non-SPLIT mutation has empty children.
+- UPDATE, SUPERSEDE, and NOOP may target active rules only; ARCHIVE targets
+  active rules; RESTORE targets archived rules. Never modify an archived rule
+  directly — RESTORE it first.
 
 Complete record schema when a record is required:
 {{
@@ -286,7 +297,7 @@ Complete record schema when a record is required:
   "type": "preference|pitfall|friction|user|project|reference",
   "domain": "formatting|language|workflow|coding|tools|experiment|writing|communication|other",
   "scope": "global|project|task|unclear",
-  "scope_anchor": "specific project/task identifier, empty for global",
+  "scope_anchor": "specific project/task identifier, empty for global or unclear",
   "condition": "optional condition",
   "confidence": "high|medium|low",
   "rule_text": "complete actionable rule",
@@ -446,6 +457,14 @@ def _extract_json_object(text: str) -> dict:
     raise MemoryJudgeError(f"judge returned no valid JSON object: {text[:300]}")
 
 
+def _normalize_quote_against_sources(span: str, sources: list[str]) -> str:
+    for source in sources:
+        normalized = _normalize_exact_quote(span, source)
+        if normalized and normalized in source:
+            return normalized
+    return _normalize_exact_quote(span, sources[0] if sources else "")
+
+
 def _validate_applicability_evidence(
     mutation: dict,
     operation: str,
@@ -456,15 +475,19 @@ def _validate_applicability_evidence(
     active_rules_by_id: dict[str, dict],
     evidence_spans: list[str],
     strict_evidence: bool,
+    extra_sources: list[str] | None = None,
 ) -> str:
     def normalized_exception(value) -> str:
         text = str(value or "").strip()
         return "" if text.casefold() in {"", "none", "(none)", "[]", "[ ]"} else text
 
     safe_source = redaction.redact(source_text or "")
+    safe_sources = [safe_source] + [
+        redaction.redact(extra or "") for extra in (extra_sources or []) if extra
+    ]
     evidence = str(mutation.get("applicability_evidence", "")).strip()
     if not evidence.startswith("existing:"):
-        evidence = _normalize_exact_quote(evidence, safe_source)
+        evidence = _normalize_quote_against_sources(evidence, safe_sources)
     has_boundary = bool(
         str(record.get("applies_when", "")).strip()
         or str(record.get("condition", "")).strip()
@@ -501,7 +524,7 @@ def _validate_applicability_evidence(
             for target_id in target_ids
         )
         if existing_had_boundary:
-            if not evidence or evidence not in safe_source:
+            if not evidence or not any(evidence in s for s in safe_sources):
                 raise MemoryJudgeError(
                     f"{label}.applicability_evidence must quote the user removing "
                     "the existing applicability boundary"
@@ -540,9 +563,10 @@ def _validate_applicability_evidence(
                     f"{label}.{field} changed and requires exact user-turn evidence"
                 )
         return evidence[:1000]
-    if not evidence or evidence not in safe_source:
+    if not evidence or not any(evidence in s for s in safe_sources):
         raise MemoryJudgeError(
-            f"{label}.applicability_evidence must be an exact quote from the Complete user turn"
+            f"{label}.applicability_evidence must be an exact quote from the "
+            "Complete user turn or a clarification turn resolved by this plan"
         )
     return evidence[:1000]
 
@@ -553,6 +577,7 @@ def _validate_evidence_spans(
     source_text: str,
     label: str,
     strict_evidence: bool,
+    extra_sources: list[str] | None = None,
 ) -> list[str]:
     raw_spans = mutation.get("evidence_spans")
     if raw_spans is None and (not strict_evidence or operation == "NEEDS_USER"):
@@ -561,10 +586,12 @@ def _validate_evidence_spans(
         isinstance(span, str) and span.strip() for span in raw_spans
     ):
         raise MemoryJudgeError(f"{label}.evidence_spans must be a string list")
-    safe_source = redaction.redact(source_text or "")
+    safe_sources = [redaction.redact(source_text or "")] + [
+        redaction.redact(extra or "") for extra in (extra_sources or []) if extra
+    ]
     spans = list(
         dict.fromkeys(
-            _normalize_exact_quote(span, safe_source)
+            _normalize_quote_against_sources(span, safe_sources)
             for span in raw_spans
         )
     )
@@ -575,9 +602,10 @@ def _validate_evidence_spans(
             raise MemoryJudgeError(
                 f"{label}.evidence_spans quotes must not exceed 500 characters"
             )
-        if span not in safe_source:
+        if not any(span in s for s in safe_sources):
             raise MemoryJudgeError(
-                f"{label}.evidence_spans must be exact quotes from the Complete user turn"
+                f"{label}.evidence_spans must be exact quotes from the Complete "
+                "user turn or a clarification turn resolved by this plan"
             )
     if strict_evidence and operation != "NEEDS_USER" and not spans:
         raise MemoryJudgeError(f"{label}.{operation} requires user-turn evidence")
@@ -592,6 +620,7 @@ def _validate_mutation(
     allowed_operations: set[str],
     active_rules_by_id: dict[str, dict],
     strict_evidence: bool,
+    extra_sources: list[str] | None = None,
 ) -> dict:
     if not isinstance(mutation, dict):
         raise MemoryJudgeError(f"{index_label} must be an object")
@@ -621,6 +650,29 @@ def _validate_mutation(
         )
     if operation in {"NEW", "SPLIT", "REJECT", "NEEDS_USER"} and target_ids:
         raise MemoryJudgeError(f"{operation} cannot target existing rules")
+    # Lifecycle/status consistency for known targets. Unknown ids are left to
+    # the store commit (the judge may hold a selector-reduced rule set), but a
+    # target the judge can see must be in the right lifecycle state — otherwise
+    # the plan is doomed to fail at commit, where the bounded repair loop can
+    # no longer correct it.
+    for target_id in target_ids:
+        known = active_rules_by_id.get(target_id)
+        if known is None:
+            continue
+        target_status = str(known.get("status", "active") or "active")
+        if operation in {"UPDATE", "SUPERSEDE", "NOOP"} and target_status != "active":
+            raise MemoryJudgeError(
+                f"{index_label} targets archived rule {target_id}; "
+                "only RESTORE may target an archived rule"
+            )
+        if operation == "ARCHIVE" and target_status != "active":
+            raise MemoryJudgeError(
+                f"{index_label} archives {target_id}, which is not active"
+            )
+        if operation == "RESTORE" and target_status != "archived":
+            raise MemoryJudgeError(
+                f"{index_label} restores {target_id}, which is not archived"
+            )
     record = mutation.get("record") or {}
     if not isinstance(record, dict):
         raise MemoryJudgeError(f"{index_label}.record must be an object")
@@ -641,6 +693,7 @@ def _validate_mutation(
                 SPLIT_CHILD_OPERATIONS,
                 active_rules_by_id,
                 strict_evidence,
+                extra_sources,
             )
             for child_index, child in enumerate(children)
         ]
@@ -687,6 +740,10 @@ def _validate_mutation(
                 raise MemoryJudgeError(
                     f"{index_label}.record.scope_anchor must be empty for global"
                 )
+            if scope == "unclear" and scope_anchor:
+                raise MemoryJudgeError(
+                    f"{index_label}.record.scope_anchor must be empty for unclear"
+                )
         if operation in {
             "NOOP", "NEEDS_USER", "REJECT", "ARCHIVE", "RESTORE",
         } and record:
@@ -698,6 +755,7 @@ def _validate_mutation(
             source_text,
             index_label,
             strict_evidence,
+            extra_sources,
         )
         evidence = _validate_applicability_evidence(
             mutation,
@@ -709,6 +767,7 @@ def _validate_mutation(
             active_rules_by_id,
             evidence_spans,
             strict_evidence,
+            extra_sources,
         )
     return {
         "operation": operation,
@@ -727,12 +786,24 @@ def validate_plan(
     source_text: str = "",
     active_rules: list[dict] | None = None,
     strict_evidence: bool = False,
+    extra_evidence_sources: dict[str, str] | None = None,
 ) -> dict:
     if not isinstance(plan, dict):
         raise MemoryJudgeError("judge plan must be a JSON object")
     mutations = plan.get("mutations")
     if not isinstance(mutations, list):
         raise MemoryJudgeError("judge plan.mutations must be a list")
+    # Evidence may additionally quote the original text of a clarification turn
+    # this plan resolves: both texts are genuine registered user turns, so the
+    # trusted-source property still holds. Only turns actually listed in
+    # resolved_turn_keys widen the corpus — untouched candidates stay context.
+    plan_resolved_keys = plan.get("resolved_turn_keys") or []
+    extra_sources = [
+        (extra_evidence_sources or {}).get(key, "")
+        for key in plan_resolved_keys
+        if isinstance(key, str)
+    ]
+    extra_sources = [item for item in extra_sources if item]
     normalized = []
     seen_targets = set()
     active_rules_by_id = {
@@ -750,6 +821,7 @@ def validate_plan(
                 VALID_OPERATIONS,
                 active_rules_by_id,
                 strict_evidence,
+                extra_sources,
             )
         )
 
@@ -915,7 +987,12 @@ def _invoke_cli(prompt: str) -> str:
     raise MemoryJudgeError(f"unsupported memory judge CLI: {cli!r}")
 
 
-def judge_plan(source_text: str, active_rules: list, context: str = "") -> dict:
+def judge_plan(
+    source_text: str,
+    active_rules: list,
+    context: str = "",
+    extra_evidence_sources: dict[str, str] | None = None,
+) -> dict:
     mock = _setting("TEST_MEMORY_UPSERT_PLAN", "")
     if mock:
         try:
@@ -924,6 +1001,7 @@ def judge_plan(source_text: str, active_rules: list, context: str = "") -> dict:
                 source_text,
                 active_rules,
                 strict_evidence=True,
+                extra_evidence_sources=extra_evidence_sources,
             )
         except (json.JSONDecodeError, MemoryJudgeError) as exc:
             raise MemoryJudgeError(f"invalid TEST_MEMORY_UPSERT_PLAN: {exc}") from exc
@@ -1042,6 +1120,7 @@ def judge_plan(source_text: str, active_rules: list, context: str = "") -> dict:
             source_text,
             candidate_rules,
             strict_evidence=True,
+            extra_evidence_sources=extra_evidence_sources,
         )
     except MemoryJudgeError as exc:
         repair_base = build_prompt(
@@ -1077,6 +1156,7 @@ def judge_plan(source_text: str, active_rules: list, context: str = "") -> dict:
             source_text,
             candidate_rules,
             strict_evidence=True,
+            extra_evidence_sources=extra_evidence_sources,
         )
     plan["judge_latency_ms"] = round((time.time() - started) * 1000, 1)
     return plan

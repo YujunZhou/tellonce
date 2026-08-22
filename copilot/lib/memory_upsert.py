@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect as _inspect_module
 import json
 import os
 from pathlib import Path
@@ -449,6 +450,98 @@ def _plan_contains_terminal_outcome(plan: dict) -> bool:
     )
 
 
+def _call_judge(judge_func, source_text, active_rules, judge_context, clarification_sources):
+    """Invoke the judge, passing the clarification evidence corpus when the
+    callable supports it (test doubles may use the bare 3-arg signature)."""
+    try:
+        parameters = _inspect_module.signature(judge_func).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    supports_extra = "extra_evidence_sources" in parameters or any(
+        parameter.kind is _inspect_module.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if supports_extra:
+        return judge_func(
+            source_text,
+            active_rules,
+            judge_context,
+            extra_evidence_sources=clarification_sources,
+        )
+    return judge_func(source_text, active_rules, judge_context)
+
+
+def _resolve_and_replay(store, turn_keys, resolved_by):
+    """Resolve answered clarifications and replay parked committable mutations.
+
+    A needs_user turn parked under the pre-split flow can hold committable
+    mutations in its stored plan that were never applied (the silent-loss sink
+    from the v1.5.1 audit). Once the clarification is answered, those mutations
+    are committed against the parked turn's own registered source — their
+    evidence spans were validated against exactly that text at judge time.
+    Best-effort: a replay failure records an error and never blocks resolution.
+    """
+    unique_keys = [
+        key
+        for key in dict.fromkeys(
+            str(item).strip() for item in turn_keys if str(item).strip()
+        )
+    ]
+    parked_plans = {}
+    for key in unique_keys:
+        turn = store.get_turn(key)
+        if not turn or turn.get("status") != "needs_user":
+            continue
+        try:
+            parked = json.loads(turn.get("plan_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            parked = {}
+        committable = [
+            mutation
+            for mutation in parked.get("mutations", [])
+            if isinstance(mutation, dict)
+            and str(mutation.get("operation", "")).upper() != "NEEDS_USER"
+        ]
+        if committable and not store.turn_has_transaction(key):
+            parked_plans[key] = {
+                "mutations": committable,
+                "resolved_turn_keys": [],
+                "reason": (
+                    "replayed after clarification resolution: "
+                    + str(parked.get("reason", ""))[:500]
+                ),
+                "replayed_after_clarification": True,
+            }
+    resolved = store.mark_clarifications_resolved(unique_keys, resolved_by=resolved_by)
+    replays = {}
+    replayed_any = False
+    for key in resolved:
+        replay_plan = parked_plans.get(key)
+        if not replay_plan:
+            continue
+        try:
+            turn = store.get_turn(key)
+            generation, _ = store.snapshot()
+            replays[key] = store.commit_plan(
+                key,
+                turn["source_text"],
+                replay_plan,
+                generation,
+            )
+            replayed_any = True
+        except Exception as exc:
+            replays[key] = {
+                "status": "replay_failed",
+                "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+            }
+    if replayed_any:
+        try:
+            store.project()
+        except Exception:
+            pass
+    return resolved, replays
+
+
 def _finish_clarifications(store, turn: dict, result: dict) -> dict:
     try:
         committed_plan = json.loads(turn.get("plan_json") or "{}")
@@ -457,7 +550,8 @@ def _finish_clarifications(store, turn: dict, result: dict) -> dict:
     if _plan_contains_terminal_outcome(committed_plan):
         return result
     candidates = set(committed_plan.get("clarification_candidates", []))
-    resolved = store.mark_clarifications_resolved(
+    resolved, replays = _resolve_and_replay(
+        store,
         [
             turn_key
             for turn_key in committed_plan.get("resolved_turn_keys", [])
@@ -467,6 +561,8 @@ def _finish_clarifications(store, turn: dict, result: dict) -> dict:
     )
     if resolved:
         result["resolved_turn_keys"] = resolved
+    if replays:
+        result["clarification_replays"] = replays
     return result
 
 
@@ -551,8 +647,33 @@ def resolve_turn(
     source_text = turn["source_text"]
     context = turn.get("context_text") or ""
     judge_cli = str(turn.get("judge_cli") or "").lower()
+    # Per-turn CLI override must not leak into the next turn of the same drain
+    # batch: remember the prior value and restore it on the way out.
+    prior_judge_cli = os.environ.get("PT_MEMORY_UPSERT_CLI")
     if judge_cli in {"claude", "copilot", "codex"}:
         os.environ["PT_MEMORY_UPSERT_CLI"] = judge_cli
+    try:
+        return _resolve_claimed_turn(
+            store, turn, turn_key, lease_owner, judge_func, max_retries
+        )
+    finally:
+        if judge_cli in {"claude", "copilot", "codex"}:
+            if prior_judge_cli is None:
+                os.environ.pop("PT_MEMORY_UPSERT_CLI", None)
+            else:
+                os.environ["PT_MEMORY_UPSERT_CLI"] = prior_judge_cli
+
+
+def _resolve_claimed_turn(
+    store,
+    turn: dict,
+    turn_key: str,
+    lease_owner: str,
+    judge_func,
+    max_retries: int,
+) -> dict:
+    source_text = turn["source_text"]
+    context = turn.get("context_text") or ""
     last_error = None
     for _attempt in range(max(1, max_retries)):
         generation, active_rules = store.snapshot()
@@ -600,8 +721,19 @@ def resolve_turn(
                 if judge_context
                 else clarification_context
             )
+        clarification_sources = {}
+        for item in clarifications:
+            full = store.get_turn(item["turn_key"])
+            if full and full.get("source_text"):
+                clarification_sources[item["turn_key"]] = full["source_text"]
         try:
-            plan = judge_func(source_text, active_rules, judge_context)
+            plan = _call_judge(
+                judge_func,
+                source_text,
+                active_rules,
+                judge_context,
+                clarification_sources,
+            )
         except Exception as exc:
             last_error = f"judge failed: {type(exc).__name__}: {str(exc)[:800]}"
             status = store.mark_turn_error(
@@ -622,12 +754,76 @@ def resolve_turn(
             for candidate in plan.get("resolved_turn_keys", [])
             if candidate in clarification_candidates
         ]
-        if any(
-            str(mutation.get("operation", "")).upper() == "NEEDS_USER"
+        needs_mutations = [
+            mutation
             for mutation in plan.get("mutations", [])
-        ):
+            if isinstance(mutation, dict)
+            and str(mutation.get("operation", "")).upper() == "NEEDS_USER"
+        ]
+        committable_mutations = [
+            mutation
+            for mutation in plan.get("mutations", [])
+            if isinstance(mutation, dict)
+            and str(mutation.get("operation", "")).upper() != "NEEDS_USER"
+        ]
+        if needs_mutations and not committable_mutations:
             plan["resolved_turn_keys"] = []
             return store.mark_needs_user(turn_key, plan, lease_owner=lease_owner)
+        if needs_mutations:
+            # Mixed plan: commit the clear mutations now and park only the
+            # ambiguous clause. Under the old flow the whole turn was parked
+            # and the committable mutations were silently lost forever once
+            # the clarification resolved (v1.5.1 audit, finding 1).
+            committable_plan = dict(plan)
+            committable_plan["mutations"] = committable_mutations
+            needs_plan = dict(plan)
+            needs_plan["mutations"] = needs_mutations
+            needs_plan["resolved_turn_keys"] = []
+            needs_plan["partial_commit"] = True
+            try:
+                committed = store.commit_plan(
+                    turn_key,
+                    source_text,
+                    committable_plan,
+                    generation,
+                    lease_owner=lease_owner,
+                )
+            except StaleSnapshotError as exc:
+                last_error = str(exc)
+                continue
+            except Exception as exc:
+                last_error = f"commit failed: {type(exc).__name__}: {str(exc)[:800]}"
+                status = store.mark_turn_error(
+                    turn_key,
+                    last_error,
+                    lease_owner=lease_owner,
+                    max_attempts=MAX_TURN_ATTEMPTS,
+                )
+                return {"status": status, "turn_key": turn_key, "error": last_error}
+            try:
+                committed["projection"] = store.project()
+            except Exception as exc:
+                committed["projection"] = {
+                    "status": "pending",
+                    "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+                }
+            # A plan containing NEEDS_USER never auto-resolves older
+            # clarifications (conservative, unchanged); resolved_turn_keys
+            # stayed in committable_plan only so its evidence corpus remains
+            # valid at store-side validation.
+            try:
+                parked = store.mark_needs_user(turn_key, needs_plan)
+            except Exception as exc:
+                committed["needs_user_error"] = (
+                    f"{type(exc).__name__}: {str(exc)[:500]}"
+                )
+                return committed
+            parked["committed"] = {
+                key: committed[key]
+                for key in ("status", "results", "projection")
+                if key in committed
+            }
+            return parked
         try:
             result = store.commit_plan(
                 turn_key,
@@ -650,12 +846,15 @@ def resolve_turn(
             return {"status": status, "turn_key": turn_key, "error": last_error}
         if not _plan_contains_terminal_outcome(plan):
             try:
-                resolved = store.mark_clarifications_resolved(
+                resolved, replays = _resolve_and_replay(
+                    store,
                     plan.get("resolved_turn_keys", []),
                     resolved_by=turn_key,
                 )
                 if resolved:
                     result["resolved_turn_keys"] = resolved
+                if replays:
+                    result["clarification_replays"] = replays
             except Exception as exc:
                 result["clarification_error"] = (
                     f"{type(exc).__name__}: {str(exc)[:500]}"
@@ -802,10 +1001,13 @@ def drain(
         try:
             results.append(resolve_turn(turn_key, memory_dir=store.memory_dir))
         except Exception as exc:
+            # resolve_turn claimed the turn (charging the attempt) before it
+            # raised; charging again here made one real failure count double.
             status = store.mark_turn_error(
                 turn_key,
                 f"resolve failed: {type(exc).__name__}: {str(exc)[:800]}",
                 max_attempts=MAX_TURN_ATTEMPTS,
+                charge_attempt=False,
             )
             results.append(
                 {

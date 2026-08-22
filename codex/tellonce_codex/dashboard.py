@@ -80,6 +80,7 @@ def build_dashboard(state_root: Path) -> str:
             f"wrapped_turns: {len(wrapped)}",
             "upsert_turns: "
             f"pending={upsert.get('pending', 0)}, "
+            f"resolving={upsert.get('resolving', 0)}, "
             f"needs_user={upsert.get('needs_user', 0)}, "
             f"rejected={upsert.get('rejected', 0)}, "
             f"rejected_mutations={upsert.get('rejected_mutations', 0)}, "

@@ -774,7 +774,7 @@ class MemoryUpsertCases(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 memory_store.InvalidPlanError,
-                "exact user-turn quote",
+                "exact quote from the user turn",
             ):
                 store.commit_plan(
                     "store-applicability",

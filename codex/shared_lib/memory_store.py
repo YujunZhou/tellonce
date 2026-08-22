@@ -108,6 +108,14 @@ def _normalize_exact_quote(value: str, source_text: str) -> str:
     return text
 
 
+def _normalize_quote_against_sources(span: str, sources: list[str]) -> str:
+    for source in sources:
+        normalized = _normalize_exact_quote(span, source)
+        if normalized and normalized in source:
+            return normalized
+    return _normalize_exact_quote(span, sources[0] if sources else "")
+
+
 def _utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -791,6 +799,15 @@ class MemoryStore:
             )
         return result
 
+    def turn_has_transaction(self, turn_key: str) -> bool:
+        """True when any committed transaction row exists for this turn."""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM transactions WHERE turn_key=? LIMIT 1",
+                (turn_key,),
+            ).fetchone()
+        return bool(row)
+
     def mark_clarifications_resolved(
         self,
         turn_keys: list[str],
@@ -874,14 +891,24 @@ class MemoryStore:
         error: str,
         lease_owner: str = "",
         max_attempts: int = 5,
+        charge_attempt: bool = True,
     ) -> str:
+        """Record a turn failure.
+
+        With a lease_owner, claim_turn already charged this attempt, so only the
+        owner's row is updated and the count is left alone. Without a lease,
+        pass charge_attempt=False when the failure follows a claim made inside
+        the same logical attempt (e.g. drain catching a resolve_turn exception)
+        — otherwise one real failure is charged twice and the turn reaches
+        `failed` after roughly half the intended retries.
+        """
         with self.connection() as conn:
             row = conn.execute(
                 "SELECT attempt_count FROM turns WHERE turn_key=?",
                 (turn_key,),
             ).fetchone()
             attempts = int(row["attempt_count"]) if row else 0
-            if not lease_owner:
+            if not lease_owner and charge_attempt:
                 attempts += 1
             next_status = "failed" if attempts >= max(1, int(max_attempts)) else "pending"
             if lease_owner:
@@ -901,14 +928,21 @@ class MemoryStore:
                     ),
                 )
             else:
+                # Never stomp another worker's live lease: a 'resolving' row is
+                # only reset when its lease has already expired (or is absent).
                 conn.execute(
-                    """
+                    f"""
                     UPDATE turns
                     SET status=?, lease_owner=NULL, lease_expires_at=NULL,
-                        attempt_count=attempt_count+1, last_error=?, updated_at=?
+                        attempt_count=attempt_count+{1 if charge_attempt else 0},
+                        last_error=?, updated_at=?
                     WHERE turn_key=? AND status NOT IN (
                         'committed','projected','noop','needs_user','clarified',
                         'dismissed','rejected','failed'
+                    ) AND (
+                        status != 'resolving'
+                        OR lease_expires_at IS NULL
+                        OR lease_expires_at < ?
                     )
                     """,
                     (
@@ -916,6 +950,7 @@ class MemoryStore:
                         _safe_scalar(error)[:1000],
                         _utc_now(),
                         turn_key,
+                        time.time(),
                     ),
                 )
         return next_status
@@ -1050,6 +1085,10 @@ class MemoryStore:
             raise InvalidPlanError(
                 "record.scope_anchor must be empty for global scope"
             )
+        if out["scope"] == "unclear" and out["scope_anchor"]:
+            raise InvalidPlanError(
+                "record.scope_anchor must be empty for unclear scope"
+            )
         reserved = set(RECORD_FIELDS) | {
             "schema_version",
             "atomic_id",
@@ -1175,7 +1214,9 @@ class MemoryStore:
         claimed_targets: set[str],
         allowed_operations: set[str],
         source_text: str,
+        extra_sources: list[str] | None = None,
     ):
+        evidence_sources = [source_text] + [s for s in (extra_sources or []) if s]
         if not isinstance(mutation, dict):
             raise InvalidPlanError(f"{label} must be an object")
         operation = str(mutation.get("operation", "")).upper()
@@ -1213,14 +1254,14 @@ class MemoryStore:
                 (atomic_id,),
             ).fetchone()
             if operation == "ARCHIVE":
-                if not row or row["status"] not in {"active", "archived"}:
+                if not row or row["status"] != "active":
                     raise InvalidPlanError(
-                        f"target rule cannot be archived: {atomic_id}"
+                        f"target rule cannot be archived (not active): {atomic_id}"
                     )
             elif operation == "RESTORE":
-                if not row or row["status"] not in {"active", "archived"}:
+                if not row or row["status"] != "archived":
                     raise InvalidPlanError(
-                        f"target rule cannot be restored: {atomic_id}"
+                        f"target rule cannot be restored (not archived): {atomic_id}"
                     )
             elif operation in {"NOOP", "UPDATE", "SUPERSEDE"} and (
                 not row or row["status"] != "active"
@@ -1247,6 +1288,7 @@ class MemoryStore:
                     claimed_targets,
                     SPLIT_CHILD_OPERATIONS,
                     source_text,
+                    extra_sources,
                 )
                 for child_index, child in enumerate(children)
             ]
@@ -1267,7 +1309,7 @@ class MemoryStore:
             raise InvalidPlanError(f"{label}.evidence_spans must be a string list")
         evidence_spans = list(
             dict.fromkeys(
-                _normalize_exact_quote(span, source_text)
+                _normalize_quote_against_sources(span, evidence_sources)
                 for span in evidence_spans
             )
         )
@@ -1276,9 +1318,12 @@ class MemoryStore:
                 f"{label}.evidence_spans may contain at most 8 quotes"
             )
         for span in evidence_spans:
-            if len(span) > 500 or span not in source_text:
+            if len(span) > 500 or not any(
+                span in source for source in evidence_sources
+            ):
                 raise InvalidPlanError(
-                    f"{label}.evidence_spans must be short exact user-turn quotes"
+                    f"{label}.evidence_spans must be short exact quotes from the "
+                    "user turn or a clarification turn resolved by this plan"
                 )
         if operation not in {"NEEDS_USER", "SPLIT"} and not evidence_spans:
             raise InvalidPlanError(f"{operation} requires user-turn evidence")
@@ -1295,9 +1340,9 @@ class MemoryStore:
             mutation.get("applicability_evidence", "")
         ).strip()
         if not applicability_evidence.startswith("existing:"):
-            applicability_evidence = _normalize_exact_quote(
+            applicability_evidence = _normalize_quote_against_sources(
                 applicability_evidence,
-                source_text,
+                evidence_sources,
             )
         has_boundary = bool(
             str(record.get("applies_when", "")).strip()
@@ -1335,9 +1380,9 @@ class MemoryStore:
                         )
                     )
                 if existing_had_boundary:
-                    if (
-                        not applicability_evidence
-                        or applicability_evidence not in source_text
+                    if not applicability_evidence or not any(
+                        applicability_evidence in source
+                        for source in evidence_sources
                     ):
                         raise InvalidPlanError(
                             f"{label}.applicability_evidence must quote the user "
@@ -1377,12 +1422,12 @@ class MemoryStore:
                         f"{label}.{field} changed and requires exact "
                         "user-turn evidence"
                     )
-        elif (
-            not applicability_evidence
-            or applicability_evidence not in source_text
+        elif not applicability_evidence or not any(
+            applicability_evidence in source for source in evidence_sources
         ):
             raise InvalidPlanError(
-                f"{label}.applicability_evidence must be an exact user-turn quote"
+                f"{label}.applicability_evidence must be an exact quote from the "
+                "user turn or a clarification turn resolved by this plan"
             )
         return {
             "operation": operation,
@@ -1400,6 +1445,21 @@ class MemoryStore:
         mutations = plan.get("mutations")
         if not isinstance(mutations, list):
             raise InvalidPlanError("plan.mutations must be a list")
+        # Evidence may additionally quote the original text of a clarification
+        # turn this plan resolves (mirrors the judge-side contract). The extra
+        # corpus is limited to registered needs_user turns actually listed in
+        # resolved_turn_keys — both texts are genuine stored user turns, so the
+        # trusted-source anti-forgery property holds.
+        extra_sources = []
+        for key in plan.get("resolved_turn_keys") or []:
+            if not isinstance(key, str) or not key.strip():
+                continue
+            row = conn.execute(
+                "SELECT source_text FROM turns WHERE turn_key=? AND status='needs_user'",
+                (key.strip(),),
+            ).fetchone()
+            if row and row["source_text"]:
+                extra_sources.append(row["source_text"])
         claimed_targets = set()
         normalized = []
         for index, mutation in enumerate(mutations):
@@ -1411,6 +1471,7 @@ class MemoryStore:
                     claimed_targets,
                     VALID_OPERATIONS,
                     source_text,
+                    extra_sources,
                 )
             )
 
