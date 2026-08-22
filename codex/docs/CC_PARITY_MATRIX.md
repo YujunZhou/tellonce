@@ -30,7 +30,7 @@ No CC capability may be removed from the Codex package without an explicit user 
 | Uninstall | keep data by default, optional purge | ownership manifest; keep data default; purge-state explicit | `codex_core` |
 | Path config | `B5_*` env > config > cwd defaults | Codex project registration + explicit fallback | `codex_core` |
 | Observation logging | `observations.jsonl` + compliance logs | authoritative `events.jsonl`; observations export only | `codex_core` |
-| Retrieval injection | UserPromptSubmit hook | UserPromptSubmit hook (codex native) — `userpromptsubmit-retrieve-inject.sh` | `codex_core` (Round-7) |
+| Retrieval injection | UserPromptSubmit hook | UserPromptSubmit hook (codex native) — `userpromptsubmit-dispatch.py` (retrieve step) | `codex_core` (Round-7) |
 | Legacy pending observations | UserPromptSubmit/Stop workflow | metrics only; shared SQLite upsert is the sole writer | `codex_core` |
 | B4 pending metric | Stop hook | log-only on all platforms | `codex_core` |
 | Deterministic rules | Stop hook hard block | PostToolUse hook (`posttooluse-deterministic-block.sh`) scans agent-authored tool input; mode-aware (audit_only / wrapper / blocking). Wrapper-driven enforcement covers final stdout. | `codex_core` (Round-7) |
@@ -39,10 +39,10 @@ No CC capability may be removed from the Codex package without an explicit user 
 | Rule params | frontmatter `params` parser | preserve schema and defaults | `codex_core` |
 | Threshold advisor | suggests threshold updates | dashboard advisory after telemetry exists | `deferred_with_reason` |
 | Shadow judge | Claude CLI / SDK | provider-pluggable; disabled by default; no Claude dependency | `deferred_with_reason` |
-| Shadow alert injection | next-turn additional context | UserPromptSubmit hook (codex native) — `userpromptsubmit-shadow-alert-inject.sh` | `codex_core` (Round-7) |
+| Shadow alert injection | next-turn additional context | UserPromptSubmit hook (codex native) — `userpromptsubmit-dispatch.py` (shadow-alert step) | `codex_core` (Round-7) |
 | Auto-light-entry fallback | hook fallback for missing obs | doctor-visible degraded status + wrapper audit fallback | `codex_core` |
 | Dashboard | 7-day compliance summary | prints mode, hooks, blocking, scan_count, wrapped_turns (`dashboard.py`) | `codex_core` |
-| Chaos tests | 12 chaos tests | current suite is unit/integration only (`tests/test_core.py`, 43 tests); fault-injection chaos suite (fake HOME, interrupt, corrupt log, multi-project) not yet ported | `deferred_with_reason` |
+| Chaos tests | 12 chaos tests | unit/integration suites are kept out of the public tree (see repo history: ec24a78); fault-injection chaos suite (fake HOME, interrupt, corrupt log, multi-project) not yet ported | `deferred_with_reason` |
 | Cost cap | shadow judge budget | provider module later; disabled default | `deferred_with_reason` |
 | Hook short-circuit | skip expensive hooks on no signal | not needed in core; hooks experimental must include short-circuit | `hooks_experimental` |
 

@@ -36,7 +36,7 @@ fi
 # LLM judge runs on every Stop, but ALWAYS exits 0 (shadow mode, never blocks).
 # Side effects: write violations to b5_shadow_log.jsonl + B5_SHADOW_ALERT.md (rolling cap N=3).
 # Set B5_SHADOW_DISABLED=1 to skip judge entirely.
-# Set ANTHROPIC_CREDIT_OK=1 to enable judge (default off until credit verified).
+# The judge is gated by PT_SHADOW (default off; enabled in full mode). ANTHROPIC_CREDIT_OK only applies in SDK mode.
 # Defensive: any internal error → exit 0 (don't block legit work).
 
 # Re-feed captured stdin (drained by `cat` above). See the note in

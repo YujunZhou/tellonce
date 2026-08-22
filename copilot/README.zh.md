@@ -45,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/b
 
 | 文件 | SHA256 (v1.5.1) |
 |------|------------------|
-| `bootstrap.ps1` | `abeefb7b2d9d332024b39539da62315943a603be234d884b13ad914c8a2ab869` |
+| `bootstrap.ps1` | `fd747f49e04cebbbd87e93d40ea40680a45fbe7ba06f45af8b78cf6591802044` |
 | `bootstrap.sh`  | `c3535d7776899733842db6e110018fa36d564628dfe58725c3bdd408f622f8a0` |
 
 ---

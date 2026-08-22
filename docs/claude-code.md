@@ -5,7 +5,7 @@ the repository root (`hooks/`, `lib/`, `install.sh`, `SKILL.md`, …). For the
 GitHub Copilot CLI release see [`copilot/README.md`](../copilot/README.md); for
 Codex see [`codex/docs/README.md`](../codex/docs/README.md).
 
-The Claude Code variant runs a 3-hook `UserPromptSubmit` chain plus a 5-hook
+The Claude Code variant runs a 2-hook `UserPromptSubmit` chain plus a 5-hook
 `Stop` chain: deterministic hard-blocks, an LLM shadow judge, and soft context
 injection.
 
@@ -52,7 +52,7 @@ self-check before declaring success, and rolls back via `trap ERR` on failure.
 | hooks | `<skill_dir>/hooks/` (registered into settings directly; nothing is copied into the project) | (fixed) |
 | state | `<cwd>/.claude/tellonce-state/runtime/` | env `PT_STATE_DIR` or `~/.tellonce.config.json` |
 | obs_log | `<cwd>/.claude/tellonce-state/obs_log/` | env `PT_OBS_LOG_DIR` or config |
-| memory | `~/.claude/projects/<cwd_escaped>/memory/` | env `PT_MEMORY_DIR` or config |
+| memory | `<project_root>/.tellonce/memory/` (canonical store: `.tellonce.sqlite3`; legacy `~/.claude/projects/<cwd_escaped>/memory/` is a one-time import source) | env `PT_MEMORY_DIR` or config |
 
 > Note: the legacy `B5_*` env-var names still work (backward-compat aliases); `config.json` keys are unchanged.
 
@@ -147,4 +147,4 @@ Stop chain (5):
 ```
 
 Block / pass / cost / streak data is written to
-`<state>/runtime/{b5_*, b4_*}/`. Run `dashboard.sh` for a 7-day audit.
+`<state>/runtime/{b5_*, b4_*}/`. Run `dashboard.sh` to view the latest shadow-judge alerts (populated only when the opt-in shadow judge has run).

@@ -173,12 +173,33 @@ if [ -f "$OBS_LOG" ]; then
     fi
   fi
 
-  # Parse last entry for session_id match (if present)
+  # Parse last entry for session_id match (if present). A different session's
+  # entry means this session hasn't logged yet — same situation as a stale log,
+  # so it gets the same auto-heal (synthetic detected=false entry) instead of a
+  # hard warning that would block the very first Stop of a new session under
+  # PT_ENFORCE=1 (SKILL.md: only a *failed* fallback blocks).
   LAST_LINE=$(tail -1 "$OBS_LOG" 2>/dev/null)
   if [ -n "$LAST_LINE" ] && [ -n "$CURRENT_SESSION" ]; then
     LAST_SESSION=$(echo "$LAST_LINE" | jq -r '.session_id // empty' 2>/dev/null)
     if [ -n "$LAST_SESSION" ] && [ "$LAST_SESSION" != "$CURRENT_SESSION" ]; then
-      WARNINGS="${WARNINGS}⚠️ Last observation entry is from a DIFFERENT session (${LAST_SESSION} vs current ${CURRENT_SESSION}). This turn was not logged.\n"
+      AUTO_FALLBACK="${OBSERVATION_LOG_AUTO_FALLBACK:-1}"
+      VERIFY_PY="${_PT_LIB}/verify_compliance.py"
+      if [ "$AUTO_FALLBACK" = "1" ] && [ -f "$VERIFY_PY" ]; then
+        FB_OUT=$(python3 "$VERIFY_PY" --auto-light-fallback \
+                   --session-id "${CURRENT_SESSION:-unknown}" \
+                   --age-sec 0 \
+                   --threshold-sec 0 \
+                   --obs-log-path "$OBS_LOG" \
+                   --cwd "${CWD:-$(pwd)}" \
+                   --quiet 2>&1)
+        FB_RC=$?
+        echo "[auto-fallback session-mismatch] last=${LAST_SESSION} current=${CURRENT_SESSION} rc=${FB_RC} out=${FB_OUT}" >> "$TRACE_LOG"
+        if [ "$FB_RC" -ne 0 ]; then
+          WARNINGS="${WARNINGS}⚠️ Last observation entry is from a DIFFERENT session (${LAST_SESSION} vs current ${CURRENT_SESSION}) AND auto-fallback failed (rc=${FB_RC}). This turn was not logged.\n"
+        fi
+      else
+        WARNINGS="${WARNINGS}⚠️ Last observation entry is from a DIFFERENT session (${LAST_SESSION} vs current ${CURRENT_SESSION}). This turn was not logged.\n"
+      fi
     fi
   fi
 else
@@ -218,9 +239,9 @@ fi
 #      AND action.confirmation_text non-empty
 # ══════════════════════════════════════════════════════════════════════════
 RUN_SOFT_CHECK=false  # legacy text-scan permanently disabled (robustness rewrite).
-# The SOFT check section at lines 153-227 below is kept for legacy reference (do not
-# overwrite). To use the grep-based text-marker check: (a) set RUN_SOFT_CHECK=true; or (b)
-# delete that lines 153-227 section. The current version **never executes** that section.
+# The legacy SOFT check section below is kept for reference only (do not
+# overwrite). To use the grep-based text-marker check set RUN_SOFT_CHECK=true.
+# The current version **never executes** that section.
 
 QUALITY_WARNINGS=""
 if [ -f "$OBS_LOG" ]; then

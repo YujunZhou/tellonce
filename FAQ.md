@@ -119,7 +119,7 @@ hits on the same rule auto-bypasses it to avoid livelock.
 `install.sh` detects by default: `<cwd>` is the project root, hooks stay in the
 skill directory and are registered into `<cwd>/.claude/settings.local.json`,
 state lives in `<cwd>/.claude/tellonce-state/runtime/`, memory in
-`~/.claude/projects/<cwd_escaped>/memory/`.
+`<project_root>/.tellonce/memory/` (canonical store: `.tellonce.sqlite3`).
 
 If that's wrong, override:
 
@@ -204,5 +204,5 @@ python3 ~/.claude/skills/tellonce/lib/path_config.py
 More issues:
 - GitHub Issues: https://github.com/YujunZhou/tellonce/issues
 - For a bug / false positive / whitelist request / threshold not working — attach
-  the `doctor.sh` output + 7 days of `dashboard` data to your issue for easier
+  the `doctor.sh` output + the `dashboard.sh` output to your issue for easier
   diagnosis.

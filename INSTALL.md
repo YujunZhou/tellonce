@@ -83,9 +83,9 @@ bash ~/.claude/skills/tellonce/codex/install.sh
 
 1. **Global runtime** → installs into `~/.codex/skills/tellonce/`:
    `tellonce_codex/` (wrapper-driven enforcement) + `shared_lib/` (mirror of the
-   Claude Code lib) + `hooks/` (5 hook scripts) + `seed_memory/` + `SKILL.md`.
+   Claude Code lib) + `hooks/` (hook scripts) + `seed_memory/` + `SKILL.md`.
    Idempotent, safe to re-run.
-2. **Hook registration** → adds `UserPromptSubmit` (3 hooks) + `PostToolUse`
+2. **Hook registration** → adds `UserPromptSubmit` (1 dispatch hook) + `PostToolUse`
    (deterministic_block) + `SessionStart` (lazy init) to `~/.codex/hooks.json`,
    leaving the user's existing hooks untouched.
 3. **Per-project state** → initializes `<project>/.codex/tellonce/`
@@ -132,8 +132,9 @@ rm -rf ~/.claude/skills/preference-tracker ~/.preference-tracker.config.json
 # 2. Install Tellonce (Step 1/2 above)
 ```
 
-Your memory files under `~/.claude/projects/<cwd_escaped>/memory/` are not
-touched by either step and keep working — the memory location did not change.
+Your memory now lives in `<project_root>/.tellonce/memory/` (canonical store:
+`.tellonce.sqlite3`). Files under the legacy `~/.claude/projects/<cwd_escaped>/memory/`
+location are imported once on first use and are not touched by either step.
 Project state under `.claude/preference-tracker-state/` is left behind by the
 default uninstall; new state accumulates under `.claude/tellonce-state/`.
 ---
@@ -189,10 +190,10 @@ discloses how many of the total are shown. Zero LLM calls, zero keyword matching
 it doesn't depend on `fingerprints.yaml` priority tags, it also closes Copilot's
 old SessionStart "0 rules" gap.
 
-> Codex also defaults to `progressive`. Because Codex promotes rules to
-> `<project>/.codex/tellonce/memories/active` (not the CC `~/.claude/...` path
-> the shared lib resolves by default), its UserPromptSubmit hook bridges
-> `B5_MEMORY_DIR` to that dir so retrieval reads where promotion writes.
+> Codex also defaults to `progressive`. Promotion and retrieval both go through
+> the unified `<project_root>/.tellonce/memory/` location resolved by
+> `path_config.get_memory_dir()`; the old `<project>/.codex/tellonce/memories/active`
+> path is only a legacy one-time import source.
 
 Alternate backends (opt in with `PT_RETRIEVE_BACKEND=...`):
 
@@ -271,7 +272,7 @@ it only runs in `full` mode / `PT_SHADOW=1`).
    - `<state>/runtime/b5_shadow_alerts/b5_shadow_log.jsonl` — evidence + feedback excerpts
    - `<state>/obs_log/compliance_log.jsonl` — `response_excerpt[:400]`
    - `<state>/runtime/b5_shadow_alerts/B5_SHADOW_ALERT.md` — full text of the latest 3 violations
-   - `~/.claude/projects/<cwd_escaped>/memory/*.md` — preferences you added yourself
+   - `<project_root>/.tellonce/memory/` — preferences you added yourself (canonical store: `.tellonce.sqlite3`)
    - All persisted excerpts pass through `redaction.sanitize()` first.
 
 4. **No uploads** of any data to third parties (other than the Anthropic CLI
