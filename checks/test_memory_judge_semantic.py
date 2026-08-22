@@ -56,10 +56,27 @@ class MemoryJudgeSemanticFixtures(unittest.TestCase):
             for fixture in self.manifest["fixtures"]:
                 with self.subTest(fixture=fixture["id"]):
                     try:
+                        # Mirror resolve_turn: clarification turns presented in
+                        # context are also legal evidence sources for plans
+                        # that resolve them (v1.6.0 evidence exception).
+                        extra_sources = {}
+                        try:
+                            context_obj = json.loads(fixture.get("context") or "{}")
+                        except json.JSONDecodeError:
+                            context_obj = {}
+                        for clar in (
+                            context_obj.get("unresolved_memory_clarifications")
+                            or []
+                        ):
+                            if isinstance(clar, dict) and clar.get("turn_key"):
+                                extra_sources[str(clar["turn_key"])] = str(
+                                    clar.get("source_text") or ""
+                                )
                         plan = memory_judge.judge_plan(
                             fixture["source"],
                             fixture.get("active_rules", []),
                             fixture.get("context", ""),
+                            extra_evidence_sources=extra_sources or None,
                         )
                         self._assert_fixture(fixture, plan)
                     except Exception as exc:

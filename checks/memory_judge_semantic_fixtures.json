@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "cli": "copilot",
-  "model": "gpt-5.6-sol",
+  "cli": "claude",
+  "model": "sonnet",
   "timeout_seconds": 300,
-  "prompt_sha256": "d043574d45e56aae05789f0e6ac170cfbff00fefff48d34bde8068a443cfb22b",
+  "prompt_sha256": "8a6b3d23eaf926990584282a4c43056e1227d0a4c55ae88c7add60f2342f263a",
   "fixtures": [
     {
       "id": "generic-project-completion-needs-user",
