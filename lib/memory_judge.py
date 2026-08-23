@@ -876,6 +876,76 @@ def _is_windows() -> bool:
     return os.name == "nt"
 
 
+def _invoke_api(prompt: str, model: str, timeout_seconds: int) -> str:
+    """Direct OpenAI-compatible chat-completions judge channel.
+
+    Selected with PT_MEMORY_UPSERT_CLI=api. Configuration:
+      PT_MEMORY_UPSERT_API_BASE  endpoint (default: DeepInfra)
+      PT_MEMORY_UPSERT_MODEL     model id (required, e.g. google/gemma-4-31b-it)
+      PT_MEMORY_UPSERT_API_KEY / DEEPINFRA_API_KEY / OPENAI_API_KEY  bearer key
+
+    Exists so the semantic resolver can run on the exact model a deployment or
+    paper pins (e.g. Gemma 4 31B) instead of whatever CLI subscription is
+    installed. Deterministic settings: temperature 0.
+    """
+    import urllib.request  # noqa: PLC0415 - stdlib, keep import local
+
+    base = _setting(
+        "MEMORY_UPSERT_API_BASE",
+        "https://api.deepinfra.com/v1/openai/chat/completions",
+    )
+    if not model:
+        raise MemoryJudgeError(
+            "PT_MEMORY_UPSERT_MODEL is required for the api judge channel"
+        )
+    api_key = (
+        os.environ.get("PT_MEMORY_UPSERT_API_KEY")
+        or os.environ.get("DEEPINFRA_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or ""
+    ).strip()
+    if not api_key:
+        raise MemoryJudgeError(
+            "no API key found for the api judge channel (set "
+            "PT_MEMORY_UPSERT_API_KEY, DEEPINFRA_API_KEY, or OPENAI_API_KEY)"
+        )
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 4000,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        base,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            content = payload["choices"][0]["message"]["content"]
+            if not content:
+                raise MemoryJudgeError("api judge returned empty content")
+            return content
+        except MemoryJudgeError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - retried, then surfaced
+            last_error = exc
+            time.sleep(2 * (attempt + 1))
+    raise MemoryJudgeError(
+        f"api judge failed after 3 attempts: {type(last_error).__name__}: "
+        f"{str(last_error)[:300]}"
+    )
+
+
 def _invoke_cli(prompt: str) -> str:
     cli = _setting("MEMORY_UPSERT_CLI", pt_platform.CLI_COMMAND).lower()
     model = _setting("MEMORY_UPSERT_MODEL", "")
@@ -884,6 +954,8 @@ def _invoke_cli(prompt: str) -> str:
     except ValueError:
         timeout_seconds = DEFAULT_TIMEOUT_SECONDS
     timeout_seconds = max(10, timeout_seconds)
+    if cli == "api":
+        return _invoke_api(prompt, model, timeout_seconds)
     child_env = _child_environment()
     inner_cwd = tempfile.gettempdir()
 
