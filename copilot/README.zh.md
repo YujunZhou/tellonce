@@ -19,13 +19,13 @@
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
@@ -39,11 +39,11 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/b
 公布的值）：
 
 ```bash
-# Windows: irm ".../v1.5.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.5.1/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.6.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.6.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| 文件 | SHA256 (v1.5.1) |
+| 文件 | SHA256 (v1.6.0) |
 |------|------------------|
 | `bootstrap.ps1` | `0b6926b42b72a82cc0bf9e233865361238da537d970d162865c3251eef16ee47` |
 | `bootstrap.sh`  | `1c3adb95cf066d564d38a6930255ff035e827b5dab1dfe99ff6f2d383b64f4c7` |
@@ -88,11 +88,11 @@ Memory mutation 结果为
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/uninstall.sh | bash
 ```
 **卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
 `-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是

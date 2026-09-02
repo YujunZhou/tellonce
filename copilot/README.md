@@ -25,13 +25,13 @@ For the project overview and the other platforms, see the
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/bootstrap.sh | bash
 ```
 
 This command automatically: downloads the plugin → copies it into Copilot's
@@ -47,11 +47,11 @@ If you'd rather not pipe a script straight into a shell, download it first, read
 it, and check its SHA256 against the value published for `v1.6.0`:
 
 ```bash
-# Windows: irm ".../v1.5.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.5.1/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.6.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.6.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| File | SHA256 (v1.5.1) |
+| File | SHA256 (v1.6.0) |
 |------|------------------|
 | `bootstrap.ps1` | `0b6926b42b72a82cc0bf9e233865361238da537d970d162865c3251eef16ee47` |
 | `bootstrap.sh`  | `1c3adb95cf066d564d38a6930255ff035e827b5dab1dfe99ff6f2d383b64f4c7` |
@@ -101,11 +101,11 @@ then the plugin files; your saved memory is kept):
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/uninstall.sh | bash
 ```
 **Restart Copilot afterward.** To also wipe your saved memory/state, download the
 script and run it with `-Purge` (PowerShell) / `--purge` (bash). Note that
