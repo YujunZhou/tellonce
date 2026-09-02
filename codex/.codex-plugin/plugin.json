@@ -1,6 +1,6 @@
 {
   "name": "tellonce",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Automatic preference/pitfall/friction detection and memory enforcement for AI coding agents (Codex variant: audit log + wrapper enforcement via tellonce_codex).",
   "author": {
     "name": "Yujun Zhou",

@@ -53,8 +53,8 @@ it, and check its SHA256 against the value published for `v1.5.1`:
 
 | File | SHA256 (v1.5.1) |
 |------|------------------|
-| `bootstrap.ps1` | `fd747f49e04cebbbd87e93d40ea40680a45fbe7ba06f45af8b78cf6591802044` |
-| `bootstrap.sh`  | `c3535d7776899733842db6e110018fa36d564628dfe58725c3bdd408f622f8a0` |
+| `bootstrap.ps1` | `0b6926b42b72a82cc0bf9e233865361238da537d970d162865c3251eef16ee47` |
+| `bootstrap.sh`  | `1c3adb95cf066d564d38a6930255ff035e827b5dab1dfe99ff6f2d383b64f4c7` |
 
 ---
 
