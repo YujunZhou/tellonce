@@ -19,7 +19,7 @@ For the project overview and the other platforms, see the
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.**
-> The command is pinned to the immutable release tag `v1.5.1` (it won't change
+> The command is pinned to the immutable release tag `v1.6.0` (it won't change
 > when `main` does), which is safer.
 
 ### Windows (PowerShell)
@@ -44,7 +44,7 @@ plugin directory → installs the optional dependency → registers it with Copi
 ### Verify integrity
 
 If you'd rather not pipe a script straight into a shell, download it first, read
-it, and check its SHA256 against the value published for `v1.5.1`:
+it, and check its SHA256 against the value published for `v1.6.0`:
 
 ```bash
 # Windows: irm ".../v1.5.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256

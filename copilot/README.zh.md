@@ -14,7 +14,7 @@
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。装完**重启 Copilot**。
-> 命令钉在不可变的 release tag `v1.5.1`（不会因 `main` 变动而改），更安全。
+> 命令钉在不可变的 release tag `v1.6.0`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 
@@ -35,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.5.1/copilot/b
 
 ### 核对脚本完整性
 
-如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.5.1`
+如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.6.0`
 公布的值）：
 
 ```bash
