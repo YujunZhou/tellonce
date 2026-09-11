@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip pyyaml pytest
 
+      - name: Release metadata and bootstrap checksums
+        run: python scripts/check-release.py
+
       - name: Compile all core modules
         run: python -m compileall -q lib copilot/lib codex/tellonce_codex codex/shared_lib
 
@@ -70,6 +73,10 @@ jobs:
 
       - name: Unified memory upsert behavior
         run: python checks/test_memory_upsert.py
+
+      - name: Background memory and isolated runtime regression checks
+        if: runner.os != 'Windows'
+        run: python -m pytest checks -q
 
       - name: Cross-variant parity check
         if: runner.os != 'Windows'

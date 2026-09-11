@@ -18,7 +18,9 @@ import uuid
 from contextlib import contextmanager
 
 
-SCHEMA_VERSION = 2
+import learning_policy
+
+SCHEMA_VERSION = 3
 DB_FILENAME = ".tellonce.sqlite3"
 ACTIVE_INDEX_FILENAME = ".tellonce-active.json"
 VALID_OPERATIONS = {
@@ -337,7 +339,79 @@ class MemoryStore:
             self._tighten_permissions()
             conn.close()
 
-    def initialize(self) -> None:
+    @contextmanager
+    def _initialization_lock(self):
+        """Serialize supported initialization/binding across worker processes."""
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self.db_path.with_name(self.db_path.name + '.init.lock')
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        acquired = False
+        try:
+            if os.fstat(fd).st_size == 0:
+                os.write(fd, b'0')
+            deadline = time.monotonic() + 30
+            while True:
+                try:
+                    if os.name == 'nt':
+                        import msvcrt
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except (BlockingIOError, PermissionError):
+                    if time.monotonic() >= deadline:
+                        raise MemoryStoreError('memory initialization lock timed out')
+                    time.sleep(0.05)
+            yield
+        finally:
+            if acquired:
+                if os.name == 'nt':
+                    import msvcrt
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def peek_namespace(self) -> str | None:
+        """Read ownership before initialization; None denotes an empty/missing DB."""
+        if not self.db_path.exists():
+            return None
+        check = sqlite3.connect(self.db_path.absolute().as_uri() + '?mode=ro', uri=True)
+        try:
+            if not check.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone():
+                return None
+            owner = check.execute("SELECT value FROM meta WHERE key='memory_namespace'").fetchone()
+            return owner[0] if owner else ''
+        finally:
+            check.close()
+
+    def initialize(self, namespace: str | None = None) -> None:
+        with self._initialization_lock():
+            self._initialize_locked(namespace)
+
+    def _initialize_locked(self, namespace: str | None = None) -> None:
+        if namespace is not None:
+            if not isinstance(namespace, str) or not namespace.strip():
+                raise MemoryStoreError('an explicit memory namespace is required')
+            # Reject a wrong pre-existing library before migrations/projection
+            # can modify it. Binding is checked again inside its transaction.
+            if self.db_path.exists() and self.peek_namespace() is not None:
+                check = sqlite3.connect(self.db_path.absolute().as_uri() + '?mode=ro', uri=True)
+                try:
+                    owner = check.execute("SELECT value FROM meta WHERE key='memory_namespace'").fetchone()
+                    if owner and owner[0] != namespace:
+                        raise MemoryStoreError('memory namespace ownership mismatch')
+                    if not owner and (check.execute('SELECT 1 FROM rules LIMIT 1').fetchone()
+                                      or check.execute('SELECT 1 FROM turns LIMIT 1').fetchone()):
+                        raise MemoryStoreError('cannot relabel an existing unowned library')
+                finally:
+                    check.close()
         projection_required = False
         with self.connection() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
@@ -449,6 +523,10 @@ class MemoryStore:
                 conn.execute(
                     "ALTER TABLE turns ADD COLUMN context_text TEXT NOT NULL DEFAULT ''"
                 )
+            if "context_reference_json" not in columns:
+                conn.execute("ALTER TABLE turns ADD COLUMN context_reference_json TEXT NOT NULL DEFAULT 'null'")
+            if "signal_state" not in columns:
+                conn.execute("ALTER TABLE turns ADD COLUMN signal_state TEXT NOT NULL DEFAULT 'not_required'")
             if "judge_cli" not in columns:
                 conn.execute(
                     "ALTER TABLE turns ADD COLUMN judge_cli TEXT NOT NULL DEFAULT ''"
@@ -524,7 +602,9 @@ class MemoryStore:
                 "INSERT OR REPLACE INTO meta(key, value) VALUES('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
-        if self._import_legacy_if_empty():
+        if namespace is not None:
+            self._bind_namespace_locked(namespace)
+        if not self.get_namespace() and self._import_legacy_if_empty():
             with self.connection() as conn:
                 conn.execute(
                     "UPDATE meta SET value='1' WHERE key='projection_required'"
@@ -599,6 +679,33 @@ class MemoryStore:
         with self.connection() as conn:
             return self._current_records(conn, active_only=False)
 
+    def bind_namespace(self, namespace: str) -> None:
+        """Permanently bind a new experiment store before any learning occurs."""
+        with self._initialization_lock():
+            self._bind_namespace_locked(namespace)
+
+    def _bind_namespace_locked(self, namespace: str) -> None:
+        if not isinstance(namespace, str) or not namespace.strip():
+            raise MemoryStoreError('an explicit memory namespace is required')
+        with self.connection() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            existing = conn.execute("SELECT value FROM meta WHERE key='memory_namespace'").fetchone()
+            if existing:
+                if existing['value'] != namespace:
+                    raise MemoryStoreError('memory namespace ownership mismatch')
+                conn.execute('COMMIT')
+                return
+            if (conn.execute('SELECT 1 FROM rules LIMIT 1').fetchone()
+                    or conn.execute('SELECT 1 FROM turns LIMIT 1').fetchone()):
+                raise MemoryStoreError('bind namespace before learning; never relabel an existing library')
+            conn.execute("INSERT INTO meta(key,value) VALUES('memory_namespace',?)", (namespace,))
+            conn.execute('COMMIT')
+
+    def get_namespace(self) -> str:
+        with self.connection() as conn:
+            row = conn.execute("SELECT value FROM meta WHERE key='memory_namespace'").fetchone()
+            return row['value'] if row else ''
+
     def ensure_turn(
         self,
         turn_key: str,
@@ -607,11 +714,18 @@ class MemoryStore:
         judge_cli: str = "",
         clarification_candidates=None,
         forced: bool = False,
+        context_reference=None,
+        detect_signal: bool = False,
+        expected_namespace: str | None = None,
     ):
         source_hash = _sha256(source_text)
         now = _utc_now()
         with self.connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            if expected_namespace is not None:
+                owner = conn.execute("SELECT value FROM meta WHERE key='memory_namespace'").fetchone()
+                if (owner['value'] if owner else '') != expected_namespace:
+                    raise MemoryStoreError('request ownership changed before turn registration')
             row = conn.execute("SELECT * FROM turns WHERE turn_key=?", (turn_key,)).fetchone()
             if row:
                 if row["source_hash"] != source_hash:
@@ -630,8 +744,8 @@ class MemoryStore:
                 INSERT INTO turns(
                     turn_key, source_hash, source_text, context_text, judge_cli,
                     clarification_candidates_json,
-                    forced, status, created_at, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                    forced, context_reference_json, signal_state, status, created_at, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                 """,
                 (
                     turn_key,
@@ -649,12 +763,28 @@ class MemoryStore:
                         )
                     ),
                     1 if forced else 0,
+                    _json(context_reference),
+                    'unchecked' if detect_signal else 'not_required',
                     now,
                     now,
                 ),
             )
             conn.execute("COMMIT")
         return {"status": "pending", "result": None}
+
+    def save_resolved_context(self, turn_key: str, lease_owner: str,
+                              context_text: str, signal: bool) -> None:
+        """Checkpoint admission/context under the current worker lease."""
+        with self.connection() as conn:
+            updated = conn.execute(
+                "UPDATE turns SET context_text=?, signal_state=?, updated_at=? "
+                "WHERE turn_key=? AND status='resolving' AND lease_owner=? "
+                "AND lease_expires_at>?",
+                (context_text, 'present' if signal else 'absent', _utc_now(),
+                 turn_key, lease_owner, time.time()),
+            )
+            if updated.rowcount != 1:
+                raise StaleSnapshotError('context resolution lost its worker lease')
 
     def get_turn(self, turn_key: str):
         with self.connection() as conn:
@@ -696,6 +826,17 @@ class MemoryStore:
             )
             conn.execute("COMMIT")
             return owner
+
+    def renew_lease(self, turn_key: str, lease_owner: str, lease_seconds: int = 900) -> bool:
+        """Extend a live lease only; never revive an expired/reassigned worker."""
+        now = time.time()
+        with self.connection(timeout_seconds=5) as conn:
+            updated = conn.execute(
+                "UPDATE turns SET lease_expires_at=? WHERE turn_key=? "
+                "AND status='resolving' AND lease_owner=? AND lease_expires_at>?",
+                (now + max(30, lease_seconds), turn_key, lease_owner, now),
+            )
+            return updated.rowcount == 1
 
     def pending_turn_keys(self, limit: int = 20, forced_only: bool = False):
         with self.connection() as conn:
@@ -1445,6 +1586,9 @@ class MemoryStore:
         mutations = plan.get("mutations")
         if not isinstance(mutations, list):
             raise InvalidPlanError("plan.mutations must be a list")
+        namespaced = bool(conn.execute("SELECT 1 FROM meta WHERE key='memory_namespace'").fetchone())
+        if namespaced and plan.get('resolved_turn_keys'):
+            raise InvalidPlanError('experimental learning cannot import another turn as authorization')
         # Evidence may additionally quote the original text of a clarification
         # turn this plan resolves (mirrors the judge-side contract). The extra
         # corpus is limited to registered needs_user turns actually listed in
@@ -1485,6 +1629,11 @@ class MemoryStore:
         operations = collect_operations(normalized)
         if {"REJECT", "NEEDS_USER"}.issubset(operations):
             raise InvalidPlanError("REJECT and NEEDS_USER cannot appear in one plan")
+        if namespaced:
+            try:
+                learning_policy.validate_types({'mutations': normalized}, learning_policy.CORRECTIONS)
+            except ValueError as exc:
+                raise InvalidPlanError(str(exc)) from exc
         return normalized
 
     def commit_plan(
@@ -1494,6 +1643,8 @@ class MemoryStore:
         plan: dict,
         expected_generation: int,
         lease_owner: str = "",
+        pending_plan: dict | None = None,
+        resolve_pending_by: str = '',
     ) -> dict:
         now = _utc_now()
         txn_id = f"txn-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}-{uuid.uuid4().hex[:12]}"
@@ -1519,14 +1670,17 @@ class MemoryStore:
                     "commit source_text does not match the registered trusted turn"
                 )
             source_text = turn["source_text"]
+            replay_pending = bool(resolve_pending_by) and turn['status'] == 'needs_user'
             if turn["status"] in {
-                "committed", "projected", "noop", "needs_user", "rejected",
-            }:
+                "committed", "projected", "noop", "needs_user", "rejected", "clarified", "dismissed", "failed",
+            } and not replay_pending:
                 conn.execute("COMMIT")
                 return json.loads(turn["result_json"]) if turn["result_json"] else {
                     "status": turn["status"],
                     "turn_key": turn_key,
                 }
+            if resolve_pending_by and not replay_pending:
+                raise InvalidPlanError('only a parked clarification can be replayed')
             if lease_owner:
                 ownership = conn.execute(
                     """
@@ -1540,6 +1694,10 @@ class MemoryStore:
                     conn.execute("ROLLBACK")
                     raise StaleSnapshotError("worker lease no longer owns the turn")
             normalized = self._validate_plan(conn, plan, source_text)
+            if pending_plan is not None:
+                pending_normalized = self._validate_plan(conn, pending_plan, source_text)
+                if not pending_normalized or any(item['operation'] != 'NEEDS_USER' for item in pending_normalized):
+                    raise InvalidPlanError('pending_plan must contain only unresolved requirements')
             if any(item["operation"] == "NEEDS_USER" for item in normalized):
                 conn.execute("ROLLBACK")
                 return self.mark_needs_user(turn_key, plan, lease_owner=lease_owner)
@@ -1744,6 +1902,17 @@ class MemoryStore:
                     txn_id,
                 ),
             )
+            turn_status, turn_plan, turn_result = status, committed_plan, result
+            if pending_plan is not None:
+                turn_status = 'needs_user'
+                turn_plan = dict(pending_plan)
+                turn_result = {'status': 'needs_user', 'turn_key': turn_key,
+                               'reason': _safe_scalar(pending_plan.get('reason', 'unresolved requirement')),
+                               'plan': turn_plan, 'committed': result}
+            elif resolve_pending_by:
+                turn_status = 'clarified'
+                turn_result = {'status': 'clarified', 'turn_key': turn_key,
+                               'resolved_by': resolve_pending_by, 'committed': result}
             conn.execute(
                 """
                 UPDATE turns
@@ -1752,15 +1921,15 @@ class MemoryStore:
                 WHERE turn_key=?
                 """,
                 (
-                    status,
-                    _json(committed_plan),
-                    _json(result),
+                    turn_status,
+                    _json(turn_plan),
+                    _json(turn_result),
                     _utc_now(),
                     turn_key,
                 ),
             )
             conn.execute("COMMIT")
-        return result
+        return turn_result
 
     def _relations_for_projection(self, conn):
         supersedes = {}
@@ -2040,6 +2209,8 @@ class MemoryStore:
 
     def _import_legacy_if_empty(self) -> bool:
         with self.connection() as conn:
+            if conn.execute("SELECT 1 FROM meta WHERE key='memory_namespace'").fetchone():
+                return False
             if conn.execute("SELECT 1 FROM rules LIMIT 1").fetchone():
                 return False
         candidates = {}

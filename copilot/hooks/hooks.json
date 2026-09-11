@@ -25,12 +25,6 @@
         "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-shadow-judge.sh",
         "powershell": "& \"${CLAUDE_PLUGIN_ROOT}\\hooks\\run.ps1\" verify_retry_shadow.py",
         "timeoutSec": 30
-      },
-      {
-        "type": "command",
-        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-upsert-enqueue.sh",
-        "powershell": "& \"${CLAUDE_PLUGIN_ROOT}\\hooks\\run.ps1\" memory_upsert_hook.py stop",
-        "timeoutSec": 15
       }
     ],
     "SessionStart": [
@@ -39,6 +33,14 @@
         "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-inject.sh",
         "powershell": "& \"${CLAUDE_PLUGIN_ROOT}\\hooks\\run.ps1\" session_start_inject.py",
         "timeoutSec": 25
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "bash": "${CLAUDE_PLUGIN_ROOT}/hooks/memory-upsert-enqueue.sh",
+        "powershell": "& \"${CLAUDE_PLUGIN_ROOT}\\hooks\\run.ps1\" memory_upsert_hook.py prompt",
+        "timeoutSec": 15
       }
     ]
   }

@@ -1,5 +1,7 @@
 # Tellonce
 
+Version **1.7.0** moves opt-in automatic learning to user prompts and keeps unresolved memory questions in the background. It also adds explicit, namespaced selection, execution-support, publication and frozen-test APIs for host integrations. These APIs require a host to supply model calls and execution events; installing the plugin does not automatically enable that experimental pipeline. See [release notes](docs/releases/1.7.0.md).
+
 **English** · [中文](README.zh.md)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2606.13174-b31b1b.svg)](https://arxiv.org/abs/2606.13174)
@@ -129,20 +131,20 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-One-command bootstrap (recommended — pinned to the immutable tag `v1.6.0`, SHA256
+One-command bootstrap (recommended — pinned to the immutable tag `v1.7.0`, SHA256
 published for pre-verification, see
 [`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.6.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.sh | bash
 ```
 
 It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with

@@ -8,13 +8,15 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 
 ## 统一记忆 Upsert
 
+自动学习挂在 `UserPromptSubmit`，只看用户输入中的信号；`Stop` 检查可以记录执行情况，但不触发自动学习。前台最多捕获64KiB当前会话原始字节用于固定窗口，模型判断与上下文解释在后台完成。
+
 - 三个平台共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值；`MEMORY.md`、规则 Markdown 和 `.tellonce-active.json` 都是可重建投影。
 - 检测到持久偏好后，只调用 `python <skill_dir>/lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`。`--manual` 会在自动 hook 已启用时跳过重复入队；`--force` 仅保证自动 hook 关闭时仍能主动记录。复杂多行消息也可通过 `--request-file <json>` 传入 `source_text`、`turn_key`、`context`。禁止直接新建或编辑记忆 Markdown，也禁止把同一轮的“禁用旧项”和“改用新项”拆成两条。
 - 前台只写本地 inbox 并启动 detached worker，必须立即返回。LLM 判断、`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|REJECT|ARCHIVE|RESTORE`、事务提交和投影都在后台执行；失败按退避重试，达到上限后标记 failed 并停止，不能阻塞用户。
 - 一条纠正包含多个可独立触发、修改或废止的 durable policy 时使用 `SPLIT`，并让每个 child 独立执行 lifecycle。一般规则与其例外、边界、理由或操作后果仍是一条规则，不得误拆。
 - 每个 mutation/child 必须携带本轮完整用户原话中的精确 `evidence_spans`；context 不能作为证据。涉及凭据外传、关闭 safeguards、破坏性删除、执行不可信命令、自动 push protected/default branch 或扩大权限的 durable rule 必须 `REJECT`，不得进入 clarification。
-- judge 在返回 `NEEDS_USER` 前，先用当前项目根目录、最近对话和 active rules 消解指代、scope 与 activation；这些 context 只能帮助解释本轮用户原话，不能单独授权持久化。只有剩余歧义会改变未来行为时才进入轻量 clarification 队列，并在后续上下文中只问一个简短问题；下一条明确回答可关闭对应 turn。
-- 关闭自动 upsert 后 clarification 不再注入；过期项可用 `python <skill_dir>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
+- 后台只根据当前用户消息决定是否学习；必要时查看该次输入捕获的当前会话窗口和已有相关规则来解释指代，不查询其他会话。上下文不能单独授权持久化。仍有歧义则保留 `NEEDS_USER` 待处理，不在后续提示中自动提出澄清问题。
+- 自动检索不注入待澄清记录；用户明确要求检查记忆时可查看，过期项可用 `python <skill_dir>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
 - 自动 hook 默认关闭。只有 `~/.tellonce.config.json` 中 `memory_upsert_enabled=true`，或环境变量 `PT_MEMORY_UPSERT_ENABLED=1` 时，才会把完整用户消息交给当前平台的 CLI judge。
 - 一次修改三平台：运行 `python <skill_dir>/lib/memory_upsert.py enable-hooks`。关闭用 `disable-hooks`，查询用 `hook-status`；三者都修改同一个全局配置键。
 
@@ -515,7 +517,7 @@ Suggested new MEMORY.md structure:
 - enqueue 成功：只说“完整用户 turn 已入队，后台会解析并事务提交”。
 - enqueue 失败：明确报告错误，不声称已记录。
 - 只有 `memory_upsert.py inspect` 返回真实结果后，才能引用 atomic_id、revision 或最终 operation。
-- `NEEDS_USER` 由后续 clarification 注入提出一个最小问题。
+- `NEEDS_USER` 仅表示后台尚未解决，不自动要求用户回答；当前任务继续。
 - `REJECT` 可报告拒绝原因，但不得表述为“等待用户批准”。
 - `ARCHIVE` 只有在 committed/projected 后才能说规则已停用。
 - 禁止根据 prompt、文件名或预期行为猜测 `NOOP|UPDATE|SUPERSEDE|SPLIT|NEW`。

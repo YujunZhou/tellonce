@@ -35,8 +35,8 @@ for stream_name in ("stdout", "stderr"):
 # assume an earlier sibling's output landed first. The README declared:
 #
 #   Stop chain: check-observation-log → deterministic-block → verify-compliance
-#               → shadow-judge → memory-upsert
-#   UserPromptSubmit: retrieve-inject → shadow-alert-inject
+#               → shadow-judge
+#   UserPromptSubmit: memory-upsert, retrieve-inject, shadow-alert-inject
 #
 # Python 3.7+ dict preserves insertion order, so this dict literally drives the
 # settings.local.json registration order.
@@ -63,7 +63,7 @@ PT_HOOKS = {
         'desc': 'Shadow LLM judge (log-only)',
     },
     'memory-upsert-enqueue.sh': {
-        'event': 'Stop',
+        'event': 'UserPromptSubmit',
         'timeout': 5,
         'desc': 'Non-blocking shared memory inbox enqueue',
     },
@@ -171,6 +171,11 @@ def cmd_add(settings_path: str, hooks_dir: str):
                 hook
                 for hook in entry.get('hooks', [])
                 if hook.get('command') not in legacy_commands
+                and not any(
+                    hook.get('command') == os.path.join(hooks_dir, name)
+                    and event != info['event']
+                    for name, info in PT_HOOKS.items()
+                )
             ]
             if entry.get('_pt_managed') and not entry['hooks']:
                 continue

@@ -132,18 +132,18 @@ python3 ~/.claude/skills/tellonce/lib/path_config.py
 ## Architecture
 
 ```
-UserPromptSubmit chain (2):
+UserPromptSubmit hooks (3):
+  memory-upsert-enqueue.sh        [opt-in user prompt → background memory inbox]
   memory-retrieve-inject.sh       [retrieve relevant saved rules, inject by atomic_id]
   memory-shadow-alert-inject.sh   [soft injection: "you violated X last turn"]
 
 → Claude generates a response
 
-Stop chain (5):
+Stop hooks (4):
   check-observation-log.sh        [Iron Law: the obs log must be appended]
   memory-deterministic-block.sh   [regex hard-blocks; ships with no built-in rules — opt-in extension point]
   memory-verify-compliance.sh     [compliance + legacy-pending metrics, log-only]
   memory-shadow-judge.sh          [LLM judge, log-only; off by default]
-  memory-upsert-enqueue.sh        [complete user turn → shared SQLite upsert inbox]
 ```
 
 Block / pass / cost / streak data is written to

@@ -930,7 +930,7 @@ class MemoryUpsertCases(unittest.TestCase):
             [],
             context="Current project root: C:\\repo\\demo\nAssistant: 已采用表格格式。",
         )
-        self.assertIn("Before asking the user, use the untrusted project", prompt)
+        self.assertIn("Before leaving an item pending, use the untrusted project", prompt)
         self.assertIn(
             "NEEDS_USER only when ambiguity remains after using available context",
             prompt,
@@ -966,7 +966,7 @@ class MemoryUpsertCases(unittest.TestCase):
             result = memory_judge.judge_plan("以后评审先看上下文。", rules)
         self.assertEqual(result["mutations"], [])
 
-    def test_selector_placeholder_is_treated_as_no_candidate(self):
+    def test_selector_placeholder_is_an_error_not_no_candidate(self):
         rules = [
             {
                 "atomic_id": f"wf-pref-{index:03d}",
@@ -984,9 +984,10 @@ class MemoryUpsertCases(unittest.TestCase):
                 return '["none"]'
             return '{"mutations": [], "reason": "no lifecycle candidate"}'
 
-        with mock.patch.object(memory_judge, "_invoke_cli", side_effect=fake_invoke):
-            result = memory_judge.judge_plan("以后评审先看上下文。", rules)
-        self.assertEqual(result["mutations"], [])
+        with mock.patch.object(memory_judge, "_invoke_cli", side_effect=fake_invoke) as invoke:
+            with self.assertRaises(memory_judge.MemoryJudgeError):
+                memory_judge.judge_plan("以后评审先看上下文。", rules)
+        self.assertEqual(invoke.call_count, 2)
 
     def test_large_rule_selection_continues_until_prompt_fits(self):
         rules = [
@@ -1067,7 +1068,7 @@ class MemoryUpsertCases(unittest.TestCase):
         self.assertIn("serialized source", result["reason"])
         invoke.assert_not_called()
 
-    def test_needs_user_is_injected_and_later_answer_can_resolve_it(self):
+    def test_pending_is_not_injected_but_explicit_manual_recovery_remains_available(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
             store.initialize()
@@ -1100,14 +1101,13 @@ class MemoryUpsertCases(unittest.TestCase):
                 injected = retrieve_inject._render_pending_clarifications(
                     "session:test"
                 )
-            self.assertIn("needs-scope", injected)
-            self.assertIn("ask whether this is global", injected)
+            self.assertEqual(injected, "")
             self.assertEqual(
                 memory_upsert.read_clarification_presentation(
                     td,
                     "session:test",
                 ),
-                ["needs-scope"],
+                [],
             )
 
             store.ensure_turn(
@@ -1347,7 +1347,7 @@ class MemoryUpsertCases(unittest.TestCase):
         self.assertEqual(result["status"], "empty")
         enqueue.assert_not_called()
 
-    def test_prompt_hook_carries_only_previously_presented_clarifications(self):
+    def test_prompt_hook_does_not_import_old_clarification_presentations(self):
         with tempfile.TemporaryDirectory() as td:
             memory_upsert.record_clarification_presentation(
                 td,
@@ -1369,6 +1369,7 @@ class MemoryUpsertCases(unittest.TestCase):
             )
             data = {
                 "sessionId": "bridge",
+                "turn_id": "bridge-answer",
                 "prompt": "第一条全局适用。",
             }
             with mock.patch.object(memory_upsert, "hooks_enabled", return_value=True):
@@ -1380,10 +1381,7 @@ class MemoryUpsertCases(unittest.TestCase):
                     enqueue.return_value = {"status": "queued"}
                     result = memory_upsert_hook.enqueue_from_hook(data, "prompt")
             self.assertEqual(result["status"], "queued")
-            self.assertEqual(
-                enqueue.call_args.kwargs["clarification_candidates"],
-                ["new-current"],
-            )
+            self.assertNotIn("clarification_candidates", enqueue.call_args.kwargs)
 
     def test_long_windows_copilot_prompt_uses_file_mention_not_attachment(self):
         completed = mock.Mock(returncode=0, stdout='{"mutations":[]}', stderr="")
@@ -1525,58 +1523,14 @@ class MemoryUpsertCases(unittest.TestCase):
         )
         self.assertIn("session-1", enqueue_mock.call_args.kwargs["turn_key"])
 
-    def test_stop_hook_adds_recent_context_without_reauthorizing_it(self):
-        with tempfile.TemporaryDirectory() as td:
-            transcript = Path(td) / "transcript.jsonl"
-            transcript.write_text(
-                "\n".join([
-                    json.dumps({
-                        "type": "user",
-                        "message": {"content": "我们在 demo 项目。"},
-                    }),
-                    json.dumps({
-                        "type": "assistant",
-                        "message": {"content": "当前输出是表格。"},
-                    }),
-                    json.dumps({
-                        "type": "user",
-                        "message": {"content": "以后都这样。"},
-                    }),
-                    json.dumps({
-                        "type": "assistant",
-                        "message": {"content": "好的。"},
-                    }),
-                ]),
-                encoding="utf-8",
-            )
-            event = {
-                "transcript_path": str(transcript),
-                "cwd": str(ROOT),
-                "session_id": "session-context",
-                "turn_id": "turn-context",
-            }
-            with mock.patch.object(
-                memory_upsert_hook.memory_upsert,
-                "hooks_enabled",
-                return_value=True,
-            ):
-                with mock.patch.object(
-                    memory_upsert_hook.memory_upsert,
-                    "enqueue",
-                    return_value={"status": "queued"},
-                ) as enqueue_mock:
-                    result = memory_upsert_hook.enqueue_from_hook(event, "stop")
-        self.assertEqual(result["status"], "queued")
-        self.assertEqual(
-            enqueue_mock.call_args.kwargs["source_text"],
-            "以后都这样。",
-        )
-        context = enqueue_mock.call_args.kwargs["context"]
-        self.assertIn(f"Current project root: {ROOT}", context)
-        self.assertIn("User: 我们在 demo 项目。", context)
-        self.assertIn("Assistant: 当前输出是表格。", context)
-        self.assertIn("Assistant: 好的。", context)
-        self.assertNotIn("User: 以后都这样。", context)
+    def test_stop_hook_no_longer_enqueues_learning(self):
+        with mock.patch.object(memory_upsert_hook.pt_platform, "is_child_session", return_value=False), \
+             mock.patch.object(memory_upsert, "hooks_enabled", return_value=True), \
+             mock.patch.object(memory_upsert, "enqueue") as enqueue_mock:
+            result = memory_upsert_hook.enqueue_from_hook(
+                {"session_id": "session-context", "prompt": "以后都这样。"}, "stop")
+        self.assertEqual(result["status"], "prompt_only")
+        enqueue_mock.assert_not_called()
 
     def test_hook_adapter_skips_camel_case_stop_reentry(self):
         with mock.patch.object(memory_upsert_hook.pt_platform, "is_child_session", return_value=False):

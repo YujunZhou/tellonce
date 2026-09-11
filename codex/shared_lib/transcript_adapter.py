@@ -24,6 +24,8 @@ Public API:
 """
 import json
 import os
+import stat
+import hashlib
 from collections import deque
 
 _MAX_LINES = 2000
@@ -69,6 +71,115 @@ def get_presentation_key(data):
     return ''
 
 
+def capture_context_reference(data):
+    """Capture a boundary and fingerprint at most 64 KiB, without parsing text.
+
+    Never search directories or follow a reference to another conversation.
+    Missing identity/path simply leaves the worker with the user prompt alone.
+    """
+    session = get_session_id(data)
+    path = get_transcript_path(data)
+    if not isinstance(session, str) or not session.strip() or not isinstance(path, str) or not path:
+        return None
+    path = os.path.abspath(path)
+    try:
+        flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+        with os.fdopen(os.open(path, flags), 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                return None
+            start = max(0, info.st_size - 65535)
+            stream.seek(max(0, start - 1))
+            preceding = stream.read(1) if start else b''
+            raw = stream.read(info.st_size - start)
+            after = os.fstat(stream.fileno())
+        if (info.st_size, info.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            return None
+        return {'schema': 1, 'path': path, 'session_id': session,
+                'device': info.st_dev, 'inode': info.st_ino, 'start': start,
+                'end': info.st_size, 'mtime_ns': info.st_mtime_ns,
+                'line_aligned': start == 0 or preceding == b'\n',
+                'sha256': hashlib.sha256(raw).hexdigest()}
+    except OSError:
+        return None
+
+
+def read_context_reference(reference, *, before=None, max_bytes=65536):
+    """Read one bounded page backwards inside the captured conversation only.
+
+    `next_before` allows a background resolver to request older context without
+    adding future messages. Transcript files are expected to be append-only;
+    replacement, truncation and in-place rewriting of the captured window are
+    rejected. Older pages stay inside the fingerprinted window. This constant
+    size byte fingerprint does not parse/scan assistant responses for signals.
+    No path discovered inside transcript content is ever opened.
+    """
+    unavailable = {'status': 'unavailable', 'context': '', 'truncated': False,
+                   'next_before': None}
+    if not isinstance(reference, dict) or reference.get('schema') != 1:
+        return unavailable
+    try:
+        path, session = reference['path'], reference['session_id']
+        end = reference['end']
+        lower = reference['start']
+        if (not isinstance(path, str) or not os.path.isabs(path)
+                or not isinstance(session, str) or not session
+                or type(end) is not int or end < 0
+                or type(lower) is not int or not 0 <= lower <= end
+                or end - lower > 65536
+                or type(max_bytes) is not int or not 1 <= max_bytes <= 1048576):
+            return unavailable
+        stop = end if before is None else before
+        if type(stop) is not int or not lower <= stop <= end:
+            return unavailable
+        flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0) | getattr(os, 'O_NONBLOCK', 0)
+        fd = os.open(path, flags)
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode)
+                    or (info.st_dev, info.st_ino) != (reference['device'], reference['inode'])
+                    or info.st_size < end
+                    or (info.st_size == end and info.st_mtime_ns != reference['mtime_ns'])):
+                return unavailable
+            stream.seek(lower)
+            window = stream.read(end - lower)
+            if hashlib.sha256(window).hexdigest() != reference['sha256']:
+                return unavailable
+            start = max(lower, stop - max_bytes)
+            raw = window[start-lower:stop-lower]
+        # Move to the next complete line; return that boundary so an older
+        # page can recover the preceding message without duplicating this one.
+        initial_start = start
+        aligned = reference.get('line_aligned', False) if start == lower else window[start-lower-1:start-lower] == b'\n'
+        if start and not aligned:
+            first_newline = raw.find(b'\n')
+            if first_newline < 0:
+                return {'status': 'truncated', 'context': '', 'truncated': True,
+                        'next_before': start if start > lower else None}
+            start += first_newline + 1
+            raw = raw[first_newline + 1:]
+        entries = list(_iter_entries(raw.decode('utf-8', errors='replace').splitlines()))
+        rendered = []
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            item_session = get_session_id(item)
+            if item.get('type') == 'session_meta' and isinstance(item.get('payload'), dict):
+                item_session = item['payload'].get('id') or item_session
+            if item_session and item_session != session:
+                return unavailable
+            role = _role(item)
+            text = _entry_text(item).strip()
+            if role and text and (role != 'user' or is_trusted_user_entry(item, text)):
+                rendered.append(f'{role.title()}: {text}')
+        next_before = start if start < stop else initial_start
+        return {'status': 'ok', 'context': '\n'.join(rendered),
+                'truncated': start > 0,
+                'next_before': next_before if initial_start > lower and next_before < stop else None}
+    except (OSError, KeyError, TypeError, ValueError):
+        return unavailable
+
+
 def _role(o):
     """Normalize entry role to 'user' | 'assistant' | None across schemas."""
     t = o.get('type')
@@ -78,13 +189,18 @@ def _role(o):
         return 'user'
     if t == 'assistant.message':
         return 'assistant'
+    if t == 'response_item':
+        payload = o.get('payload')
+        if isinstance(payload, dict) and payload.get('type') == 'message':
+            role = payload.get('role')
+            return role if role in {'user', 'assistant'} else None
     return None
 
 
 def _text_from_list(items):
     parts = []
     for it in items:
-        if isinstance(it, dict) and it.get('type') == 'text':
+        if isinstance(it, dict) and it.get('type') in {'text', 'input_text', 'output_text'}:
             parts.append(it.get('text', ''))
     return '\n'.join(p for p in parts if p)
 
@@ -92,7 +208,7 @@ def _text_from_list(items):
 def _entry_text(o):
     """Natural-language text of an entry, both schemas (data.content or
     message.content or top-level content; str or list-of-text-blocks)."""
-    for container_key in ('data', 'message'):
+    for container_key in ('data', 'message', 'payload'):
         c = o.get(container_key)
         if isinstance(c, dict) and 'content' in c:
             cc = c['content']
@@ -112,7 +228,7 @@ def is_trusted_user_entry(entry, text=None):
     """Return whether a user entry is genuine user-authored authorization."""
     if not isinstance(entry, dict):
         return False
-    for container in (entry, entry.get('data'), entry.get('message')):
+    for container in (entry, entry.get('data'), entry.get('message'), entry.get('payload')):
         if isinstance(container, dict):
             meta = container.get('isMeta')
             if meta is None:

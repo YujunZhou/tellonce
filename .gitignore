@@ -72,5 +72,10 @@ copilot/seed_memory.user/
 test_*.py
 !checks/test_memory_upsert.py
 !checks/test_memory_judge_semantic.py
+!checks/test_background_context.py
+!checks/test_rule_selection.py
+!checks/test_execution_support.py
+!checks/test_integration_fixes.py
+!checks/test_model_requests.py
 conftest.py
 **/tests/

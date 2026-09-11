@@ -3,7 +3,7 @@
   "cli": "claude",
   "model": "opus",
   "timeout_seconds": 300,
-  "prompt_sha256": "8a6b3d23eaf926990584282a4c43056e1227d0a4c55ae88c7add60f2342f263a",
+  "prompt_sha256": "16466969682fbb52c0f630a59843dfdf4abfbc95111d7a44f2ef3119b5d87441",
   "fixtures": [
     {
       "id": "generic-project-completion-needs-user",
@@ -220,5 +220,7 @@
         "shown-turn"
       ]
     }
-  ]
+  ],
+  "previous_prompt_sha256": "8a6b3d23eaf926990584282a4c43056e1227d0a4c55ae88c7add60f2342f263a",
+  "semantic_validation_status": "pending_review_gate_not_rerun"
 }

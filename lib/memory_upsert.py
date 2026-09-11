@@ -17,6 +17,8 @@ import subprocess
 import sys
 import time
 import uuid
+import threading
+from contextlib import contextmanager
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 if _LIB_DIR not in sys.path:
@@ -26,6 +28,8 @@ import memory_judge
 from memory_store import MemoryStore, MemoryStoreError, StaleSnapshotError
 import path_config
 import redaction
+import transcript_adapter
+from model_requests import exhausted_request
 
 
 FINAL_STATUSES = {
@@ -135,8 +139,22 @@ def _memory_dir(memory_dir=None) -> Path:
     return Path(memory_dir or path_config.get_memory_dir()).expanduser().resolve()
 
 
-def _store(memory_dir=None) -> MemoryStore:
+def _store(memory_dir=None, namespace: str = '') -> MemoryStore:
+    namespace = namespace or os.environ.get('PT_MEMORY_NAMESPACE', '')
+    if namespace and not memory_dir:
+        raise MemoryStoreError('namespaced memory requires an explicit directory')
     resolved = _memory_dir(memory_dir)
+    store = MemoryStore(resolved, legacy_dirs=[])
+    owner = store.peek_namespace()
+    if namespace and owner != namespace:
+        raise MemoryStoreError('initialize the explicit namespaced library before enqueue/drain')
+    if owner:
+        if not memory_dir:
+            raise MemoryStoreError('owned experiment memory requires an explicit directory')
+        # Internal resolution may reopen an already owned store without
+        # repeating its namespace argument. No operator config is needed.
+        store.initialize(namespace=namespace or owner)
+        return store
     canonical = Path(path_config.get_memory_dir()).expanduser().resolve()
     legacy_dirs = path_config.get_legacy_memory_dirs() if resolved == canonical else []
     store = MemoryStore(resolved, legacy_dirs=legacy_dirs)
@@ -369,6 +387,9 @@ def enqueue(
     spawn_worker: bool = True,
     force: bool = False,
     clarification_candidates=None,
+    context_reference=None,
+    detect_signal: bool = False,
+    namespace: str = '',
 ) -> dict:
     """Persist one complete turn to a file inbox without opening SQLite."""
     if not force and not hooks_enabled():
@@ -385,10 +406,13 @@ def enqueue(
             "turn_key": turn_key,
             "source_text": safe_source,
             "context": safe_context,
+            "context_reference": context_reference,
+            "detect_signal": bool(detect_signal),
+            "namespace": namespace,
             "clarification_candidates": list(clarification_candidates or []),
             "forced": bool(force),
             "judge_cli": getattr(memory_judge.pt_platform, "CLI_COMMAND", ""),
-            "project_root": path_config.get_project_root(),
+            "project_root": '' if namespace else path_config.get_project_root(),
             "created_at": time.time(),
         },
         resolved_memory_dir,
@@ -450,7 +474,7 @@ def _plan_contains_terminal_outcome(plan: dict) -> bool:
     )
 
 
-def _call_judge(judge_func, source_text, active_rules, judge_context, clarification_sources):
+def _call_judge(judge_func, source_text, active_rules, judge_context, clarification_sources, policy='general', invoke=None):
     """Invoke the judge, passing the clarification evidence corpus when the
     callable supports it (test doubles may use the bare 3-arg signature)."""
     try:
@@ -461,14 +485,16 @@ def _call_judge(judge_func, source_text, active_rules, judge_context, clarificat
         parameter.kind is _inspect_module.Parameter.VAR_KEYWORD
         for parameter in parameters.values()
     )
+    kwargs = {}
     if supports_extra:
-        return judge_func(
-            source_text,
-            active_rules,
-            judge_context,
-            extra_evidence_sources=clarification_sources,
-        )
-    return judge_func(source_text, active_rules, judge_context)
+        kwargs['extra_evidence_sources'] = clarification_sources
+    if 'policy' in parameters or any(p.kind is _inspect_module.Parameter.VAR_KEYWORD for p in parameters.values()):
+        kwargs['policy'] = policy
+    if invoke is not None:
+        if 'invoke' not in parameters and not any(p.kind is _inspect_module.Parameter.VAR_KEYWORD for p in parameters.values()):
+            raise MemoryStoreError('explicit transport requires a compatible semantic judge')
+        kwargs['invoke'] = invoke
+    return judge_func(source_text, active_rules, judge_context, **kwargs)
 
 
 def _resolve_and_replay(store, turn_keys, resolved_by):
@@ -479,7 +505,7 @@ def _resolve_and_replay(store, turn_keys, resolved_by):
     from the v1.5.1 audit). Once the clarification is answered, those mutations
     are committed against the parked turn's own registered source — their
     evidence spans were validated against exactly that text at judge time.
-    Best-effort: a replay failure records an error and never blocks resolution.
+    A replay failure keeps the turn parked; success commits and resolves atomically.
     """
     unique_keys = [
         key
@@ -511,25 +537,33 @@ def _resolve_and_replay(store, turn_keys, resolved_by):
                     + str(parked.get("reason", ""))[:500]
                 ),
                 "replayed_after_clarification": True,
+                "judged_generation": parked.get('judged_generation'),
             }
-    resolved = store.mark_clarifications_resolved(unique_keys, resolved_by=resolved_by)
+    resolved = []
     replays = {}
     replayed_any = False
-    for key in resolved:
+    for key in unique_keys:
         replay_plan = parked_plans.get(key)
         if not replay_plan:
+            resolved.extend(store.mark_clarifications_resolved([key], resolved_by=resolved_by))
             continue
         try:
             turn = store.get_turn(key)
             generation, _ = store.snapshot()
-            replays[key] = store.commit_plan(
-                key,
-                turn["source_text"],
-                replay_plan,
-                generation,
+            if type(replay_plan.get('judged_generation')) is not int or replay_plan['judged_generation'] != generation:
+                replays[key] = {'status': 'replay_needs_review',
+                                'reason': 'Original judged generation is unavailable or stale; keep parked.'}
+                continue
+            result = store.commit_plan(
+                key, turn["source_text"], replay_plan, generation,
+                resolve_pending_by=resolved_by,
             )
+            replays[key] = result.get('committed', result)
+            resolved.append(key)
             replayed_any = True
         except Exception as exc:
+            # Leave needs_user intact. A later retry can replay the same
+            # registered source; failure must never turn it terminal first.
             replays[key] = {
                 "status": "replay_failed",
                 "error": f"{type(exc).__name__}: {str(exc)[:500]}",
@@ -566,7 +600,26 @@ def _finish_clarifications(store, turn: dict, result: dict) -> dict:
     return result
 
 
-def ingest_request(request_file: str | Path, memory_dir=None, judge_func=None) -> dict:
+def _request_store(memory_dir, namespace: str) -> MemoryStore:
+    """Validate request ownership before opening any write/import path."""
+    if not isinstance(namespace, str) or (namespace and not namespace.strip()):
+        raise MemoryStoreError('invalid request namespace')
+    configured = os.environ.get('PT_MEMORY_NAMESPACE', '')
+    if configured and configured != namespace:
+        raise MemoryStoreError('request namespace conflicts with worker namespace')
+    resolved = _memory_dir(memory_dir)
+    owner = MemoryStore(resolved).peek_namespace() or ''
+    if owner != namespace:
+        raise MemoryStoreError('request namespace must match an initialized library')
+    if namespace and not memory_dir:
+        raise MemoryStoreError('namespaced memory requires an explicit directory')
+    store = _store(resolved, namespace=namespace)
+    if store.get_namespace() != namespace:
+        raise MemoryStoreError('request namespace changed during initialization')
+    return store
+
+
+def ingest_request(request_file: str | Path, memory_dir=None, judge_func=None, *, invoke=None) -> dict:
     """Import one inbox request into SQLite, then resolve it idempotently."""
     request_path = Path(request_file).expanduser().resolve()
     request = _read_json_file(str(request_path))
@@ -585,19 +638,26 @@ def ingest_request(request_file: str | Path, memory_dir=None, judge_func=None) -
         raise MemoryStoreError("inbox request requires turn_key and source_text")
     judge_cli = str(request.get("judge_cli", "")).strip().lower()
     project_root = str(request.get("project_root", "")).strip()
+    request_namespace = request.get('namespace', '')
+    request_memory_dir = memory_dir or request_path.parent.parent
+    if request_namespace and project_root:
+        raise MemoryStoreError('experimental requests cannot change operator project configuration')
+    store = _request_store(request_memory_dir, request_namespace)
     if project_root:
         os.environ["PT_PROJECT_ROOT"] = project_root
         os.environ["B5_PROJECT_ROOT"] = project_root
         path_config.get_project_root.cache_clear()
         path_config.get_memory_dir.cache_clear()
-    store = _store(memory_dir or request_path.parent.parent)
     existing = store.ensure_turn(
         turn_key,
         source_text,
         context,
         judge_cli=judge_cli if judge_cli in {"claude", "copilot", "codex"} else "",
         clarification_candidates=clarification_candidates,
+        expected_namespace=request_namespace,
         forced=forced,
+        context_reference=request.get("context_reference"),
+        detect_signal=bool(request.get("detect_signal", False)),
     )
     if existing["status"] in FINAL_STATUSES and existing["result"] is not None:
         result = _finish_clarifications(
@@ -610,6 +670,7 @@ def ingest_request(request_file: str | Path, memory_dir=None, judge_func=None) -
             turn_key,
             memory_dir=store.memory_dir,
             judge_func=judge_func,
+            invoke=invoke,
         )
     if result.get("status") in FINAL_STATUSES:
         try:
@@ -619,14 +680,39 @@ def ingest_request(request_file: str | Path, memory_dir=None, judge_func=None) -
     return result
 
 
+@contextmanager
+def _maintain_worker_lease(store, turn_key, lease_owner, interval=30):
+    """Keep ownership during bounded, potentially multi-call model work."""
+    stopped = threading.Event()
+    def heartbeat():
+        while not stopped.wait(interval):
+            try:
+                if not store.renew_lease(turn_key, lease_owner):
+                    return
+            except Exception:
+                # A transient busy store may recover on the next tick. Every
+                # checkpoint/commit independently verifies live ownership.
+                continue
+    worker = threading.Thread(target=heartbeat, daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        worker.join(timeout=6)
+
+
 def resolve_turn(
     turn_key: str,
     memory_dir=None,
     judge_func=None,
     max_retries: int = 3,
+    invoke=None,
 ) -> dict:
     """Resolve one queued turn. Intended for a detached worker or tests."""
     store = _store(memory_dir)
+    if store.get_namespace() and invoke is None and judge_func is None:
+        raise MemoryStoreError('experimental learning requires an explicit isolated model transport')
     turn = store.get_turn(turn_key)
     if not turn:
         raise MemoryStoreError(f"unknown turn_key: {turn_key}")
@@ -636,6 +722,8 @@ def resolve_turn(
             turn,
             json.loads(turn["result_json"]),
         )
+    if callable(getattr(type(invoke),'for_turn',None)):
+        invoke=invoke.for_turn(dict(turn))
     lease_owner = store.claim_turn(turn_key)
     if not lease_owner:
         current = store.get_turn(turn_key)
@@ -646,16 +734,17 @@ def resolve_turn(
     judge_func = judge_func or memory_judge.judge_plan
     source_text = turn["source_text"]
     context = turn.get("context_text") or ""
-    judge_cli = str(turn.get("judge_cli") or "").lower()
+    judge_cli = '' if invoke is not None else str(turn.get("judge_cli") or "").lower()
     # Per-turn CLI override must not leak into the next turn of the same drain
     # batch: remember the prior value and restore it on the way out.
     prior_judge_cli = os.environ.get("PT_MEMORY_UPSERT_CLI")
     if judge_cli in {"claude", "copilot", "codex"}:
         os.environ["PT_MEMORY_UPSERT_CLI"] = judge_cli
     try:
-        return _resolve_claimed_turn(
-            store, turn, turn_key, lease_owner, judge_func, max_retries
-        )
+        with _maintain_worker_lease(store, turn_key, lease_owner):
+            return _resolve_claimed_turn(
+                store, turn, turn_key, lease_owner, judge_func, max_retries, invoke
+            )
     finally:
         if judge_cli in {"claude", "copilot", "codex"}:
             if prior_judge_cli is None:
@@ -671,10 +760,35 @@ def _resolve_claimed_turn(
     lease_owner: str,
     judge_func,
     max_retries: int,
+    invoke=None,
 ) -> dict:
     source_text = turn["source_text"]
     context = turn.get("context_text") or ""
     last_error = None
+    signal_state = turn.get('signal_state', 'not_required')
+    if signal_state == 'unchecked':
+        try:
+            has_signal = (memory_judge.classify_user_signal(source_text, invoke=invoke)
+                          if invoke is not None else memory_judge.classify_user_signal(source_text))
+            if has_signal:
+                reference = json.loads(turn.get('context_reference_json') or 'null')
+                page = transcript_adapter.read_context_reference(reference, max_bytes=12000)
+                if page['context']:
+                    context += '\n\nUntrusted current-conversation context:\n' + page['context'][-10000:]
+                if page['truncated']:
+                    context += '\n[Older conversation omitted; do not invent missing referents.]'
+                if page['status'] == 'unavailable':
+                    context += '\n[Current-conversation context unavailable; use only the user turn and existing rules.]'
+            context = redaction.redact(context)
+            store.save_resolved_context(turn_key, lease_owner, context, has_signal)
+            signal_state = 'present' if has_signal else 'absent'
+        except Exception as exc:
+            error = f'user signal/context failed: {type(exc).__name__}: {str(exc)[:500]}'
+            status = store.mark_turn_error(turn_key, error, lease_owner=lease_owner,
+                max_attempts=1 if store.get_namespace() and exhausted_request(exc) else MAX_TURN_ATTEMPTS)
+            return {'status': status, 'turn_key': turn_key, 'error': error}
+    if signal_state == 'absent':
+        judge_func = lambda source, rules, context, **kwargs: {'mutations': []}
     for _attempt in range(max(1, max_retries)):
         generation, active_rules = store.snapshot()
         active_rules.extend(
@@ -693,17 +807,19 @@ def _resolve_claimed_turn(
             for item in candidate_keys
             if isinstance(item, str) and item != turn_key
         ][:3]
-        by_key = {
+        if signal_state != 'not_required' or store.get_namespace():
+            candidate_keys = []
+        by_key = ({
             item["turn_key"]: item
             for item in store.needs_user_turns(limit=100, exclude_turn_key=turn_key)
             if item["turn_key"] in candidate_keys
-        }
+        } if candidate_keys else {})
         clarifications = [
             by_key[key]
             for key in candidate_keys
             if key in by_key
         ]
-        judge_context = context[:12_000]
+        judge_context = context[:20_000]
         if clarifications:
             clarification_context = json.dumps(
                 {
@@ -733,14 +849,51 @@ def _resolve_claimed_turn(
                 active_rules,
                 judge_context,
                 clarification_sources,
+                policy='corrections' if store.get_namespace() else 'general',
+                invoke=invoke,
             )
+            # A second lookup is needed only when the user-triggered first
+            # decision remains ambiguous. Its evidence stays in this captured
+            # conversation; existing-rule metadata was already available above.
+            marker = '[tellonce current-conversation backcheck completed]'
+            ambiguous = any(item.get('operation') == 'NEEDS_USER' for item in plan.get('mutations', []))
+            if ambiguous and signal_state == 'present' and marker not in context:
+                reference = json.loads(turn.get('context_reference_json') or 'null')
+                page = transcript_adapter.read_context_reference(reference)
+                excerpts = []
+                lookup_error = ''
+                if page['context']:
+                    captured = redaction.redact(page['context'])
+                    for lookup_attempt in range(2):
+                        try:
+                            excerpts = (memory_judge.find_context_excerpts(source_text, captured, invoke=invoke)
+                                        if invoke is not None else memory_judge.find_context_excerpts(source_text, captured))
+                            lookup_error = ''
+                            break
+                        except Exception as exc:
+                            lookup_error = f'{type(exc).__name__}: {str(exc)[:300]}'
+                            if exhausted_request(exc):
+                                break
+                    if lookup_error:
+                        plan['context_lookup_error'] = lookup_error
+                addition = '\n\n' + marker + '\nExact untrusted context excerpts:\n' + json.dumps(excerpts, ensure_ascii=False)
+                # Never silently cut an excerpt or the current decision context.
+                if len(context + addition) <= 20000:
+                    context += addition
+                    store.save_resolved_context(turn_key, lease_owner, context, True)
+                    if excerpts:
+                        plan = _call_judge(judge_func, source_text, active_rules, context,
+                                           clarification_sources,
+                                           policy='corrections' if store.get_namespace() else 'general', invoke=invoke)
+                else:
+                    plan['context_lookup_error'] = 'complete excerpts exceed the context budget; left pending'
         except Exception as exc:
             last_error = f"judge failed: {type(exc).__name__}: {str(exc)[:800]}"
             status = store.mark_turn_error(
                 turn_key,
                 last_error,
                 lease_owner=lease_owner,
-                max_attempts=MAX_TURN_ATTEMPTS,
+                max_attempts=1 if store.get_namespace() and exhausted_request(exc) else MAX_TURN_ATTEMPTS,
             )
             return {"status": status, "turn_key": turn_key, "error": last_error}
         clarification_candidates = {
@@ -748,6 +901,7 @@ def _resolve_claimed_turn(
             for item in clarifications
         }
         plan = dict(plan)
+        plan['judged_generation'] = generation
         plan["clarification_candidates"] = sorted(clarification_candidates)
         plan["resolved_turn_keys"] = [
             candidate
@@ -787,6 +941,7 @@ def _resolve_claimed_turn(
                     committable_plan,
                     generation,
                     lease_owner=lease_owner,
+                    pending_plan=needs_plan,
                 )
             except StaleSnapshotError as exc:
                 last_error = str(exc)
@@ -801,9 +956,9 @@ def _resolve_claimed_turn(
                 )
                 return {"status": status, "turn_key": turn_key, "error": last_error}
             try:
-                committed["projection"] = store.project()
+                committed['committed']["projection"] = store.project()
             except Exception as exc:
-                committed["projection"] = {
+                committed['committed']["projection"] = {
                     "status": "pending",
                     "error": f"{type(exc).__name__}: {str(exc)[:500]}",
                 }
@@ -811,19 +966,7 @@ def _resolve_claimed_turn(
             # clarifications (conservative, unchanged); resolved_turn_keys
             # stayed in committable_plan only so its evidence corpus remains
             # valid at store-side validation.
-            try:
-                parked = store.mark_needs_user(turn_key, needs_plan)
-            except Exception as exc:
-                committed["needs_user_error"] = (
-                    f"{type(exc).__name__}: {str(exc)[:500]}"
-                )
-                return committed
-            parked["committed"] = {
-                key: committed[key]
-                for key in ("status", "results", "projection")
-                if key in committed
-            }
-            return parked
+            return committed
         try:
             result = store.commit_plan(
                 turn_key,
@@ -888,15 +1031,16 @@ def apply_plan(
     turn_key: str = "",
     context: str = "",
     memory_dir=None,
+    namespace: str = '',
 ) -> dict:
     """Synchronous deterministic entry used by tests and manual recovery."""
-    store = _store(memory_dir)
+    store = _request_store(memory_dir, namespace)
     safe_source = redaction.redact(source_text)
     if not safe_source.strip():
         raise ValueError("source_text is required for apply-plan")
     safe_context = redaction.redact(context or "")
     turn_key = turn_key.strip() or _default_turn_key()
-    store.ensure_turn(turn_key, safe_source, safe_context)
+    store.ensure_turn(turn_key, safe_source, safe_context, expected_namespace=namespace)
     generation, active_rules = store.snapshot()
     plan = json.loads(json.dumps(plan))
 
@@ -919,12 +1063,31 @@ def drain(
     limit: int = 20,
     schedule_retry: bool = False,
     forced_only: bool = False,
+    invoke=None,
 ) -> dict:
-    store = _store(memory_dir)
+    if invoke is not None and schedule_retry:
+        raise MemoryStoreError('explicit transport recovery must be scheduled by its owning experiment worker')
+    resolved_dir = _memory_dir(memory_dir)
+    inbox_paths = _pending_request_paths(resolved_dir)
+    namespaces = set()
+    for path in inbox_paths:
+        try:
+            request = _read_json_file(str(path))
+        except (ValueError, OSError):
+            continue  # The normal drain loop quarantines malformed JSON.
+        namespace = request.get('namespace', '')
+        if not isinstance(namespace, str) or (namespace and not namespace.strip()):
+            raise MemoryStoreError('invalid inbox namespace')
+        namespaces.add(namespace)
+    owner = MemoryStore(resolved_dir).peek_namespace() or ''
+    configured = os.environ.get('PT_MEMORY_NAMESPACE', '')
+    expected = configured or owner or next(iter(namespaces), '')
+    if len(namespaces) > 1 or (namespaces and expected and namespaces != {expected}):
+        raise MemoryStoreError('mixed or missing inbox namespaces')
+    store = _store(resolved_dir, namespace=expected)
     results = []
     attempted_turn_keys = set()
     seen_inbox_turns = {}
-    inbox_paths = _pending_request_paths(store.memory_dir)
     if forced_only:
         forced_paths = []
         for path in inbox_paths:
@@ -971,7 +1134,7 @@ def drain(
                 seen_inbox_turns[inbox_turn_key] = str(
                     request.get("source_text", "")
                 )
-            result = ingest_request(request_path, memory_dir=store.memory_dir)
+            result = ingest_request(request_path, memory_dir=store.memory_dir, invoke=invoke)
             results.append(result)
             if result.get("turn_key"):
                 attempted_turn_keys.add(result["turn_key"])
@@ -999,7 +1162,7 @@ def drain(
         if turn_key in attempted_turn_keys:
             continue
         try:
-            results.append(resolve_turn(turn_key, memory_dir=store.memory_dir))
+            results.append(resolve_turn(turn_key, memory_dir=store.memory_dir, invoke=invoke))
         except Exception as exc:
             # resolve_turn claimed the turn (charging the attempt) before it
             # raised; charging again here made one real failure count double.
@@ -1180,6 +1343,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="memory_upsert")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    init_parser = sub.add_parser('init')
+    init_parser.add_argument('--memory-dir', required=True)
+    init_parser.add_argument('--namespace', required=True)
+
     enqueue_parser = sub.add_parser("enqueue")
     enqueue_parser.add_argument("--request-file", default="-")
     enqueue_parser.add_argument("--memory-dir", default="")
@@ -1229,7 +1396,12 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     memory_dir = getattr(args, "memory_dir", "") or None
     try:
-        if args.command == "enqueue":
+        if args.command == 'init':
+            store = MemoryStore(memory_dir, legacy_dirs=[])
+            store.initialize(namespace=args.namespace)
+            result = {'status': 'initialized', 'memory_dir': str(store.memory_dir),
+                      'namespace': args.namespace}
+        elif args.command == "enqueue":
             if args.manual and hooks_enabled():
                 result = {
                     "status": "delegated_to_automatic_hook",
@@ -1252,6 +1424,9 @@ def main(argv=None) -> int:
                     memory_dir=memory_dir,
                     spawn_worker=not args.no_spawn,
                     force=args.force,
+                    context_reference=request.get("context_reference"),
+                    detect_signal=bool(request.get("detect_signal", False)),
+                    namespace=request.get('namespace', ''),
                 )
         elif args.command == "resolve":
             result = resolve_turn(args.turn_key, memory_dir=memory_dir)
@@ -1270,6 +1445,7 @@ def main(argv=None) -> int:
                 context=request.get("context", ""),
                 plan=plan,
                 memory_dir=memory_dir,
+                namespace=request.get('namespace', ''),
             )
         elif args.command == "inspect":
             result = inspect(memory_dir=memory_dir)

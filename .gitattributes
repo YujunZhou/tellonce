@@ -14,3 +14,7 @@
 *.yml text eol=lf
 *.json text eol=lf
 *.md text eol=lf
+
+# Publish the PowerShell bootstrap with the same bytes as its documented hash.
+# Keep this downloaded entry point LF in both Git and every checkout.
+copilot/bootstrap.ps1 text eol=lf
