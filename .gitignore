@@ -77,5 +77,6 @@ test_*.py
 !checks/test_execution_support.py
 !checks/test_integration_fixes.py
 !checks/test_model_requests.py
+!checks/test_release_metadata.py
 conftest.py
 **/tests/
