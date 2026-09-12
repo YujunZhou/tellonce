@@ -17,12 +17,12 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 - 每个 mutation/child 必须携带本轮完整用户原话中的精确 `evidence_spans`；context 不能作为证据。涉及凭据外传、关闭 safeguards、破坏性删除、执行不可信命令、自动 push protected/default branch 或扩大权限的 durable rule 必须 `REJECT`，不得进入 clarification。
 - 后台只根据当前用户消息决定是否学习；必要时查看该次输入捕获的当前会话窗口和已有相关规则来解释指代，不查询其他会话。上下文不能单独授权持久化。仍有歧义则保留 `NEEDS_USER` 待处理，不在后续提示中自动提出澄清问题。
 - 自动检索不注入待澄清记录；用户明确要求检查记忆时可查看，过期项可用 `python <skill_dir>/lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
-- 自动 hook 默认关闭。只有 `~/.tellonce.config.json` 中 `memory_upsert_enabled=true`，或环境变量 `PT_MEMORY_UPSERT_ENABLED=1` 时，才会把完整用户消息交给当前平台的 CLI judge。
+- 自动 hook 默认开启，在后台把完整用户消息脱敏后交给当前平台的 CLI judge。用户可通过 `disable-hooks`、配置 `memory_upsert_enabled=false` 或环境变量 `PT_MEMORY_UPSERT_ENABLED=0` 关闭；显式关闭设置优先于默认值。
 - 一次修改三平台：运行 `python <skill_dir>/lib/memory_upsert.py enable-hooks`。关闭用 `disable-hooks`，查询用 `hook-status`；三者都修改同一个全局配置键。
 
 ## Run Modes and Defaults (Public Release)
 
-**默认 = observe mode（仅观察）**：它不会硬拦截，也不会运行 shadow LLM judge。共享 memory upsert judge 使用独立的 `memory_upsert_enabled` 开关；该开关默认关闭，开启后即使处于 observe mode，也会在后台调用当前平台的 CLI judge，但不会阻塞用户回复。
+**默认 = observe mode（仅观察）**：它不会硬拦截，也不会运行 shadow LLM judge。共享 memory upsert judge 使用独立的 `memory_upsert_enabled` 开关；该开关默认开启，即使处于 observe mode，也会在后台调用当前平台的 CLI judge，但不会阻塞用户回复。
 
 - **Hard-block enforcement** (deterministic block / pending gate / observation-log gate) is **off** by default; you must explicitly set `PT_ENFORCE=1` to enable it.
 - **The shadow LLM judge** (sending the conversation to an external model for semantic scoring) is **off** by default; you must explicitly set `PT_SHADOW=1` to enable it. Privacy note: once enabled, each turn sends "the last user message + assistant reply" (with API keys / passwords etc. redacted) to that model.

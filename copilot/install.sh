@@ -203,7 +203,7 @@ fi
 echo "Current mode = ${MODE}"
 echo ""
 echo "observe = no hard blocking or shadow judge."
-echo "          Memory upsert has a separate global enable-hooks switch."
+echo "          Memory upsert is enabled by default; use disable-hooks to opt out."
 echo "enforce = also hard-blocks replies that violate your saved rules."
 echo "full    = enforce + an LLM 'shadow judge' (sends the conversation to"
 echo "          copilot -p; redacts secrets first)."

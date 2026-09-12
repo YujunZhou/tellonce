@@ -133,7 +133,7 @@ python3 ~/.claude/skills/tellonce/lib/path_config.py
 
 ```
 UserPromptSubmit hooks (3):
-  memory-upsert-enqueue.sh        [opt-in user prompt → background memory inbox]
+  memory-upsert-enqueue.sh        [default-on user prompt → background memory inbox; explicit opt-out supported]
   memory-retrieve-inject.sh       [retrieve relevant saved rules, inject by atomic_id]
   memory-shadow-alert-inject.sh   [soft injection: "you violated X last turn"]
 

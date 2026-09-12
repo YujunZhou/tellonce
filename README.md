@@ -1,6 +1,6 @@
 # Tellonce
 
-Version **1.7.0** moves opt-in automatic learning to user prompts and keeps unresolved memory questions in the background. It also adds explicit, namespaced selection, execution-support, publication and frozen-test APIs for host integrations. These APIs require a host to supply model calls and execution events; installing the plugin does not automatically enable that experimental pipeline. See [release notes](docs/releases/1.7.0.md).
+Version **1.7.1** enables background memory recording by default across Claude Code, Codex and Copilot. Explicit opt-out remains respected. Hard enforcement and the shadow judge remain opt-in; isolated experiment hosts retain their own learning and freeze controls. See [release notes](docs/releases/1.7.1.md).
 
 **English** · [中文](README.zh.md)
 
@@ -18,17 +18,16 @@ language. To leave unrelated code alone. Three turns later it does it again.
 Tellonce can scan turns for preferences, pitfalls, and workflow rules, record
 them in a shared local store, and hard-enforce the ones you care about.
 
-It is **non-blocking and privacy-conservative by default**: installation enables
-local rule retrieval, but automatic model-backed memory upsert and hard
-enforcement are both off. Enable memory upsert explicitly with
-`memory_upsert.py enable-hooks`; it then sends a redacted copy of each complete
-user turn to the current platform's CLI model in a detached worker. The separate
-per-reply shadow judge also remains off until enabled.
+It is **non-blocking by default**: installation enables local rule retrieval
+and background memory recording. A detached worker sends a redacted copy of each
+complete user turn to the current platform's CLI model. Disable automatic
+recording with `memory_upsert.py disable-hooks`; an existing explicit opt-out is
+preserved. Hard enforcement and the separate per-reply shadow judge remain off.
 
 ## ✨ Highlights
 
-- 🧠 **Learns from your corrections when enabled.** Automatic memory upsert is
-  opt-in; local retrieval works without a model call.
+- 🧠 **Learns from your corrections by default.** Automatic memory upsert can
+  be disabled; local retrieval works without a model call.
 - 🛡️ **Opt-in enforcement.** Turn it on and replies that violate your saved
   rules are blocked, and the agent fixes them in the same turn.
 - 🔒 **Local canonical storage.** The SQLite memory remains on your machine.
@@ -78,9 +77,9 @@ The native way — run these two commands **inside Claude Code**:
 ```
 
 The hooks auto-register; start a new session to activate. Tellonce begins in the
-safe `observe` mode (local retrieval, no automatic memory upsert, never blocks).
-Enable background recording with `python3 <plugin>/lib/memory_upsert.py
-enable-hooks`; turn on hard blocking separately with `export PT_ENFORCE=1`.
+`observe` mode (local retrieval and background recording, never blocks).
+Disable background recording with `python3 <plugin>/lib/memory_upsert.py
+disable-hooks`; turn on hard blocking separately with `export PT_ENFORCE=1`.
 
 <details>
 <summary>Or install manually (git clone + register)</summary>
@@ -110,7 +109,7 @@ codex plugin add tellonce --marketplace tellonce
 ```
 
 Tellonce begins in the safe `audit_only` mode (audits, never blocks); automatic
-memory upsert remains off until explicitly enabled.
+memory upsert is enabled by default unless explicitly disabled.
 (The install verb is `codex plugin add`, not `install`.) The Codex marketplace
 manifest is validated against the current Codex CLI (`codex plugin marketplace
 add` + the plugin validator pass); if `/plugin install` doesn't load the hooks on
@@ -131,20 +130,20 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-One-command bootstrap (recommended — pinned to the immutable tag `v1.7.0`, SHA256
+One-command bootstrap (recommended — pinned to the immutable tag `v1.7.1`, SHA256
 published for pre-verification, see
 [`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.sh | bash
 ```
 
 It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with
@@ -180,7 +179,7 @@ optional wrapper for final subprocess output. See
 
 | Mode | Hard block | LLM judge | What it does |
 |---|---|---|---|
-| **observe** (default) | off | off | Retrieves saved rules locally. Automatic memory upsert is controlled by a separate opt-in switch. |
+| **observe** (default) | off | off | Retrieves saved rules locally. Automatic memory upsert is controlled by a separate switch, enabled by default. |
 | **enforce** | on | off | Deterministic hard-block layer **plus the scan-completeness stop gate**. The deterministic layer ships with **no built-in rules** (an opt-in extension point), so it blocks no content on its own; the stop gate self-seeds on first run. |
 | **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against your recorded preferences (costs time / credit). |
 
@@ -201,11 +200,11 @@ python "<plugin>/lib/pt_mode.py" status    # show the current mode
 ```
 
 **Privacy:** canonical storage and progressive retrieval stay local.
-When enabled, preference recording/merging calls the current platform's CLI
+By default, preference recording/merging calls the current platform's CLI
 model with a redacted turn. An explicit manual `--force` enqueue can do the same
 while automatic hooks are off. `full` additionally sends the redacted latest
 message and reply to the CLI model for compliance scoring. For fully offline
-use, leave memory upsert and the shadow judge disabled and keep progressive
+use, disable memory upsert and leave the shadow judge disabled and keep progressive
 retrieval.
 
 ## How it works
@@ -214,9 +213,9 @@ retrieval.
    on every prompt (UserPromptSubmit); on Copilot once per session at
    SessionStart (its only injection point).
 2. **Observation and memory upsert are separate** — platform hooks may append a
-   local observation record, but no model-backed memory mutation runs unless
-   `memory_upsert_enabled` is explicitly enabled (or a manual forced enqueue is
-   requested).
+   local observation record. Automatic memory upsert is enabled by default and
+   runs in the background; an explicit `memory_upsert_enabled=false` disables it.
+   Experimental hosts control their own isolated learning and frozen-test lifecycle.
 3. **In `full`** — a small-model LLM judge checks each reply against the rules
    you list in `PT_SHADOW_RULE_IDS` and flags violations for the agent to fix.
    (The `enforce` deterministic layer ships with **no built-in rules** — it is

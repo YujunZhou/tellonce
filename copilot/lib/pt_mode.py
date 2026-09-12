@@ -70,7 +70,7 @@ def _print_status(cfg):
             'PT_MEMORY_UPSERT_ENABLED',
             os.environ.get(
                 'B5_MEMORY_UPSERT_ENABLED',
-                cfg.get('memory_upsert_enabled', False),
+                cfg.get('memory_upsert_enabled', True),
             ),
         )
     )

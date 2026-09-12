@@ -123,7 +123,7 @@ mkdir -p "${SKILL_DIR}" 2>/dev/null || true
 # log() stdout from the log, breaking `cat install.log` troubleshooting.
 exec > >(tee "${LOG_FILE}") 2>&1
 
-log "Tellonce install — version 1.7.0"
+log "Tellonce install — version 1.7.1"
 log "  HOME: ${HOME}"
 log "  PROJECT: ${PROJECT_ROOT}"
 log "  SKILL_DIR: ${SKILL_DIR}"
@@ -476,7 +476,7 @@ log "  - state: ${STATE_DIR}"
 log "  - memory: ${MEMORY_DIR}"
 log ""
 log "Notes (to avoid confusion for new users):"
-log "  - Default observe mode: no hard blocking or shadow judge; memory upsert remains separately opt-in."
+log "  - Default observe mode: no hard blocking or shadow judge; background memory upsert is on by default (disable-hooks to opt out)."
 log "  - The shadow judge only runs in full mode, and its first run has cold-start latency (it spawns a claude -p"
 log "    subprocess that may take tens of seconds to a few minutes) — this is not a hang or a broken install. Observe mode never runs it."
 log "    To disable it entirely: export PT_SHADOW_DISABLED=1"

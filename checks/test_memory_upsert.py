@@ -1432,7 +1432,7 @@ class MemoryUpsertCases(unittest.TestCase):
 
             self.assertFalse(prompt_path.exists())
 
-    def test_enqueue_is_disabled_without_opt_in(self):
+    def test_enqueue_is_disabled_when_explicitly_off(self):
         with tempfile.TemporaryDirectory() as td:
             with mock.patch.object(memory_upsert, "hooks_enabled", return_value=False):
                 result = memory_upsert.enqueue("偏好", memory_dir=td)

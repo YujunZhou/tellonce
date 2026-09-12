@@ -72,7 +72,10 @@ def _memory_upsert_enabled():
         return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
     try:
         with open(path_config.CONFIG_PATH, encoding='utf-8-sig') as f:
-            return bool(json.load(f).get('memory_upsert_enabled', False))
+            value = json.load(f).get('memory_upsert_enabled', True)
+            return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+    except FileNotFoundError:
+        return True
     except Exception:
         return False
 

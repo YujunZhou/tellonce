@@ -49,13 +49,20 @@ def _default_turn_key() -> str:
 
 
 def hooks_enabled() -> bool:
+    """Public installs learn by default; explicit opt-out always wins.
+
+    An unreadable existing config stays disabled rather than ignoring a
+    potentially saved opt-out. Isolated host APIs supply their own controls.
+    """
     value = os.environ.get("PT_MEMORY_UPSERT_ENABLED")
     if value is None:
         value = os.environ.get("B5_MEMORY_UPSERT_ENABLED")
     if value is None:
         try:
             config = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
-            value = config.get("memory_upsert_enabled", False)
+            value = config.get("memory_upsert_enabled", True)
+        except FileNotFoundError:
+            value = True
         except Exception:
             value = False
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
@@ -1332,8 +1339,9 @@ def configure_hooks(enabled: bool | None = None) -> dict:
     effective = hooks_enabled()
     return {
         "status": "enabled" if effective else "disabled",
-        "configured": bool(config.get("memory_upsert_enabled")),
-        "source": "environment" if env_value is not None else "config",
+        "configured": str(config.get("memory_upsert_enabled", True)).strip().lower() in {"1", "true", "yes", "on"},
+        "source": ("environment" if env_value is not None else
+                   "config" if "memory_upsert_enabled" in config else "default"),
         "config_path": str(CONFIG_PATH),
         "applies_to": ["claude", "copilot", "codex"],
     }

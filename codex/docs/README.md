@@ -2,6 +2,10 @@
 
 Codex-native port of the corrected Claude Code `tellonce`.
 
+Since 1.7.1, background automatic recording is enabled, using the current
+platform CLI model on redacted user input. `memory_upsert.py disable-hooks` opts
+out; existing explicit opt-out is retained. Hard blocking remains opt-in.
+
 ## User Flow
 
 The external UX should stay simple:

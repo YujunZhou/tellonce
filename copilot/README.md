@@ -4,11 +4,13 @@
 
 Your AI coding agent records the preferences, pitfalls, and workflow rules you
 teach it — and stops repeating mistakes you already corrected. It is
-**non-blocking by default**. Installation enables local retrieval, while
-automatic model-backed memory upsert remains off until you run
-`python "<plugin>/lib/memory_upsert.py" enable-hooks`. Once enabled, a detached
-worker sends a redacted turn to the current platform's CLI model. The separate
-shadow judge remains off until enabled.
+**non-blocking by default**, with background memory recording enabled. A detached
+worker sends redacted user input to the platform CLI model. Run
+`python "<plugin>/lib/memory_upsert.py" disable-hooks` to turn recording off;
+existing explicit opt-out remains respected. The shadow judge remains off.
+
+The pinned v1.7.1 install commands below include this default. Existing explicit
+opt-out remains respected when upgrading.
 
 For the project overview and the other platforms, see the
 [repository landing page](../README.md).
@@ -19,19 +21,19 @@ For the project overview and the other platforms, see the
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.**
-> The command is pinned to the immutable release tag `v1.7.0` (it won't change
+> The command is pinned to the immutable release tag `v1.7.1` (it won't change
 > when `main` does), which is safer.
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.sh | bash
 ```
 
 This command automatically: downloads the plugin → copies it into Copilot's
@@ -39,22 +41,23 @@ plugin directory → installs the optional dependency → registers it with Copi
 (so the hooks load) → sets the safe `observe` mode → records your Python path.
 **Restart Copilot when it's done.**
 
-> 默认模式是 **observe**：不硬拦截、不运行 shadow judge。memory upsert judge 由独立开关控制，默认关闭。
+> v1.7.1 starts in **observe** with background recording enabled. Hard blocking
+> and the shadow judge remain off; `disable-hooks` opts out of recording.
 
 ### Verify integrity
 
 If you'd rather not pipe a script straight into a shell, download it first, read
-it, and check its SHA256 against the value published for `v1.7.0`:
+it, and check its SHA256 against the value published for `v1.7.1`:
 
 ```bash
-# Windows: irm ".../v1.7.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.7.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.7.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.7.1/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| File | SHA256 (v1.7.0) |
+| File | SHA256 (v1.7.1) |
 |------|------------------|
-| `bootstrap.ps1` | `04c737c7205372d2435360aa0e1a39f33d8745f330613764b5227b15ebf1417e` |
-| `bootstrap.sh`  | `ce3a3c2e5535833bfc11a4a605e5864d21ed2407ba4919f35b05cd72b6929b91` |
+| `bootstrap.ps1` | `17d4c0f11b3035f7f15a5e3fc27f73047a13ae6e870ce2a4f86a2efe1f664d5f` |
+| `bootstrap.sh`  | `666ea5e7db7845c18fe83af3570870cf1bc4cba46190b84f13d927ef2869cb55` |
 
 ---
 
@@ -72,7 +75,7 @@ the full path is printed at the end of install.
 
 | Mode | Hard block | LLM judge | Description |
 |------|------------|-----------|-------------|
-| **observe** (default) | off | off | Retrieves saved rules locally; automatic memory upsert is controlled by its separate opt-in switch. |
+| **observe** (default) | off | off | Retrieves saved rules locally; automatic memory upsert is controlled by its separate switch, enabled by default. |
 | **enforce** | on | off | Deterministic hard-block layer **plus the scan-completeness stop gate**. The deterministic layer ships with **no built-in rules** (an opt-in extension point), so it blocks no content on its own; the stop gate self-seeds on first run. |
 | **full** | on | on | `enforce` plus a small-model LLM judge that checks each reply against the recorded preferences you list in `PT_SHADOW_RULE_IDS` (comma-separated atomic_ids; `pt_mode.py full` prints a reminder when it's unset) — costs time / credit. |
 
@@ -101,11 +104,11 @@ then the plugin files; your saved memory is kept):
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/uninstall.sh | bash
 ```
 **Restart Copilot afterward.** To also wipe your saved memory/state, download the
 script and run it with `-Purge` (PowerShell) / `--purge` (bash). Note that

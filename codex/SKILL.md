@@ -11,11 +11,11 @@ description: Use when handling any user message; records and enforces user prefe
 
 - 三个平台共用 `<project_root>/.tellonce/memory/`。SQLite 是唯一真值；旧的 `.codex/tellonce/memories/active` 只作为首次迁移来源。
 - 持久偏好只能通过 `shared_lib/memory_upsert.py enqueue` 入队；agent 主动记录使用 `python <skill_dir>/shared_lib/memory_upsert.py enqueue --manual --force --source-text "<完整原始用户消息>"`，自动 hook 已启用时会跳过重复入队。复杂多行消息可改用 `--request-file <json>`。禁止直接写 active Markdown。
-- UserPromptSubmit 自动 upsert 默认关闭；启用后前台只写 inbox 并启动 detached worker，立即返回。LLM 判断（`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|REJECT|ARCHIVE|RESTORE`）与 SQLite 提交都在后台进行，任何失败都不能阻塞用户。
+- UserPromptSubmit 自动 upsert 默认开启；前台只写 inbox 并启动 detached worker，立即返回。LLM 判断（`NOOP|UPDATE|SUPERSEDE|SPLIT|NEW|REJECT|ARCHIVE|RESTORE`）与 SQLite 提交都在后台进行，任何失败都不能阻塞用户。
 - 每个 mutation/child 必须携带本轮完整用户原话中的精确 `evidence_spans`；危险 durable rule 使用 `REJECT`，明确停用规则使用事务化 `ARCHIVE`，恢复 archived rule 使用 `RESTORE`。
 - 后台只根据当前用户消息决定是否学习；必要时查看该次输入捕获的当前会话窗口和已有相关规则来解释指代，不查询其他会话。上下文不能单独授权持久化。仍有歧义则保留 `NEEDS_USER` 待处理，不在后续提示中自动提出澄清问题。
 - 自动检索不注入待澄清记录；用户明确要求检查记忆时可查看，过期项可用 `python <skill_dir>/shared_lib/memory_upsert.py dismiss --turn-key <id>` 手动移除。
-- 自动 hook 默认关闭。设置 `memory_upsert_enabled=true` 或 `PT_MEMORY_UPSERT_ENABLED=1` 后才启用。
+- 自动 hook 默认开启。设置 `memory_upsert_enabled=false` 或 `PT_MEMORY_UPSERT_ENABLED=0` 可关闭，已有显式关闭设置继续有效。
 - 一次修改三平台：运行 `python <skill_dir>/shared_lib/memory_upsert.py enable-hooks`；`disable-hooks` 关闭，`hook-status` 查询。
 
 Codex actually exposes the same hook system as Claude Code (`PreToolUse /

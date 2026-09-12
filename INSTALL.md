@@ -244,8 +244,12 @@ export PT_RETRIEVE_TIMEOUT=12       # seconds, default 12
 
 ## Privacy / data flow (read before installing)
 
-**Default posture: everything that can send data anywhere is OFF or local.**
-The default `observe` mode records to local files and reminds you — the shadow
+**Default posture: local retrieval plus non-blocking background learning through your platform CLI model.**
+The default `observe` mode retrieves local rules and records new user corrections
+in the background through your platform CLI model. Automatic recording is enabled
+by default starting in 1.7.1; `memory_upsert.py disable-hooks` turns it off
+and existing explicit opt-out is preserved. Experimental host APIs keep their own
+learning/freeze controls. The shadow
 LLM judge is **OFF by default** (`path_config` public default `shadow=false`;
 it only runs in `full` mode / `PT_SHADOW=1`).
 

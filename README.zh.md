@@ -1,6 +1,6 @@
 # Tellonce
 
-**1.7.0** 将可选自动学习统一到用户输入，未解决的记忆问题留在后台，不自动打断用户追问。另新增供宿主接入的独立记忆、规则筛选、执行支持、发布与测试冻结接口；这些接口需要宿主提供模型调用和执行事件，安装插件不会自动启用整套实验流程。详见[版本说明](docs/releases/1.7.0.md)。
+**1.7.1** 在 Claude Code、Codex 和 Copilot 中默认开启后台记忆记录，保留已有显式关闭设置。硬拦截和 shadow judge 仍需单独开启；实验宿主继续独立控制学习和测试冻结。详见[版本说明](docs/releases/1.7.1.md)。
 
 [English](README.md) · **中文**
 
@@ -15,14 +15,14 @@
 它又犯了。Tellonce 可以扫描对话中的偏好（preference）、陷阱（pitfall）和摩擦
 （friction），把它们保存到共享本地真值，并对你在意的规则做硬性强制。
 
-它**默认不阻断，也不自动调用模型记录**：安装后只启用本地规则检索；
-`memory_upsert_enabled`、硬拦截和逐回复 shadow judge 都默认关闭。显式运行
-`memory_upsert.py enable-hooks` 后，detached worker 才会把完整用户 turn 脱敏后交给
-当前平台的 CLI 模型解析。
+它**默认开启后台记忆记录，不阻断当前对话**：安装后可读取已存规则，并由后台进程把
+完整用户消息脱敏后交给当前平台的 CLI 模型，判断是否值得长期保存。
+运行 `memory_upsert.py disable-hooks` 可关闭；已有的显式关闭设置继续有效。
+硬拦截和逐回复 shadow judge 仍默认关闭。
 
 ## ✨ 亮点
 
-- 🧠 **按需从纠正中学习**：自动 memory upsert 是 opt-in；本地规则检索不调用模型。
+- 🧠 **默认从纠正中学习**：自动 memory upsert 可随时关闭；本地规则检索不调用模型。
 - 🛡️ **可选的强制执行**：打开后，违反你已存规则的回复会被拦下，助手在同一轮里改正。
 - 🔒 **本机保存真值**：SQLite memory 留在本机；模型支持的 upsert 与可选 shadow
   judge 只接收脱敏文本，并走你自己的订阅。（「检索相关规则」默认**完全本地、零模型调用**
@@ -112,19 +112,19 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
-一键引导脚本（推荐——钉在不可变 tag `v1.7.0`、SHA256 已公布，可在管道前核对，见
+一键引导脚本（推荐——钉在不可变 tag `v1.7.1`、SHA256 已公布，可在管道前核对，见
 [`copilot/README.md`](copilot/README.md#verify-integrity)）：
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.0/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.sh | bash
 ```
 
 它会：下载 **Copilot 适配版插件**（`copilot/` 子插件——SessionStart 注入、
@@ -155,7 +155,7 @@ Codex 使用原生工具 hooks，并可选用 wrapper 检查 subprocess 最终�
 
 | 模式 | 硬拦截 | LLM 判官 | 说明 |
 |---|---|---|---|
-| **observe**（默认） | 关 | 关 | 本地检索已存规则；自动 memory upsert 由独立 opt-in 开关控制 |
+| **observe**（默认） | 关 | 关 | 本地检索已存规则；自动 memory upsert 由独立开关控制，默认开启 |
 | **enforce** | 开 | 关 | 确定性硬拦截层 **加上"扫描完整性"停止闸门**。确定性层**不带任何内置规则**（opt-in 扩展点），所以不会拦你的内容；停止闸门首次运行会自动播种 |
 | **full** | 开 | 开 | `enforce` + 小模型 LLM 判官，按你记录的偏好逐条检查回复（多花时间/额度） |
 
@@ -174,17 +174,17 @@ python "<plugin>/lib/pt_mode.py" full      # 硬拦截 + LLM 判官
 python "<plugin>/lib/pt_mode.py" status    # 看当前模式
 ```
 
-**隐私**：SQLite 真值和 `progressive` 检索留在本机。启用后，记录或合并偏好会把
+**隐私**：SQLite 真值和 `progressive` 检索留在本机。默认后台记录或合并偏好会把
 当前 turn 脱敏后交给当前平台的 CLI 模型判断；显式手工 `--force` enqueue 在自动 hook
 关闭时也会执行一次。`full` 还会把脱敏后的最近消息和回复发送给 CLI 模型做合规评分。
-如需完全离线，请保持 memory upsert 与 shadow judge 关闭。
+如需完全离线，请关闭 memory upsert，并保持 shadow judge 关闭。
 
 ## 它怎么工作
 
 1. **规则注入**——Claude Code / Codex 上每次提交消息（UserPromptSubmit）都注入
    已存规则；Copilot 上每个会话开始时注入一次（它唯一的注入点）。
-2. **观察与 memory upsert 分离**——平台 hook 可以写本地观察日志，但只有显式启用
-   `memory_upsert_enabled`（或手工 forced enqueue）才会执行模型支持的记忆 mutation。
+2. **观察与 memory upsert 分离**——平台 hook 可以写本地观察日志；自动记忆记录默认在后台运行，
+   显式设置 `memory_upsert_enabled=false` 可关闭。实验宿主单独控制学习和测试冻结。
 3. **在 `full` 下**——小模型 LLM 判官按你在 `PT_SHADOW_RULE_IDS` 里列出的规则逐条
    检查回复，标出违规让助手改正。（`enforce` 的确定性层**不带任何内置规则**，是
    opt-in 扩展点，不会拦你的内容。）
