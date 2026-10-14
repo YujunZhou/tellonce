@@ -3,7 +3,7 @@
   "cli": "claude",
   "model": "opus",
   "timeout_seconds": 300,
-  "prompt_sha256": "16466969682fbb52c0f630a59843dfdf4abfbc95111d7a44f2ef3119b5d87441",
+  "prompt_sha256": "d2f0700729c0f68ebf4e4f2f727d5be719d4931d0ddda99b3b66ce34b4a34f2d",
   "fixtures": [
     {
       "id": "generic-project-completion-needs-user",
@@ -221,6 +221,11 @@
       ]
     }
   ],
-  "previous_prompt_sha256": "8a6b3d23eaf926990584282a4c43056e1227d0a4c55ae88c7add60f2342f263a",
-  "semantic_validation_status": "pending_review_gate_not_rerun"
+  "previous_prompt_sha256": "16466969682fbb52c0f630a59843dfdf4abfbc95111d7a44f2ef3119b5d87441",
+  "semantic_validation_status": "pending_review_gate_not_rerun",
+  "prompt_hash_history": [
+    "8a6b3d23eaf926990584282a4c43056e1227d0a4c55ae88c7add60f2342f263a",
+    "16466969682fbb52c0f630a59843dfdf4abfbc95111d7a44f2ef3119b5d87441"
+  ],
+  "prompt_review_note": "2026-09-22: condition-preserving generalization reviewed with separate Gemma training diagnostics; the 21 legacy Claude/Opus fixtures have NOT been rerun. Updating the source snapshot is not a claim that they passed."
 }

@@ -154,13 +154,19 @@ class BackgroundContextTest(unittest.TestCase):
             calls.append(prompt)
             if 'only admission' in prompt:
                 return '{"signal":true}'
+            if 'reconstruct what the user is correcting' in prompt:
+                return json.dumps(dict(status='resolved', target_quote='', user_quotes=[source],
+                    context_quotes=[], rejected='', retained='', corrected_meaning=source, behavioral_lesson=source,
+                    unsupported_inferences=[]))
             return json.dumps(plan('NEW', source, evidence_spans=[source]))
         with mock.patch.object(memory_judge, '_invoke_cli', side_effect=AssertionError('operator backend')), \
              mock.patch.dict(os.environ, {'PT_TEST_MEMORY_UPSERT_PLAN':'INVALID OPERATOR OVERRIDE'}):
             result = memory_upsert.ingest_request(queued['request_file'], memory_dir=store.memory_dir, invoke=invoke)
         self.assertEqual(result['status'], 'projected')
-        self.assertEqual(len(calls), 2)
-        self.assertIn('Do not store task answers', calls[1])
+        self.assertEqual(len(calls), 3)
+        self.assertIn('Do not store task answers', calls[2])
+        stored = json.loads(store.get_turn('isolated')['plan_json'])
+        self.assertEqual(stored['correction_interpretation']['user_quotes'], [source])
 
     def test_stop_never_reads_or_learns_from_assistant(self):
         with mock.patch.object(memory_upsert, 'hooks_enabled', return_value=True), \

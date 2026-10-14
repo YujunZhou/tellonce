@@ -7,7 +7,7 @@
 模型判断。运行 `python "<plugin>/lib/memory_upsert.py" disable-hooks` 可关闭；已有显式
 关闭设置继续有效。独立的 shadow judge 仍默认关闭。
 
-下方固定 v1.7.1 安装命令已包含此默认值；升级时保留已有显式关闭设置。
+下方固定 v1.8.0 安装命令已包含此默认值；升级时保留已有显式关闭设置。
 
 项目总览和其它平台见[仓库落地页](../README.zh.md)。
 
@@ -16,39 +16,39 @@
 ## 一键安装（复制一条命令，不用管你的环境）
 
 > 前提：已装好 GitHub Copilot CLI 和 Python 3.7+，其余全自动。装完**重启 Copilot**。
-> 命令钉在不可变的 release tag `v1.7.1`（不会因 `main` 变动而改），更安全。
+> 命令钉在不可变的 release tag `v1.8.0`（不会因 `main` 变动而改），更安全。
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.0/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.0/copilot/bootstrap.sh | bash
 ```
 
 这条命令会自动：下载插件 → 放进 Copilot 的插件目录 → 装好可选依赖 → 注册进 Copilot
 （hook 才会加载）→ 设成安全的 `observe` 模式 → 记录你的 Python 路径。**装完重启 Copilot。**
 
-> v1.7.1 默认 **observe**，开启后台自动记录；硬拦截和 shadow judge 仍关闭。可用 `disable-hooks` 关闭记录。
+> v1.8.0 默认 **observe**，开启后台自动记录；硬拦截和 shadow judge 仍关闭。可用 `disable-hooks` 关闭记录。
 
 ### 核对脚本完整性
 
-如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.7.1`
+如果不想把脚本直接管道进 shell，可以先下载读一遍，并核对 SHA256（应等于 `v1.8.0`
 公布的值）：
 
 ```bash
-# Windows: irm ".../v1.7.1/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.7.1/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.8.0/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.8.0/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| 文件 | SHA256 (v1.7.1) |
+| 文件 | SHA256 (v1.8.0) |
 |------|------------------|
-| `bootstrap.ps1` | `17d4c0f11b3035f7f15a5e3fc27f73047a13ae6e870ce2a4f86a2efe1f664d5f` |
-| `bootstrap.sh`  | `666ea5e7db7845c18fe83af3570870cf1bc4cba46190b84f13d927ef2869cb55` |
+| `bootstrap.ps1` | `5ffe8f800c2da9293bcca0b4df6e7b748e5865b4d4647d21e678e7a5e62afc7d` |
+| `bootstrap.sh`  | `5cd48a4ccbd2ea5b6943995bfda285ab57d38c7c1469ae1d93dba55911172fa2` |
 
 ---
 
@@ -90,11 +90,11 @@ Memory mutation 结果为
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.0/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.0/copilot/uninstall.sh | bash
 ```
 **卸载后重启 Copilot。** 若还想清掉保存的 memory/state，先下载脚本，再带
 `-Purge`（PowerShell）/ `--purge`（bash）运行。注意 `--purge` / `--all` 删的是

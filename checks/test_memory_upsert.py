@@ -75,6 +75,10 @@ def plan(
                 "applicability_evidence": applicability_evidence,
                 "children": [],
                 "reason": "test",
+                **(
+                    {"carried_over": {"existing_requirements": ["stored rule"], "dropped": []}}
+                    if operation == "UPDATE" else {}
+                ),
             }
         ],
         "reason": "test plan",
@@ -675,6 +679,7 @@ class MemoryUpsertCases(unittest.TestCase):
             "mutations": [
                 {
                     "operation": "UPDATE",
+                    "carried_over": {"existing_requirements": ["stored rule"], "dropped": []},
                     "target_ids": ["comm-pref-001"],
                     "record": record(
                         "Keep answers concise.",
@@ -833,6 +838,7 @@ class MemoryUpsertCases(unittest.TestCase):
                     "mutations": [
                         {
                             "operation": "UPDATE",
+                            "carried_over": {"existing_requirements": ["stored rule"], "dropped": []},
                             "target_ids": [atomic_id],
                             "record": {"description": "Use concise headings."},
                             "evidence_spans": ["more concise"],
@@ -889,6 +895,7 @@ class MemoryUpsertCases(unittest.TestCase):
             "mutations": [
                 {
                     "operation": "UPDATE",
+                    "carried_over": {"existing_requirements": ["stored rule"], "dropped": []},
                     "target_ids": ["comm-pref-001", "code-pref-001"],
                     "record": record(
                         "Keep answers concise when writing tests.",
@@ -2082,6 +2089,7 @@ class MemoryUpsertCases(unittest.TestCase):
                         "children": [
                             {
                                 "operation": "UPDATE",
+                                "carried_over": {"existing_requirements": ["stored rule"], "dropped": []},
                                 "target_ids": [existing_id],
                                 "record": record(
                                     "Understand each reviewer comment, then choose "
@@ -2351,6 +2359,7 @@ class MemoryUpsertCases(unittest.TestCase):
                     "mutations": [
                         {
                             "operation": "UPDATE",
+                            "carried_over": {"existing_requirements": ["stored rule"], "dropped": []},
                             "target_ids": [atomic_id],
                             "record": global_record,
                             "applicability_evidence": "",
@@ -2376,6 +2385,7 @@ class MemoryUpsertCases(unittest.TestCase):
                     "mutations": [
                         {
                             "operation": "UPDATE",
+                            "carried_over": {"existing_requirements": ["stored rule"], "dropped": []},
                             "target_ids": [atomic_id],
                             "record": project_record,
                             "applicability_evidence": "",
@@ -2401,6 +2411,7 @@ class MemoryUpsertCases(unittest.TestCase):
                         "mutations": [
                             {
                                 "operation": "UPDATE",
+                                "carried_over": {"existing_requirements": ["stored rule"], "dropped": []},
                                 "target_ids": [atomic_id],
                                 "record": task_record,
                                 "applicability_evidence": "",

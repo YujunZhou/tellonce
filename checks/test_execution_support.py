@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'lib'))
+from execution_support import check_prompt_payload
 from rule_selection import Rule, RuleSnapshot
 from execution_support import Event, Observation, Support, compile_support, check_rule, SupportError, canonical, rule_digest
 from memory_publication import prepare_publication, publish, load_publication, Publication
@@ -29,7 +30,10 @@ def transport(value=None):
     value = candidate() if value is None else value
     def invoke(prompt):
         if 'Independently review' in prompt:
-            return '{"approved":true,"meaning_clear":true,"reason":"Matches the rule and cases."}'
+            review={'approved':True,'meaning_clear':True,'reason':'Matches the rule and cases.'}
+            if value['tier'] in {'deterministic','semantic'}:
+                review['case_verdicts']=[c['expected'] for c in value['cases']]
+            return json.dumps(review)
         return json.dumps(value)
     return invoke
 
@@ -37,6 +41,80 @@ def transport(value=None):
 class ExecutionSupportTest(unittest.TestCase):
     def setUp(self):
         self.rule = Rule('r1', 1, 'Return a JSON object containing exactly the answer key.')
+
+    def test_current_stage_state_follows_history_without_losing_evidence_or_identity(self):
+        from dataclasses import asdict
+        rule = Rule('preserve', 1, 'Preserve the requested document fields.')
+        for stage, target in [('pre_action', 'action'), ('artifact', 'artifact'), ('delivery', 'delivery')]:
+            with self.subTest(stage=stage):
+                rubric = {'applicability': 'Editing the document.', 'requirement': rule.rule_text,
+                          'violation': 'A field is lost.', 'non_violation': 'Fields remain.',
+                          'evidence_fields': ['task', target, 'events']}
+                support = Support(rule_digest(rule), 'test', 'semantic', (stage,), canonical(rubric),
+                    canonical({'admitted': True, 'review': {'approved': True, 'meaning_clear': True}}), '')
+                obs = Observation('t', 2, stage, 'Base document: old value.',
+                    **{target: 'Current value: 修订 "confirmed".'},
+                    events=(Event(1, 'prior', 'Earlier draft: old value.', 't'),))
+                before = obs.digest
+                def invoke(prompt):
+                    wire = prompt
+                    data = check_prompt_payload(prompt)
+                    self.assertEqual(data['observation'], json.loads(canonical(asdict(obs))))
+                    self.assertGreater(wire.index('Current value:'), wire.index('Earlier draft:'))
+                    self.assertGreater(wire.index('Current value:'), wire.index('Base document:'))
+                    self.assertEqual(list(data)[0], 'observation')  # 2026-10-03: shared observation first, rule last
+                    quoted_field = json.dumps(target) + ':' + json.dumps(getattr(obs, target), ensure_ascii=False)
+                    self.assertIn(quoted_field, wire)
+                    return canonical({'status': 'pass', 'reason': 'Current state checked.',
+                                      'evidence': [quoted_field]})
+                result = check_rule(rule, support, obs, invoke)
+                self.assertEqual(result.status, 'pass', result.reason)
+                self.assertEqual(result.observation_digest, before)
+                self.assertEqual(obs.digest, before)
+
+    def test_shell_boundaries_preserve_quoted_spaces_for_native_envelopes(self):
+        from execution_support import _shell_words
+        good = "gemini --allowed-tools 'ShellTool(git diff),ShellTool(git status)'"
+        bad = "gemini --allowed-tools 'ShellTool(git diff)' 'ShellTool(git status)'"
+        for action in [good, canonical({'tool': 'Bash', 'arguments': {'command': good}}),
+                       canonical({'tool': 'exec_command', 'arguments': {'cmd': good}})]:
+            with self.subTest(action=action):
+                self.assertEqual(_shell_words(action)['words'],
+                                 ['gemini', '--allowed-tools', 'ShellTool(git diff),ShellTool(git status)'])
+        self.assertEqual(len(_shell_words(bad)['words']), 4)
+        self.assertEqual(_shell_words('echo ""')['words'], ['echo', ''])
+
+    def test_shell_analysis_declines_complex_or_non_shell_actions(self):
+        from execution_support import _shell_words
+        actions = [None, '', 'echo "unclosed', 'echo $HOME', 'echo `pwd`', 'echo *.py',
+                   'echo ok | cat', 'echo ok; pwd', 'echo ok > out', 'echo ok\npwd',
+                   'X=1 echo ok', 'if true', 'echo # comment', '{bad json', '[]',
+                   canonical({'tool': 'Write', 'arguments': {'command': 'echo ok'}}),
+                   canonical({'tool': [], 'arguments': {'command': 'echo ok'}}),
+                   canonical({'tool': 'Bash', 'arguments': {'command': 'echo ok', 'shell': []}}),
+                   canonical({'tool': 'exec_command', 'arguments': {'cmd': 'echo ok', 'shell': 'pwsh'}})]
+        for action in actions:
+            with self.subTest(action=action):
+                self.assertIsNone(_shell_words(action))
+
+    def test_shell_derived_data_does_not_become_observed_quotation(self):
+        rule = Rule('shell', 1, 'Pass the tool list as one comma-separated argument.')
+        rubric = {'applicability':'Tool commands.', 'requirement':rule.rule_text,
+                  'violation':'Split list.', 'non_violation':'One argument.',
+                  'evidence_fields':['task','action']}
+        support = Support(rule_digest(rule), 'test', 'semantic', ('pre_action',), canonical(rubric),
+                          canonical({'admitted':True,'review':{'approved':True,'meaning_clear':True}}), '')
+        action = "gemini --allowed-tools 'ShellTool(git diff),ShellTool(git status)'"
+        obs = Observation('t', 1, 'pre_action', 'Prepare command.', action=action)
+        before = obs.digest
+        def invoke(prompt):
+            payload = check_prompt_payload(prompt)
+            self.assertEqual(payload['shell_lexical_analysis']['words'][2],
+                             'ShellTool(git diff),ShellTool(git status)')
+            return canonical({'status':'pass','reason':'One argument.',
+                              'evidence':['POSIX shell lexical words; no execution or expansion']})
+        self.assertEqual(check_rule(rule,support,obs,invoke).status, 'error')
+        self.assertEqual(obs.digest, before)
 
     def test_semantic_multistage_compilation_requires_only_current_stage_evidence(self):
         rule = Rule('separate', 1, 'Keep the two people separate in plans, files and responses.')
@@ -53,7 +131,7 @@ class ExecutionSupportTest(unittest.TestCase):
         seen = []
         def invoke(prompt):
             if 'Evaluate ONE learned rule' in prompt:
-                observation = json.loads(prompt.split('\n', 1)[1])['observation']
+                observation = check_prompt_payload(prompt)['observation']
                 target = {'pre_action': 'action', 'artifact': 'artifact', 'delivery': 'delivery'}[observation['stage']]
                 seen.append(observation)
                 return canonical({'status': observation[target], 'reason': 'Synthetic verdict.',
@@ -121,6 +199,88 @@ class ExecutionSupportTest(unittest.TestCase):
                 result = check_rule(rule, support, observation, verdict(quote))
                 self.assertEqual(result.status, 'error')
 
+    def test_semantic_quote_decoration_requires_an_exact_observed_inner_span(self):
+        rule=Rule('quote',1,'Rubric-only phrase must not become observed evidence.')
+        rubric=dict(applicability='Warnings.',requirement=rule.rule_text,
+            violation='Wrong.',non_violation='Right.',evidence_fields=['delivery'])
+        support=Support(rule_digest(rule),'test','semantic',('delivery',),canonical(rubric),
+            canonical({'admitted':True,'review':{'approved':True,'meaning_clear':True}}),'Visible warning.')
+        obs=Observation('task',1,'delivery','Task.',delivery='Prefix actual span suffix.')
+        def check(quote,observation=obs):
+            return check_rule(rule,support,observation,lambda _:canonical(
+                dict(status='fail',reason='Exact captured evidence.',evidence=[quote])))
+        for quote in ['"actual span"',"'actual span'",'“actual span”','‘actual span’']:
+            with self.subTest(quote=quote):
+                result=check(quote)
+                self.assertEqual(result.status,'fail')
+                self.assertEqual(result.evidence,('actual span',))
+                self.assertEqual(result.attempts,1)
+        for quote in ['"invented"','"actual span","suffix."','"actual span',
+                      '""actual span""','"  actual span  "','"actual ... suffix."',
+                      '"'+rule.rule_text+'"']:
+            with self.subTest(quote=quote):self.assertEqual(check(quote).status,'error')
+        quoted=Observation('task',1,'delivery','Task.',delivery='Prefix "actual span" suffix.')
+        self.assertEqual(check('"actual span"',quoted).evidence,('"actual span"',))
+
+    def test_json_envelope_accepts_only_one_complete_fence(self):
+        from execution_support import _invoke_json
+        from model_requests import ModelRequestError
+        for raw in ['{"ok":true}', '```json\n{"ok":true}\n```', '  ```\n{"ok":true}\n```\n']:
+            value,attempts=_invoke_json(lambda _:raw,'prompt',role='compile_review')
+            self.assertEqual(value,{'ok':True})
+            self.assertEqual(attempts,1)
+        for raw in ['Explanation\n```json\n{"ok":true}\n```',
+                    '```json\n{"ok":true}\n```\nComment',
+                    '```python\n{"ok":true}\n```','```json\n{"ok":true}',
+                    '```json\n{"ok":true}\n{"ok":false}\n```']:
+            with self.subTest(raw=raw),self.assertRaises(ModelRequestError):
+                _invoke_json(lambda _:raw,'prompt',role='compile_review')
+
+    def test_semantic_table_quote_recovers_the_exact_source_span(self):
+        rule = Rule('room-type', 1, 'Choose a different room type.')
+        rubric = dict(applicability='Comparing room types.', requirement=rule.rule_text,
+                      violation='Same room type.', non_violation='Different room type.',
+                      evidence_fields=['delivery'])
+        support = Support(rule_digest(rule), 'test', 'semantic', ('delivery',), canonical(rubric),
+                          canonical({'admitted': True, 'review': {'approved': True,
+                                                                 'meaning_clear': True}}), 'Room comparison.')
+        row = 'Charming 1BR in UES Townhouse 1134.0\t Entire home/apt'
+        observation = Observation('task', 1, 'delivery', 'Compare the room types.',
+                                  artifact=canonical({'table': 'header\n' + row + '\nnext row'}),
+                                  delivery='Chosen: Charming 1BR in UES Townhouse')
+        quote = 'Charming 1BR in UES Townhouse 1134.0 Entire home/apt'
+        for status in ('pass', 'fail', 'not_applicable', 'unknown'):
+            for text in (quote, '“' + quote + '”'):
+                with self.subTest(status=status, text=text):
+                    result = check_rule(rule, support, observation, lambda _: canonical(
+                        dict(status=status, reason='Recorded comparison.', evidence=[text])))
+                    self.assertEqual(result.status, status)
+                    self.assertEqual(result.evidence, (row,))
+                    self.assertEqual(result.attempts, 1)
+
+    def test_semantic_quote_spacing_never_recovers_changed_or_omitted_content(self):
+        rule = Rule('quote', 1, 'Rule-only text with table-like spacing.')
+        rubric = dict(applicability='Always.', requirement=rule.rule_text,
+                      violation='Wrong.', non_violation='Right.', evidence_fields=['delivery'])
+        support = Support(rule_digest(rule), 'test', 'semantic', ('delivery',), canonical(rubric),
+                          canonical({'admitted': True, 'review': {'approved': True,
+                                                                 'meaning_clear': True}}), 'Quote validation.')
+        observation = Observation('task', 1, 'delivery', 'Check the table.',
+            delivery='Hotel A  1134.0   Entire home/apt\nHotel B  845.0   Private room\n'
+                     'No pets & No smoking\nCost <= 40\n')
+        bad = ['Hotel A 1135.0 Entire home/apt', 'Hotel A 1134.0 Private room',
+               'Hotel A Entire home/apt', 'Hotel A ... Entire home/apt',
+               'Entire home/apt Hotel B', 'Hotel A1134.0 Entire home/apt',
+               'No pets No smoking', 'No pets & No smoking Cost <= 40',
+               'Cost < 40', ' Hotel A 1134.0 Entire home/apt ',
+               rule.rule_text, '““Hotel A 1134.0 Entire home/apt””']
+        for quote in bad:
+            with self.subTest(quote=quote):
+                result = check_rule(rule, support, observation, lambda _: canonical(
+                    dict(status='fail', reason='Claimed mismatch.', evidence=[quote])))
+                self.assertEqual(result.status, 'error')
+                self.assertEqual(result.evidence, ())
+
     def test_deleted_artifact_does_not_fail_a_predicate_on_existing_file_name(self):
         rule=Rule('name',1,'Never name a file secret.txt.')
         admitted=canonical({'admitted':True,'review':{'approved':True,'meaning_clear':True}})
@@ -164,9 +324,55 @@ class ExecutionSupportTest(unittest.TestCase):
         self.assertEqual(support.tier, 'reminder')
         def reject(prompt):
             if 'Independently review' in prompt:
-                return '{"approved":false,"meaning_clear":true,"reason":"Overbroad."}'
+                return '{"approved":false,"meaning_clear":true,"reason":"Overbroad.","case_verdicts":["pass","fail","not_applicable"]}'
             return json.dumps(candidate())
         self.assertEqual(compile_support(self.rule, reject, compiler_id='test').tier, 'reminder')
+
+    def test_independent_review_hides_labels_and_generator_rationale(self):
+        value=candidate();value['reason']='CASE ANSWER KEY: pass, fail, not_applicable'
+        seen=[]
+        def invoke(prompt):
+            if 'Independently review' in prompt:
+                payload=check_prompt_payload(prompt)
+                self.assertNotIn('reason',payload['proposal'])
+                self.assertTrue(all(set(c)=={'observation'} for c in payload['proposal']['cases']))
+                self.assertNotIn('CASE ANSWER KEY',prompt)
+                seen.append(payload)
+            return transport(value)(prompt)
+        result=compile_support(self.rule,invoke,compiler_id='blind-review')
+        self.assertEqual(result.tier,'deterministic')
+        self.assertEqual(len(seen),1)
+        self.assertEqual(json.loads(result.validation_json)['review']['case_verdicts'],
+                         ['pass','fail','not_applicable'])
+
+    def test_independent_unknown_rejects_proposed_pass_despite_approved_true(self):
+        calls=[]
+        def invoke(prompt):
+            calls.append(prompt)
+            if 'Independently review' in prompt:
+                return canonical({'approved':True,'meaning_clear':True,'reason':'First fact unobserved.',
+                                  'case_verdicts':['unknown','fail','not_applicable']})
+            return canonical(candidate())
+        result=compile_support(self.rule,invoke,compiler_id='blind-review')
+        self.assertEqual(result.tier,'reminder')
+        audit=json.loads(result.validation_json)
+        self.assertEqual(audit['repair_rounds'],3)  # 2026-10-03: up to three bounded repairs, each with the latest diagnostic
+        self.assertEqual(audit['case_label_mismatches'],
+                         [{'case_index':0,'proposed':'pass','independent':'unknown'}])
+        self.assertEqual(len(calls),8)  # One ordinary proposal and three bounded repairs, each reviewed.
+
+    def test_incomplete_case_review_cannot_activate_support(self):
+        for labels in [[],['pass','fail'],['pass','fail','not_applicable','pass'],
+                       ['pass','error','not_applicable'],['pass',{},'not_applicable']]:
+            def invoke(prompt):
+                if 'Independently review' in prompt:
+                    return canonical({'approved':True,'meaning_clear':True,'reason':'Incomplete review.',
+                                      'case_verdicts':labels})
+                return canonical(candidate())
+            with self.subTest(labels=labels):
+                result=compile_support(self.rule,invoke,compiler_id='blind-review')
+                self.assertEqual(result.tier,'reminder')
+                self.assertFalse(json.loads(result.validation_json)['admitted'])
 
     def test_structured_file_check_binds_target_and_missing_evidence_is_unknown(self):
         rule = Rule('path', 1, 'Never target a file named secrets.env in any action.')
@@ -336,6 +542,61 @@ class ExecutionSupportTest(unittest.TestCase):
         with self.assertRaises(SupportError):
             all_rule_text(publication, max_chars=10)
 
+    def test_scope_outage_preserves_known_rules_but_not_across_user_boundaries(self):
+        publication = prepare_publication(RuleSnapshot('user-a', 1, (self.rule,)), transport(), compiler_id='test')
+        memory = TaskMemory(publication, expected_namespace='user-a', task_id='task', public_task='Report.',
+                            invoke=lambda _: '["r1"]', training=False)
+        memory.user_boundary('Please proceed.')
+        def unavailable(_):
+            raise RuntimeError('temporary provider failure')
+        memory.invoke = unavailable
+        failed = memory.expand_scope('Deliver the report.').result
+        self.assertEqual(failed.status, 'error')
+        self.assertEqual(failed.failed_ids, ('r1',))
+        self.assertEqual(failed.selected_ids, ('r1',))
+        self.assertIn(self.rule.rule_text, failed.injection)
+        self.assertEqual(memory.check(Observation('task', 1, 'delivery', '', delivery='{}'))[0].status, 'fail')
+        # Identical text is still a NEW input boundary: no stale applicability.
+        self.assertEqual(memory.user_boundary('Please proceed.').result.selected_ids, ())
+
+    def test_successful_scope_exclusion_is_not_overridden_by_outage_fallback(self):
+        publication = prepare_publication(RuleSnapshot('user-a', 1, (self.rule,)), transport(), compiler_id='test')
+        memory = TaskMemory(publication, expected_namespace='user-a', task_id='task', public_task='Report.',
+                            invoke=lambda _: '["r1"]', training=False)
+        memory.user_boundary('Please proceed.')
+        memory.invoke = lambda _: '[]'
+        self.assertEqual(memory.expand_scope('An unrelated operation.').result.selected_ids, ())
+        memory.invoke = lambda _: 'malformed selector response'
+        self.assertEqual(memory.expand_scope('Deliver.').result.selected_ids, ())
+
+    def test_user_boundary_states_whole_response_scope(self):
+        """2026-10-01 MemoryArena habit pilot: with an empty boundary scope line the selector skipped rules whose
+        obligation falls due inside the response (opening lines before the first lookup): 9/37 selected, 33/40
+        once the boundary scope names the opening, every lookup and the delivery."""
+        from memory_runtime import BOUNDARY_SCOPE
+        publication = prepare_publication(RuleSnapshot('user-a', 1, (self.rule,)), transport(), compiler_id='test')
+        prompts = []
+        memory = TaskMemory(publication, expected_namespace='user-a', task_id='task', public_task='Report.',
+                            invoke=lambda prompt: prompts.append(prompt) or '["r1"]', training=False)
+        memory.user_boundary('Please proceed.')
+        memory.expand_scope('Proposed native operation: search.')
+        import json
+        encoded = lambda text: json.dumps(text)[1:-1]   # the query travels JSON-encoded inside the selector prompt
+        self.assertIn(encoded('Current operation scope:\n' + BOUNDARY_SCOPE), prompts[0])
+        self.assertIn('opening explanation', BOUNDARY_SCOPE)
+        self.assertIn(encoded('Current operation scope:\nProposed native operation: search.'), prompts[1])
+        self.assertNotIn(encoded(BOUNDARY_SCOPE), prompts[1])
+
+    def test_oversized_scope_preserves_only_previously_selected_rules(self):
+        publication = prepare_publication(RuleSnapshot('user-a', 1, (self.rule,)), transport(), compiler_id='test')
+        memory = TaskMemory(publication, expected_namespace='user-a', task_id='task', public_task='Report.',
+                            invoke=lambda _: '["r1"]', training=False)
+        memory.user_boundary('Please proceed.')
+        failed = memory.expand_scope('x' * 50000).result
+        self.assertEqual(failed.status, 'error')
+        self.assertEqual(failed.unexamined_ids, ('r1',))
+        self.assertEqual(failed.selected_ids, ('r1',))
+
     def test_oversized_task_selection_is_visible_error_without_blocking_answer(self):
         publication = prepare_publication(RuleSnapshot('user-a', 1, (self.rule,)), transport(), compiler_id='test')
         def forbidden(_):
@@ -347,6 +608,33 @@ class ExecutionSupportTest(unittest.TestCase):
         self.assertEqual(selection.result.injection, '')
         self.assertEqual(selection.result.unexamined_ids, ('r1',))
 
+    def test_partial_scope_outage_preserves_only_failed_previous_rules_within_budget(self):
+        from rule_selection import SelectionResult, render_rule
+        rules = (Rule('r1', 1, 'First reminder.'), Rule('r2', 1, 'Second reminder.'),
+                 Rule('r3', 1, 'Newly applicable obligation. ' * 20))
+        snapshot = RuleSnapshot('user-a', 1, rules)
+        supports = tuple(Support(rule_digest(r), 'test', 'reminder', (), '{}', '{}', 'Text reminder.')
+                         for r in rules)
+        publication = Publication(snapshot, 'test', supports)
+        initial = '\n\n'.join(render_rule(r) for r in rules[:2])
+        current = render_rule(rules[2])
+        for budget, expected in ((len(current)+1, ('r3',)),
+                                 (len(current)+len(render_rule(rules[0]))+2, ('r1','r3'))):
+            memory = TaskMemory(publication, expected_namespace='user-a', task_id='task', public_task='Task',
+                invoke=lambda _: self.fail('fake selection should own the calls'), training=False,
+                limits=SelectionLimits(injection_chars=budget))
+            before = SelectionResult('ok', snapshot.digest, 'task', 'before', ('r1','r2'), initial)
+            partial = SelectionResult('partial', snapshot.digest, 'task', 'after', ('r3',), current,
+                                      failed_ids=('r1',), errors=('one batch unavailable',))
+            with patch('memory_runtime.select_rules', side_effect=[before, partial]):
+                memory.user_boundary('Proceed.')
+                result = memory.expand_scope('New action').result
+            self.assertEqual(result.selected_ids, expected)
+            self.assertNotIn('r2', result.selected_ids)  # A successfully examined exclusion wins.
+            self.assertEqual(result.failed_ids, ('r1',))
+            self.assertLessEqual(len(result.injection), budget)
+            self.assertEqual(result.omitted_ids, ('r1',) if expected == ('r3',) else ())
+
     def test_training_queue_publish_freeze_lifecycle_uses_only_explicit_transport(self):
         from checks.test_memory_upsert import plan
         calls = []
@@ -354,6 +642,10 @@ class ExecutionSupportTest(unittest.TestCase):
             calls.append(prompt)
             if 'only admission' in prompt:
                 return '{"signal":true}'
+            if 'reconstruct what the user is correcting' in prompt:
+                return json.dumps(dict(status='resolved',target_quote='',user_quotes=[self.rule.rule_text],
+                    context_quotes=[],rejected='',retained='',corrected_meaning=self.rule.rule_text,
+                    behavioral_lesson=self.rule.rule_text,unsupported_inferences=[]))
             if 'semantic memory resolver' in prompt:
                 return json.dumps(plan('NEW', self.rule.rule_text, evidence_spans=[self.rule.rule_text]))
             return transport()(prompt)
@@ -403,3 +695,281 @@ class ExecutionSupportTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_compile_prompt_requires_delivery_stage_for_condition_conformance_rules():
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'always include a delivery stage whose check compares the delivered items' in text
+    assert 'a pre_action-only check for such a rule is wrong' in text
+
+
+def test_review_prompt_treats_visible_text_properties_as_established():
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'A synthetic observation shows its complete text' in text
+    assert 'reserve unknown for facts the' in text
+
+
+def test_compile_prompt_describes_runtime_public_dialogue_evidence():
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'Synthetic observations must mirror the runtime evidence model' in text
+    assert 'native_public_dialogue.public_dialogue.messages' in text
+    assert 'never by moving the opening into delivery' in text
+
+
+def test_review_and_check_prompts_read_public_dialogue_messages():
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'a case that supplies them there is not unknown for that reason' in text
+    assert 'judged from those messages at delivery' in text
+
+
+def test_repair_prompt_keeps_inapplicable_case():
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'keep or replace the inapplicable case, never drop it' in text
+
+
+def test_public_message_rules_get_no_pre_action_stage():
+    """2026-10-02 MemoryArena round 9 / ClawArena round 9: opening-line and post-lookup cards compiled with a pre_action
+    stage denied every search (182 blocked operations, four empty plans). A denied operation cannot change a message
+    already sent, so such rules are delivery-stage only."""
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'gets NO pre_action stage' in text
+    assert 'is due after that operation, at delivery, never at pre_action before it' in text
+
+
+def test_check_prompt_denies_only_for_the_operation_itself_and_tolerates_proper_nouns():
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'fail asserts that executing THIS proposed operation would itself violate the rule' in text
+    assert 'is never a reason to deny the' in text and 'operation: return unknown and name the shortfall' in text
+    assert 'proper nouns, file names, identifiers, code and quoted data keep their source form' in text
+
+
+def test_compile_prompt_treats_part_exemption_as_scope_not_ambiguity():
+    """2026-10-03 ClawArena round 10: lang-pref-001 carried does_not_apply_when "开场三行" and the compiler parked it as pending
+    ("含义不明确… 不能启用检查"), leaving the language habit unenforced."""
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'names a PART of the response' in text and 'instead of returning pending' in text
+
+
+def test_reporting_obligations_are_met_by_any_public_message_not_the_fixed_format_deliverable():
+    """2026-10-03 MemoryArena round 13 (v29m): wf-pit-004 "查到后补上名称和数值" failed 108/167 delivery checks although the values were
+    in the public messages ("先前公开消息提及这些信息，不能替代当前交付内容"), lang-pref-002 "编写行程时，说明使用中文" failed 52/71 against the
+    English itinerary body; 49/86 units hit the repair cap and unit wall time reached 6.2× no_memory."""
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'is met by ANY public message of the same response or by the delivered text' in text
+    assert 'is never the required carrier and is never failed for lacking explanatory content' in text
+    assert 'write non_violation as "the response states it in a public message or in the delivery"' in text
+    assert 'alike) still carries a delivery string and matches a chosen stage' in text  # v31: v30 wording made the compiler drop the delivery field from not_applicable cases (4/6 cards reminder-only)
+    assert 'names the carrying part, compile the check on that part' in text and 'is checked on that part' in text
+
+
+def test_repairable_reminder_support_is_recompiled_on_later_publications_then_reused():
+    """2026-10-03 rounds 13-15: one failed compilation pinned a card to reminder (no executable check) until its text
+    changed, so the opening habit it recorded was never enforced; a repairable reminder now gets two fresh compilations
+    on later publications, and a reminder that compilation itself judged final (not repairable) is reused as before."""
+    import json
+    from memory_publication import prepare_publication, RECOMPILE_PUBLICATIONS
+    rule = Rule('opening', 1, 'Open with the three labelled lines.')
+    snap = RuleSnapshot('user-a', 1, (rule,))
+    reminder = Support(rule_digest(rule), 'test', 'reminder', (), '{}',
+                       canonical({'admitted': False, 'repairable': True, 'proposal': {'tier': 'semantic'}}), 'labels disagree')
+    previous = Publication(snap, 'test', (reminder,))
+    calls = []
+    def compiler(prompt):
+        calls.append(prompt)
+        return transport()(prompt)
+    newer = prepare_publication(RuleSnapshot('user-a', 2, (rule,)), compiler, compiler_id='test', previous=previous)
+    assert calls, 'a repairable reminder support must be recompiled on the next publication'
+    assert newer.supports[0].tier in {'semantic', 'deterministic'} or json.loads(newer.supports[0].validation_json)['recompiled_publications'] == 1
+    exhausted = Support(rule_digest(rule), 'test', 'reminder', (), '{}',
+                        canonical({'admitted': False, 'repairable': True, 'recompiled_publications': RECOMPILE_PUBLICATIONS}), 'still disagree')
+    final = Support(rule_digest(rule), 'test', 'reminder', (), '{}', canonical({'admitted': False, 'repairable': False}), 'unclear')
+    def forbidden(_):
+        raise AssertionError('an exhausted or final reminder support must be reused, not recompiled')
+    for support in (exhausted, final):
+        reused = prepare_publication(RuleSnapshot('user-a', 3, (rule,)), forbidden, compiler_id='test',
+                                     previous=Publication(snap, 'test', (support,)))
+        assert reused.supports == (support,)
+    # A same-generation republication (a NOOP turn) must reuse the reminder: one generation cannot publish
+    # conflicting support, and round 16 (2026-10-03) lost its background learner to exactly that SupportError.
+    same = prepare_publication(RuleSnapshot('user-a', 1, (rule,)), forbidden, compiler_id='test', previous=previous)
+    assert same.supports == (reminder,)
+
+
+def test_delivered_choice_rules_get_no_pre_action_stage():
+    """2026-10-03 MemoryArena rounds 13/15: the condition cards ran 707 pre_action checks with zero failures (wf-pit-001 119 pass / 10
+    unknown) — three pre_action rounds per user event of pure cost; only the delivery check decides."""
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'such a rule gets NO' in text and 'pre_action stage at all' in text
+    assert 'pre_action belongs only to rules an operation can break by itself' in text
+
+
+def test_semantic_check_prompt_carries_only_declared_evidence_and_puts_the_observation_first():
+    """2026-10-03: every semantic check sent the whole observation — tool-result events were 67 KB of a 90 KB prompt — although
+    7 of 11 MemoryArena rubrics and 7 of 8 ClawArena rubrics declare only task+delivery; and the rule preceded the observation, so
+    parallel checks of one observation shared no prompt prefix (cached tokens ≈ 5 %)."""
+    import json
+    rule = Rule('fmt', 1, 'Open with three labelled lines.')
+    support = Support(rule_digest(rule), 'test', 'semantic', ('delivery',), canonical({
+        'applicability': 'any reply', 'requirement': 'three labelled lines first', 'violation': 'missing lines',
+        'non_violation': 'lines present', 'evidence_fields': {'delivery': ['task', 'delivery']}}),
+        canonical({'admitted': True, 'review': {'approved': True, 'meaning_clear': True}}), 'ok')
+    prompts = []
+    def invoke(prompt):
+        prompts.append(prompt)
+        return canonical({'reason': 'fine', 'evidence': [], 'status': 'pass'})
+    obs = Observation('t', 7, 'delivery', 'Task text', delivery='目标:\\n方法:\\n拿不准:\\n答案',
+                      events=(Event(1, 'tool_result', 'x' * 2000, 't'),))
+    result = check_rule(rule, support, obs, invoke)
+    assert result.status == 'pass'
+    payload = check_prompt_payload(prompts[0])
+    assert list(payload) == ['observation', 'shell_lexical_analysis', 'rule', 'rubric']
+    observation = payload['observation']
+    assert 'events' not in observation and observation['omitted_fields'] == ['events']
+    assert list(observation)[:2] == ['stage', 'task'] and list(observation)[-3:] == ['task_id', 'sequence', 'omitted_fields']
+    assert observation['action'] is None and observation['artifact'] is None  # undeclared empty fields stay as null
+    assert 'x' * 2000 not in prompts[0]
+    # a rubric that declares events still receives them in full
+    with_events = Support(rule_digest(rule), 'test', 'semantic', ('delivery',), canonical({
+        'applicability': 'any', 'requirement': 'r', 'violation': 'v', 'non_violation': 'n',
+        'evidence_fields': {'delivery': ['task', 'delivery', 'events']}}),
+        canonical({'admitted': True, 'review': {'approved': True, 'meaning_clear': True}}), 'ok')
+    check_rule(rule, with_events, obs, invoke)
+    observation = check_prompt_payload(prompts[1])['observation']
+    assert observation['events'][0]['content'] == 'x' * 2000 and 'omitted_fields' not in observation
+
+
+def test_compile_prompt_declares_events_only_when_operation_results_are_read():
+    """2026-10-03 round 18: the compiler declared events for 4 of 5 cards (opening/format rules included), so item 25 pruned
+    only 6 of 52 check prompts; events are ~67 KB of every observation."""
+    import execution_support as es, inspect
+    text = inspect.getsource(es)
+    assert 'Declare events only when the check must READ operation results' in text
+    assert 'declares task and delivery only; the ' in text and 'not a recommendation to include events' in text
+
+
+def test_repairable_pending_support_is_recompiled_on_later_publications_like_a_reminder():
+    """2026-10-03 ClawArena round 19: two habit cards published as pending after the compiler called a small wording change
+    ambiguous; a pending that compilation itself left repairable now gets the same later recompilations as a reminder, while a
+    pending that comes from the rule's unresolved scope (not repairable) is reused."""
+    import json
+    from memory_publication import prepare_publication, RECOMPILE_PUBLICATIONS
+    rule = Rule('opening', 1, 'Open with the three labelled lines.')
+    snap = RuleSnapshot('user-a', 1, (rule,))
+    pending = Support(rule_digest(rule), 'test', 'pending', (), '{}',
+                      canonical({'admitted': False, 'repairable': True, 'proposal': {'tier': 'pending'}, 'ambiguity': 'which message'}), 'which message')
+    calls = []
+    def compiler(prompt):
+        calls.append(prompt)
+        return transport()(prompt)
+    newer = prepare_publication(RuleSnapshot('user-a', 2, (rule,)), compiler, compiler_id='test', previous=Publication(snap, 'test', (pending,)))
+    assert calls, 'a repairable pending support must be recompiled on the next publication'
+    assert newer.supports[0].tier in {'semantic', 'deterministic'} or json.loads(newer.supports[0].validation_json)['recompiled_publications'] == 1
+    final = Support(rule_digest(rule), 'test', 'pending', (), '{}', canonical({'admitted': False}), 'Rule applicability is explicitly unresolved.')
+    def forbidden(_):
+        raise AssertionError('a pending support from unresolved scope must be reused, not recompiled')
+    reused = prepare_publication(RuleSnapshot('user-a', 3, (rule,)), forbidden, compiler_id='test', previous=Publication(snap, 'test', (final,)))
+    assert reused.supports == (final,)
+
+
+def test_semantic_check_sees_companion_rules_and_never_itself():
+    """2026-10-03 ClawArena round 20 (v39c): the language card "after the Chinese opening use English; Chinese only for required
+    labels" failed 375 of 465 deliveries for the labels 「结论:」「依据:」「排除:」 that two other cards require; the repair swapped them
+    for "Basis:" / "Evidence:", the label cards then failed, and 333 repairs ping-ponged (K2 38 %, K3 52 %, K4 40 %)."""
+    import json
+    lang = Rule('lang-pref-001', 1, 'After the Chinese opening lines write in English; Chinese only for required labels.')
+    label = Rule('fmt-pref-004', 1, 'The first delivery line starts with 「结论:」 and the second with 「依据:」.')
+    support = Support(rule_digest(lang), 'test', 'semantic', ('delivery',), canonical({
+        'applicability': 'any reply', 'requirement': 'English after the opening', 'violation': 'Chinese body text',
+        'non_violation': 'English body, required labels may be Chinese', 'evidence_fields': {'delivery': ['task', 'delivery']}}),
+        canonical({'admitted': True, 'review': {'approved': True, 'meaning_clear': True}}), 'ok')
+    prompts = []
+    def invoke(prompt):
+        prompts.append(prompt)
+        return canonical({'reason': 'fine', 'evidence': [], 'status': 'pass'})
+    obs = Observation('t', 7, 'delivery', 'Task text', delivery='结论: B\n依据: a.md')
+    check_rule(lang, support, obs, invoke, companions=(lang, label))
+    data = check_prompt_payload(prompts[-1])
+    assert [c['atomic_id'] for c in data['companion_rules']] == ['fmt-pref-004']
+    assert '「依据:」' in data['companion_rules'][0]['rule_text'] and list(data)[0] == 'observation'
+    assert 'an element that a companion rule requires' in prompts[-1] and 'is never a violation of this rule' in prompts[-1]
+    check_rule(lang, support, obs, invoke)
+    assert 'companion_rules' not in check_prompt_payload(prompts[-1])
+
+
+
+def test_operations_view_keeps_what_was_done_and_drops_what_was_returned():
+    """2026-10-05 ClawArena: a rule that only needs the names of the files actually used declared events; 267 checks
+    carried a median 94 KB of tool output each, half of the run's check tokens. `operations` is the abbreviated record."""
+    import json as _json
+    import execution_support as es
+    call = {'action': {'arguments': {'command': 'cat docs/a.md'}, 'tool': 'Bash'}, 'tool_use_id': 't1'}
+    events = [{'sequence': 3, 'kind': 'action_proposed', 'content': _json.dumps(call)},
+              {'sequence': 4, 'kind': 'native_runtime_observation', 'content': _json.dumps({'item': {'id': 't1', 'aggregated_output': 'x' * 5000}})},
+              {'sequence': 6, 'kind': 'tool_completed', 'content': _json.dumps({'tool_response': 'y' * 9000, **call})}]
+    view = es.operations_view(events)
+    assert [row['sequence'] for row in view] == [3, 6]                 # the runtime echo of the same call is skipped
+    assert 'cat docs/a.md' in view[1]['content'] and len(view[1]['content']) < 300 and '(+' in view[1]['content']
+    many = [{'sequence': n, 'kind': 'tool_completed', 'content': 'z' * 400} for n in range(200)]
+    bounded = es.operations_view(many)
+    assert sum(len(r['content']) for r in bounded) <= es.OPERATIONS_VIEW_CHARS
+    assert any(r['kind'] == 'operations_omitted' for r in bounded) and bounded[0]['sequence'] == 0 and bounded[-1]['sequence'] == 199
+    check = {'applicability': 'a', 'requirement': 'r', 'violation': 'v', 'non_violation': 'n'}
+    es.validate_check('semantic', {**check, 'evidence_fields': {'delivery': ['task', 'delivery', 'operations']}})
+    import pytest
+    with pytest.raises(es.SupportError):
+        es.validate_check('semantic', {**check, 'evidence_fields': ['task', 'events', 'operations']})
+    import inspect
+    assert 'Declare operations (never together with events)' in inspect.getsource(es._compile_support_attempt)
+
+
+def test_repairable_reminder_is_recompiled_at_freeze_as_a_same_generation_support_repair(tmp_path):
+    """2026-10-06 ClawArena round 30 (v54): the opening-lines card's fifth revision failed one compilation at the last
+    training update and was frozen as a reminder, so K1/K4 were unenforced for the whole test phase (55 % K4
+    violations). prepare_publication only recompiles on a later generation, which a frozen library never has."""
+    import json
+    from memory_publication import (Publication, is_support_repair, publish, load_publication,
+                                    repair_publication, RECOMPILE_PUBLICATIONS)
+    rule = Rule('opening', 1, 'Open with the three labelled lines.')
+    other = Rule('language', 1, 'After the opening, write in the task language.')
+    snap = RuleSnapshot('user-a', 3, (rule, other))
+    reminder = Support(rule_digest(rule), 'test', 'reminder', (), '{}',
+                       canonical({'admitted': False, 'repairable': True, 'proposal': {'tier': 'semantic'}}), 'labels disagree')
+    kept = Support(rule_digest(other), 'test', 'reminder', (), '{}', canonical({'admitted': False, 'repairable': False}), 'unclear')
+    current = Publication(snap, 'test', (reminder, kept))
+    calls = []
+    def compiler(prompt):
+        calls.append(prompt)
+        return transport()(prompt)
+    repaired = repair_publication(current, compiler, compiler_id='test')
+    assert len(calls) >= 1, 'only the repairable reminder is recompiled'
+    if repaired is current:
+        return   # the stub compiler did not produce executable support; nothing to publish
+    assert repaired.generation == current.generation and repaired.snapshot.digest == current.snapshot.digest
+    assert repaired.supports[0].tier in {'semantic', 'deterministic'} and repaired.supports[1] == kept
+    assert json.loads(repaired.supports[0].validation_json)['freeze_recompiled'] is True
+    assert is_support_repair(current, repaired) and not is_support_repair(repaired, current)
+    # publish admits exactly this same-generation replacement and the pointer moves to the repaired publication
+    root = tmp_path / 'published'
+    publish(root, current, expected_namespace='user-a')
+    publish(root, repaired, expected_namespace='user-a')
+    assert load_publication(root, expected_namespace='user-a').digest == repaired.digest
+    # any other same-generation difference is still refused
+    conflicting = Publication(snap, 'test', (repaired.supports[0],
+                                             Support(kept.rule_digest, 'test', 'reminder', (), '{}',
+                                                     canonical({'admitted': False, 'repairable': False}), 'other words')))
+    try:
+        publish(root, conflicting, expected_namespace='user-a')
+    except SupportError:
+        pass
+    else:
+        raise AssertionError('a same-generation publication that is not a support repair must be refused')

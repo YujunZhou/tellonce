@@ -6,6 +6,12 @@ import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from model_requests import request_validated, ModelRequestError, exhausted_request, bind_context
+from execution_support import SupportError
+
+
+def interpretation(text):
+    return dict(status='resolved',target_quote='',user_quotes=[text],context_quotes=[],
+        rejected='',retained='',corrected_meaning=text,behavioral_lesson=text,unsupported_inferences=[])
 
 
 class ModelRequestTest(unittest.TestCase):
@@ -51,7 +57,7 @@ class ModelRequestTest(unittest.TestCase):
 
     def test_failed_experiment_request_is_not_given_five_new_queue_attempts(self):
         from training_memory import TrainingMemory
-        for fail_role in ('user_signal','lifecycle_plan'):
+        for fail_role in ('user_signal','correction_interpretation','lifecycle_plan'):
             calls=[]
             class Owner:
                 def __call__(self,prompt):
@@ -59,7 +65,8 @@ class ModelRequestTest(unittest.TestCase):
                 def request_validated(self,prompt,*,role,validate,max_attempts):
                     def once(text):
                         calls.append(role)
-                        return 'invalid JSON' if role==fail_role else '{"signal":true}'
+                        return 'invalid JSON' if role==fail_role else json.dumps(
+                            interpretation('Please keep future answers concise.') if role=='correction_interpretation' else {'signal':True})
                     return request_validated(once,prompt,role=role,validate=validate,max_attempts=max_attempts)
             with tempfile.TemporaryDirectory() as directory:
                 memory=TrainingMemory.create(Path(directory),namespace='synthetic-owned',compiler_id='synthetic',invoke=Owner())
@@ -69,7 +76,9 @@ class ModelRequestTest(unittest.TestCase):
                 self.assertEqual(calls.count(fail_role),2)
                 expected=list(calls)
                 memory.process_pending()
-                memory.finish_training()
+                with self.assertRaises(SupportError):
+                    memory.finish_training()
+                self.assertFalse((memory.root/'frozen.json').exists())
                 self.assertEqual(calls,expected)
 
     def test_training_pipeline_labels_learning_and_compilation_without_prompt_inference(self):
@@ -82,7 +91,7 @@ class ModelRequestTest(unittest.TestCase):
                 raise AssertionError('unlabelled call')
             def request_validated(self,prompt,*,role,validate,max_attempts):
                 roles.append(role)
-                responses={'user_signal':{'signal':True},
+                responses={'user_signal':{'signal':True},'correction_interpretation':interpretation(text),
                     'lifecycle_plan':plan('NEW',text,evidence_spans=[text]),
                     'compile_support':{'tier':'reminder','stages':[],'check':{},'cases':[],'reason':'No exact length was supplied.'},
                     'compile_review':{'approved':True,'meaning_clear':True,'reason':'Clear reminder.'}}
@@ -92,7 +101,7 @@ class ModelRequestTest(unittest.TestCase):
             memory.enqueue_user(task_id='task',session_id='session',event_id='event',source_text=text)
             self.assertEqual(roles,[])
             memory.process_pending()
-            self.assertEqual(roles,['user_signal','lifecycle_plan','compile_support','compile_review'])
+            self.assertEqual(roles,['user_signal','correction_interpretation','lifecycle_plan','compile_support','compile_review'])
 
     def test_reopened_background_worker_recovers_each_tasks_explicit_origin(self):
         from training_memory import TrainingMemory
@@ -106,7 +115,8 @@ class ModelRequestTest(unittest.TestCase):
                 return Owner(context)
             def request_validated(self,prompt,*,role,validate,max_attempts):
                 captured.append((self.context,role))
-                response={'signal':True} if role=='user_signal' else {'mutations':[]}
+                response=({'signal':True} if role=='user_signal' else
+                    interpretation('Please use the agreed terminology.') if role=='correction_interpretation' else {'mutations':[]})
                 return validate(json.dumps(response)),1
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
@@ -117,7 +127,7 @@ class ModelRequestTest(unittest.TestCase):
             self.assertEqual(captured,[])
             reopened=TrainingMemory(root,namespace='owned',compiler_id='synthetic',invoke=Owner())
             reopened.process_pending()
-            self.assertEqual(len(captured),4)
+            self.assertEqual(len(captured),6)
             for context,role in captured:
                 self.assertIsNotNone(context)
                 self.assertEqual(context['namespace'],'owned')
@@ -141,7 +151,7 @@ class ModelRequestTest(unittest.TestCase):
                 return Owner(context)
             def request_validated(self,prompt,*,role,validate,max_attempts):
                 captured.append((self.context,role))
-                values={'user_signal':{'signal':True},'lifecycle_plan':plan('NEW',text,evidence_spans=[text]),
+                values={'user_signal':{'signal':True},'correction_interpretation':interpretation(text),'lifecycle_plan':plan('NEW',text,evidence_spans=[text]),
                     'compile_support':{'tier':'reminder','stages':[],'check':{},'cases':[],'reason':'No exact length.'},
                     'compile_review':{'approved':True,'meaning_clear':True,'reason':'Clear.'}}
                 return validate(json.dumps(values[role])),1
@@ -149,6 +159,7 @@ class ModelRequestTest(unittest.TestCase):
             memory=TrainingMemory.create(Path(directory),namespace='owned',compiler_id='synthetic',invoke=Owner())
             memory.enqueue_user(task_id='task',session_id='session',event_id='event',source_text=text)
             memory.process_pending()
+            self.assertTrue(any(role=='compile_support' for context,role in captured))
             for context,role in captured:
                 self.assertEqual(context['phase'],'training')
                 if role.startswith('compile_'):

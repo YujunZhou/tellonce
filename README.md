@@ -1,6 +1,6 @@
 # Tellonce
 
-Version **1.7.1** enables background memory recording by default across Claude Code, Codex and Copilot. Explicit opt-out remains respected. Hard enforcement and the shadow judge remain opt-in; isolated experiment hosts retain their own learning and freeze controls. See [release notes](docs/releases/1.7.1.md).
+Version **1.8.0** updates correction learning, rule compilation and rule checking in the shared core: a separate correction-interpretation step, stricter admission, blind compiler review with up to three repair rounds, and batched parallel checks. Background memory recording stays on by default across Claude Code, Codex and Copilot, explicit opt-out is respected, and hard enforcement and the shadow judge remain opt-in. See [release notes](docs/releases/1.8.0.md).
 
 **English** · [中文](README.zh.md)
 
@@ -130,20 +130,20 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-One-command bootstrap (recommended — pinned to the immutable tag `v1.7.1`, SHA256
+One-command bootstrap (recommended — pinned to the immutable tag `v1.8.0`, SHA256
 published for pre-verification, see
 [`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.0/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.7.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.0/copilot/bootstrap.sh | bash
 ```
 
 It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with

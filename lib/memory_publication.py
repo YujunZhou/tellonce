@@ -93,6 +93,9 @@ class Publication:
             raise SupportError(f'invalid publication: {exc}') from exc
 
 
+RECOMPILE_PUBLICATIONS = 2
+
+
 def prepare_publication(snapshot: RuleSnapshot, invoke, *, compiler_id: str,
                         previous: Publication | None = None) -> Publication:
     reusable = {}
@@ -103,9 +106,75 @@ def prepare_publication(snapshot: RuleSnapshot, invoke, *, compiler_id: str,
             raise SupportError('cannot compile an older generation over a newer publication')
         if previous.compiler_id == compiler_id:
             reusable = {support.rule_digest: support for support in previous.supports}
-    supports = tuple(reusable.get(rule_digest(rule)) or compile_support(rule, invoke, compiler_id=compiler_id)
-                     for rule in snapshot.rules)
-    return Publication(snapshot, compiler_id, supports)
+    supports = []
+    for rule in snapshot.rules:
+        previous_support = reusable.get(rule_digest(rule))
+        if previous_support is not None and previous_support.tier in {'reminder', 'pending'}:
+            audit = json.loads(previous_support.validation_json)
+            # A reminder or a model-declared pending that compilation left repairable (label disagreement, a failed
+            # synthetic case, a schema slip, a claimed ambiguity) gets a fresh compilation on up to RECOMPILE_PUBLICATIONS
+            # later publications (pending joined on 2026-10-03: ClawArena round 19 published two habit cards as pending);
+            # before 2026-10-03 one failed compilation pinned the rule to reminder until its text changed.
+            # Only a NEWER generation may carry a different support for the same rule: one generation cannot publish
+            # conflicting support (publish() and the runtime both enforce it), so a same-generation republication
+            # (a NOOP turn) reuses the reminder unchanged — 2026-10-03 round 16 lost its background learner to that.
+            if (snapshot.generation > previous.generation and audit.get('repairable')
+                    and audit.get('recompiled_publications', 0) < RECOMPILE_PUBLICATIONS):
+                fresh = compile_support(rule, invoke, compiler_id=compiler_id)
+                if fresh.tier in {'reminder', 'pending'}:
+                    record = json.loads(fresh.validation_json)
+                    record['recompiled_publications'] = audit.get('recompiled_publications', 0) + 1
+                    fresh = Support(fresh.rule_digest, fresh.compiler_id, fresh.tier, fresh.stages,
+                                    fresh.check_json, canonical(record), fresh.reason)
+                supports.append(fresh)
+                continue
+        supports.append(previous_support or compile_support(rule, invoke, compiler_id=compiler_id))
+    return Publication(snapshot, compiler_id, tuple(supports))
+
+
+def is_support_repair(current: Publication, candidate: Publication) -> bool:
+    """True when `candidate` is `current` with some reminder/pending supports that compilation had left repairable
+    replaced by executable support — the same rules, generation, namespace and compiler; nothing else may differ.
+    This is the one same-generation replacement publish() and the runtime admit (2026-10-06, item 51): a rule whose
+    last compilation failed at the final training update otherwise stays unenforced for the whole test phase."""
+    if (current.namespace != candidate.namespace or current.generation != candidate.generation
+            or current.snapshot.digest != candidate.snapshot.digest or current.compiler_id != candidate.compiler_id
+            or len(current.supports) != len(candidate.supports)):
+        return False
+    upgraded = 0
+    for before, after in zip(current.supports, candidate.supports):
+        if before == after:
+            continue
+        if before.rule_digest != after.rule_digest or before.tier not in {'reminder', 'pending'}:
+            return False
+        if not json.loads(before.validation_json).get('repairable') or after.tier not in {'deterministic', 'semantic'}:
+            return False
+        upgraded += 1
+    return upgraded > 0
+
+
+def repair_publication(current: Publication, invoke, *, compiler_id: str) -> Publication:
+    """Recompile the repairable reminder/pending supports of `current` once more (the freeze-time round that a
+    reminder left by the last training update never gets from prepare_publication, which only recompiles on a later
+    generation). Supports that stay reminder/pending are kept as they were; the result is `current` itself when
+    nothing could be upgraded."""
+    if current.compiler_id != compiler_id:
+        raise SupportError('cannot repair support compiled by another compiler')
+    supports = []
+    for rule, support in zip(current.snapshot.rules, current.supports):
+        audit = json.loads(support.validation_json)
+        if (support.tier in {'reminder', 'pending'} and audit.get('repairable')
+                and audit.get('recompiled_publications', 0) < RECOMPILE_PUBLICATIONS):
+            fresh = compile_support(rule, invoke, compiler_id=compiler_id)
+            if fresh.tier in {'deterministic', 'semantic'}:
+                record = json.loads(fresh.validation_json)
+                record['freeze_recompiled'] = True
+                supports.append(Support(fresh.rule_digest, fresh.compiler_id, fresh.tier, fresh.stages,
+                                        fresh.check_json, canonical(record), fresh.reason))
+                continue
+        supports.append(support)
+    candidate = Publication(current.snapshot, compiler_id, tuple(supports))
+    return candidate if is_support_repair(current, candidate) else current
 
 
 def _directory(root: Path):
@@ -207,9 +276,10 @@ def publish(root: Path, publication: Publication, *, expected_namespace: str) ->
             current = load_publication(root, expected_namespace=expected_namespace)
             if current.generation > publication.generation:
                 raise SupportError('cannot replace a newer publication with an older generation')
-            if current.generation == publication.generation:
-                if current.digest != publication.digest:
+            if current.generation == publication.generation and current.digest != publication.digest:
+                if not is_support_repair(current, publication):
                     raise SupportError('one generation cannot publish conflicting support; use a new run or generation')
+            elif current.generation == publication.generation:
                 return root / (publication.digest + '.json')
         destination = root / (publication.digest + '.json')
         if destination.exists() or destination.is_symlink():

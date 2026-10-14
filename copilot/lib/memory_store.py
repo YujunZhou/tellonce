@@ -1033,6 +1033,7 @@ class MemoryStore:
         lease_owner: str = "",
         max_attempts: int = 5,
         charge_attempt: bool = True,
+        learning_recovery=None,
     ) -> str:
         """Record a turn failure.
 
@@ -1043,7 +1044,13 @@ class MemoryStore:
         — otherwise one real failure is charged twice and the turn reaches
         `failed` after roughly half the intended retries.
         """
+        if learning_recovery is not None and (
+                not isinstance(learning_recovery,tuple) or len(learning_recovery)!=2 or
+                type(learning_recovery[0]) is not int or learning_recovery[0]<0 or
+                type(learning_recovery[1]) not in {int,float} or not 0<=learning_recovery[1]<=60):
+            raise MemoryStoreError('bounded learning recovery and original generation required')
         with self.connection() as conn:
+            conn.execute('BEGIN IMMEDIATE')
             row = conn.execute(
                 "SELECT attempt_count FROM turns WHERE turn_key=?",
                 (turn_key,),
@@ -1053,7 +1060,7 @@ class MemoryStore:
                 attempts += 1
             next_status = "failed" if attempts >= max(1, int(max_attempts)) else "pending"
             if lease_owner:
-                conn.execute(
+                updated = conn.execute(
                     """
                     UPDATE turns
                     SET status=?, lease_owner=NULL, lease_expires_at=NULL,
@@ -1071,7 +1078,7 @@ class MemoryStore:
             else:
                 # Never stomp another worker's live lease: a 'resolving' row is
                 # only reset when its lease has already expired (or is absent).
-                conn.execute(
+                updated = conn.execute(
                     f"""
                     UPDATE turns
                     SET status=?, lease_owner=NULL, lease_expires_at=NULL,
@@ -1094,7 +1101,52 @@ class MemoryStore:
                         time.time(),
                     ),
                 )
+            if updated.rowcount==1 and next_status=='failed' and learning_recovery is not None:
+                conn.execute('CREATE TABLE IF NOT EXISTS learning_recovery ('
+                    'turn_key TEXT PRIMARY KEY, generation INTEGER NOT NULL, '
+                    'not_before REAL NOT NULL, epoch INTEGER NOT NULL DEFAULT 0 CHECK(epoch IN (0,1)))')
+                # An exhausted recovery must never get a second recovery epoch.
+                conn.execute('INSERT OR IGNORE INTO learning_recovery VALUES (?,?,?,0)',
+                    (turn_key,learning_recovery[0],time.time()+learning_recovery[1]))
+            conn.execute('COMMIT')
         return next_status
+
+    def learning_recovery(self, turn_key=None):
+        """Read recovery receipts without migrating existing/frozen libraries."""
+        with self.connection() as conn:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='learning_recovery'").fetchone():
+                return None if turn_key is not None else []
+            if turn_key is not None:
+                row=conn.execute('SELECT * FROM learning_recovery WHERE turn_key=?',(turn_key,)).fetchone()
+                return dict(row) if row else None
+            return [dict(row) for row in conn.execute(
+                "SELECT r.* FROM learning_recovery r JOIN turns t USING(turn_key) "
+                "WHERE (r.epoch=0 AND t.status='failed') OR "
+                "(r.epoch=1 AND t.status IN ('pending','resolving')) ORDER BY t.created_at,t.rowid")]
+
+    def resume_failed_learning(self, turn_key, *, namespace):
+        """Consume one recovery epoch; never reorder past a newer memory commit."""
+        if (self.memory_dir/'frozen.json').exists():
+            raise MemoryStoreError('frozen memory cannot recover learning')
+        with self.connection() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            owner=conn.execute("SELECT value FROM meta WHERE key='memory_namespace'").fetchone()
+            if not namespace or owner is None or owner['value']!=namespace:
+                raise MemoryStoreError('learning recovery belongs to another namespace')
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='learning_recovery'").fetchone():
+                return False
+            receipt=conn.execute('SELECT * FROM learning_recovery WHERE turn_key=?',(turn_key,)).fetchone()
+            generation=int(conn.execute("SELECT value FROM meta WHERE key='generation'").fetchone()['value'])
+            if (not receipt or receipt['epoch']!=0 or receipt['generation']!=generation or
+                    receipt['not_before']>time.time()):
+                return False
+            updated=conn.execute("UPDATE turns SET status='pending',updated_at=? WHERE turn_key=? AND status='failed'",
+                                 (_utc_now(),turn_key))
+            if updated.rowcount!=1:
+                return False
+            conn.execute('UPDATE learning_recovery SET epoch=1 WHERE turn_key=?',(turn_key,))
+            conn.execute('COMMIT')
+            return True
 
     def mark_needs_user(self, turn_key: str, plan: dict, lease_owner: str = "") -> dict:
         result = {

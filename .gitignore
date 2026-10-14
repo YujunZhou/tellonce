@@ -74,6 +74,15 @@ test_*.py
 !checks/test_memory_upsert.py
 !checks/test_memory_judge_semantic.py
 !checks/test_background_context.py
+!checks/test_correction_interpretation.py
+!checks/test_batched_rule_checks.py
+!checks/test_compiler_case_preflight.py
+!checks/test_compiler_repair.py
+!checks/test_event_obligations.py
+!checks/test_learning_recovery.py
+!checks/test_lifecycle_scope_guidance.py
+!checks/test_parallel_rule_checks.py
+!checks/test_training_freeze_admission.py
 !checks/test_rule_selection.py
 !checks/test_execution_support.py
 !checks/test_integration_fixes.py

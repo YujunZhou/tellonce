@@ -29,7 +29,7 @@ from memory_store import MemoryStore, MemoryStoreError, StaleSnapshotError
 import path_config
 import redaction
 import transcript_adapter
-from model_requests import exhausted_request
+from model_requests import exhausted_request, learning_recovery_delay
 
 
 FINAL_STATUSES = {
@@ -774,6 +774,7 @@ def _resolve_claimed_turn(
     last_error = None
     signal_state = turn.get('signal_state', 'not_required')
     if signal_state == 'unchecked':
+        signal_generation = store.generation()
         try:
             has_signal = (memory_judge.classify_user_signal(source_text, invoke=invoke)
                           if invoke is not None else memory_judge.classify_user_signal(source_text))
@@ -791,8 +792,10 @@ def _resolve_claimed_turn(
             signal_state = 'present' if has_signal else 'absent'
         except Exception as exc:
             error = f'user signal/context failed: {type(exc).__name__}: {str(exc)[:500]}'
+            delay=learning_recovery_delay(exc) if store.get_namespace() else None
             status = store.mark_turn_error(turn_key, error, lease_owner=lease_owner,
-                max_attempts=1 if store.get_namespace() and exhausted_request(exc) else MAX_TURN_ATTEMPTS)
+                max_attempts=1 if store.get_namespace() and exhausted_request(exc) else MAX_TURN_ATTEMPTS,
+                learning_recovery=(signal_generation,delay) if delay is not None else None)
             return {'status': status, 'turn_key': turn_key, 'error': error}
     if signal_state == 'absent':
         judge_func = lambda source, rules, context, **kwargs: {'mutations': []}
@@ -896,11 +899,13 @@ def _resolve_claimed_turn(
                     plan['context_lookup_error'] = 'complete excerpts exceed the context budget; left pending'
         except Exception as exc:
             last_error = f"judge failed: {type(exc).__name__}: {str(exc)[:800]}"
+            delay=learning_recovery_delay(exc) if store.get_namespace() else None
             status = store.mark_turn_error(
                 turn_key,
                 last_error,
                 lease_owner=lease_owner,
                 max_attempts=1 if store.get_namespace() and exhausted_request(exc) else MAX_TURN_ATTEMPTS,
+                learning_recovery=(generation,delay) if delay is not None else None,
             )
             return {"status": status, "turn_key": turn_key, "error": last_error}
         clarification_candidates = {

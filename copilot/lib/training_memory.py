@@ -6,15 +6,40 @@ foreground prompt hook. This module does not launch processes or select models.
 from __future__ import annotations
 
 import json
+import sqlite3
+import time
 from pathlib import Path
 
 from execution_support import SupportError, canonical, digest
 from memory_publication import (Publication, _atomic_write, _read, _writer_lock,
-                                load_publication, prepare_publication, publish)
-from memory_store import MemoryStore
+                                load_publication, prepare_publication, publish, repair_publication)
+from memory_store import DB_FILENAME, MemoryStore
 import memory_upsert
 from rule_selection import load_snapshot
-from model_requests import bind_context
+from model_requests import bind_context, learning_recovery_delay
+
+
+class _RecoveryRequests:
+    """A persisted, one-time recovery has distinct bounded transport receipts."""
+    def __init__(self, invoke, turn_key):
+        self.invoke,self.turn_key=invoke,turn_key
+
+    def __call__(self,prompt):
+        raise SupportError('learning recovery needs a labelled durable request owner')
+
+    def request_validated(self,prompt,*,role,validate,max_attempts=2,request_key=None):
+        try:
+            return self.invoke.request_validated(prompt,role=role,validate=validate,
+                max_attempts=max_attempts,**({'request_key':request_key} if request_key is not None else {}))
+        except Exception as exc:
+            # Completed stages keep their original durable receipts. Only a
+            # proven exhausted transient request may consume the recovery key.
+            if learning_recovery_delay(exc) is None:
+                raise
+        key='learning-recovery-1:'+digest({'turn':self.turn_key,'role':role,
+                                         'prompt':prompt,'key':request_key})
+        return self.invoke.request_validated(prompt,role=role,validate=validate,
+            max_attempts=max_attempts,request_key=key)
 
 
 class _TrainingRequests:
@@ -36,7 +61,9 @@ class _TrainingRequests:
                 any(c not in '0123456789abcdef' for c in origin['public_task_digest']) or
                 origin['turn_key']!='experiment-'+digest({'task':origin['task_id'],'event':origin['event_id']})):
             raise SupportError('learning request origin differs from its owned queued user event')
-        return bind_context(memory.invoke,{key:origin[key] for key in context_keys})
+        bound=bind_context(memory.invoke,{key:origin[key] for key in context_keys})
+        receipt=MemoryStore(memory.root,legacy_dirs=[]).learning_recovery(turn['turn_key'])
+        return _RecoveryRequests(bound,turn['turn_key']) if receipt and receipt['epoch']==1 else bound
 
 
 class TrainingMemory:
@@ -124,7 +151,42 @@ class TrainingMemory:
         with _writer_lock(self.publications):
             if (self.root/'frozen.json').exists():
                 raise SupportError('frozen memory cannot run a learning worker')
-            result = memory_upsert.drain(self.root, limit=limit, invoke=_TrainingRequests(self))
+            requests=_TrainingRequests(self)
+            store=MemoryStore(self.root,legacy_dirs=[])
+            recovered=[]
+            def recover(turn_key):
+                receipt=store.learning_recovery(turn_key)
+                status=store.get_turn(turn_key)['status']
+                if receipt and receipt['epoch']==1 and status in {'pending','resolving'}:
+                    if receipt['generation']!=store.generation():
+                        raise SupportError('a newer memory commit precedes unfinished learning recovery')
+                    recovered.append(memory_upsert.resolve_turn(turn_key,memory_dir=self.root,invoke=requests))
+                    return
+                if (not receipt or receipt['epoch']!=0 or receipt['generation']!=store.generation() or status!='failed' or
+                        not callable(getattr(type(self.invoke),'request_validated',None))):
+                    return
+                delay=receipt['not_before']-time.time()
+                if delay>0:
+                    time.sleep(min(delay,60))
+                if store.resume_failed_learning(turn_key,namespace=self.namespace):
+                    recovered.append(memory_upsert.resolve_turn(turn_key,memory_dir=self.root,invoke=requests))
+            # A crash after marking failure cannot lose its recovery receipt.
+            for receipt in store.learning_recovery():
+                recover(receipt['turn_key'])
+            batches=[]
+            for _ in range(limit):
+                if any(row['epoch']==1 for row in store.learning_recovery()):
+                    raise SupportError('unfinished recovery must complete before processing newer training inputs')
+                result=memory_upsert.drain(self.root,limit=1,invoke=requests)
+                batches.extend(result['results'])
+                for item in result['results']:
+                    if item.get('status')=='failed' and item.get('turn_key'):
+                        recover(item['turn_key'])
+                if not result['remaining']:
+                    break
+            result={**result,'results':batches,'count':len(batches),'learning_recoveries':recovered,
+                'remaining':bool(memory_upsert._pending_request_paths(self.root) or
+                                 store.pending_turn_keys(limit=1) or store.projection_pending())}
             if any((self.root/memory_upsert.INBOX_DIRNAME/'failed').glob('*.failed')):
                 raise SupportError('quarantined learning requests require review before continuing this experiment')
             snapshot = load_snapshot(self.root, namespace=self.namespace)
@@ -160,16 +222,61 @@ class TrainingMemory:
             publication = load_publication(self.publications, expected_namespace=self.namespace)
             if publication.snapshot.digest != snapshot.digest:
                 raise SupportError('learning changed after publication; finish the worker before freezing')
+            # A reminder/pending support that the last training update left repairable gets its recompilation
+            # here instead of on a later generation that a frozen library never has (2026-10-06, item 51:
+            # ClawArena round 30 froze the opening-lines card as a reminder after its fifth revision failed once).
+            compiler = bind_context(self.invoke, {'namespace': self.namespace, 'phase': 'training', 'scope': 'publication',
+                                                  'task_id': '__library__', 'session_id': '__publication__',
+                                                  'event_id': snapshot.digest + ':freeze'})
+            repairable = any(s.tier in {'reminder', 'pending'} and json.loads(s.validation_json).get('repairable')
+                             for s in getattr(publication, 'supports', ()))
+            repaired = repair_publication(publication, compiler, compiler_id=self.compiler_id) if repairable else publication
+            freeze_recompiled = [rule.atomic_id for rule, before, after in
+                                 zip(publication.snapshot.rules, getattr(publication, 'supports', ()), getattr(repaired, 'supports', ()))
+                                 if before != after]
+            if freeze_recompiled:
+                publish(self.publications, repaired, expected_namespace=self.namespace)
+                publication = repaired
             store = MemoryStore(self.root, legacy_dirs=[])
+            # A clarification the lifecycle asked and nobody answered before the input closed is dismissed here and
+            # listed in the audit: the clear part of such a turn was already committed (mixed plans), the ambiguous
+            # clause is not learned, and a frozen library has no later user turn that could answer (2026-10-07,
+            # item 53: formal sol x xq x ClawArena could never freeze on one parked needs_user turn, 48 retries).
+            dismissed_at_freeze = [row['turn_key'] for row in store.needs_user_turns(limit=1000)]
+            for turn_key in dismissed_at_freeze:
+                store.dismiss_clarification(turn_key)
             with store.connection() as conn:
                 counts = {row['status']: row['n'] for row in conn.execute('SELECT status, COUNT(*) AS n FROM turns GROUP BY status')}
-            if counts.get('pending', 0) or counts.get('resolving', 0):
-                raise SupportError('unprocessed turns remain at the train/test boundary')
             _atomic_write(self.root/'freeze-audit.json', canonical({'namespace': self.namespace,
                 'publication_digest': publication.digest, 'turn_outcomes': counts,
-                'pending_rule_ids': list(publication.pending_ids)}), 0o400)
+                'pending_rule_ids': list(publication.pending_ids), 'freeze_recompiled': freeze_recompiled,
+                'dismissed_at_freeze': dismissed_at_freeze}), 0o400)
+            self._require_completed_learning(counts, publication)
             _atomic_write(self.root/'frozen.json', publication.to_json(), 0o400)
         return publication
 
+    @staticmethod
+    def _require_completed_learning(counts, publication):
+        completed = {'projected', 'noop', 'clarified', 'dismissed', 'rejected'}
+        incomplete = {key: count for key, count in counts.items() if count and key not in completed}
+        if incomplete:
+            # Failed requests remain evidence. Draining a scheduler does not
+            # turn a failed learner into completed training or grant retries.
+            raise SupportError('learning or projection incomplete at freeze: '+canonical(incomplete))
+        if publication.pending_ids:
+            raise SupportError('rule support is unpublished; no complete test snapshot was exported')
+
     def frozen_publication(self) -> Publication:
-        return Publication.from_json(_read(self.root/'frozen.json'), expected_namespace=self.namespace)
+        publication = Publication.from_json(_read(self.root/'frozen.json'), expected_namespace=self.namespace)
+        # Reopening a historical receipt must apply the same admission check,
+        # without migrating, retrying, or rewriting its preserved database.
+        path = self.root/DB_FILENAME
+        if path.is_symlink():
+            raise SupportError('frozen learning evidence cannot be a symlink')
+        conn = sqlite3.connect(path.as_uri()+'?mode=ro', uri=True)
+        try:
+            counts = dict(conn.execute('SELECT status, COUNT(*) FROM turns GROUP BY status'))
+        finally:
+            conn.close()
+        self._require_completed_learning(counts, publication)
+        return publication

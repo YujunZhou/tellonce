@@ -267,7 +267,9 @@ This came from a different library.
             self.assertEqual(load_snapshot(Path(tmp), namespace=owner).namespace, owner)
 
     def test_every_emitted_prompt_fits_the_budget_without_field_truncation(self):
-        limits = SelectionLimits(prompt_chars=2400)
+        import rule_selection
+        # Keep the payload allowance fixed when selector guidance changes.
+        limits = SelectionLimits(prompt_chars=len(rule_selection._SELECTION_INSTRUCTION) + 850)
         snap = RuleSnapshot('user-a', 1, tuple(rule(i, condition='\x00'*50) for i in range(6)))
         prompts = []
         def invoke(prompt):
@@ -276,6 +278,33 @@ This came from a different library.
         select_rules(snap, 'task', 'id', invoke, expected_namespace='user-a', limits=limits)
         self.assertTrue(prompts)
         self.assertTrue(all(len(prompt) <= limits.prompt_chars for prompt in prompts))
+        cards = [card for prompt in prompts
+                 for card in json.loads(prompt[prompt.index('{"candidate_rules"'):].replace(rule_selection.PROMPT_PREFIX_END, ''))['candidate_rules']]
+        self.assertEqual([card['atomic_id'] for card in cards], [r.atomic_id for r in snap.rules])
+        self.assertTrue(all(card['condition'] == '\x00'*50 for card in cards))
+
+    def test_complete_card_at_prompt_budget_boundary(self):
+        from rule_selection import selection_prompt
+        snap = RuleSnapshot('user-a', 1, (rule(1, condition='\x00'*50),))
+        complete = selection_prompt('task', snap.rules)
+        for budget in (len(complete) - 1, len(complete)):
+            with self.subTest(prompt_chars=budget):
+                prompts = []
+                def invoke(prompt):
+                    prompts.append(prompt)
+                    return '[]'
+                result = select_rules(snap, 'task', 'id', invoke, expected_namespace=snap.namespace,
+                                      limits=SelectionLimits(prompt_chars=budget))
+                if budget < len(complete):
+                    self.assertEqual(prompts, [])
+                    self.assertEqual(result.status, 'partial')
+                    self.assertEqual(result.unexamined_ids, ('rule-1',))
+                    self.assertEqual(result.attempts, 0)
+                else:
+                    self.assertEqual(prompts, [complete])
+                    self.assertEqual(result.status, 'ok')
+                    self.assertEqual(result.unexamined_ids, ())
+                    self.assertEqual(result.attempts, 1)
 
     def test_wrong_namespace_in_queued_request_cannot_learn_into_store(self):
         import memory_store
@@ -349,3 +378,12 @@ This came from a different library.
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_selection_instruction_keeps_opening_rules_under_deliverable_format_requirements():
+    """2026-10-01 habit pilot 2: the selector dropped the opening-lines card in 12/20 user events because the task's
+    exact-plan output format ("no text before or after the plan") was read as displacing an opening message that
+    precedes the first lookup; the instruction now scopes deliverable-format requirements to the deliverable."""
+    from rule_selection import _SELECTION_INSTRUCTION
+    assert 'governs that deliverable only' in _SELECTION_INSTRUCTION
+    assert 'opening explanation' in _SELECTION_INSTRUCTION and 'before the first lookup' in _SELECTION_INSTRUCTION
