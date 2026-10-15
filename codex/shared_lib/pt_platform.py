@@ -7,6 +7,9 @@ CLI_COMMAND = 'codex'
 PREFER_MODEL_DEFAULT = ''
 RETRIEVE_CLI_DEFAULT = 'codex'
 JUDGE_MODEL_DEFAULT = ''
+# Small model for background memory learning (one call per user prompt).
+# Overridden by PT_MEMORY_UPSERT_MODEL; '' = the CLI's own default model.
+MEMORY_UPSERT_MODEL_DEFAULT = 'gpt-6-luna'
 INJECT_CADENCE = 'turns'
 
 

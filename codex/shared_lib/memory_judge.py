@@ -1378,16 +1378,65 @@ def _invoke_api(prompt: str, model: str, timeout_seconds: int) -> str:
     )
 
 
+# Background learning runs one model call per user prompt, so the default CLI
+# call is kept small: the platform's small model (pt_platform), and for Claude a
+# one-line system prompt with no tools, MCP servers or skills instead of the full
+# coding-agent prompt (about 18k input tokens per call otherwise).
+LEAN_SYSTEM_PROMPT = (
+    "You are a background memory component. Follow the instructions in the user "
+    "message exactly and output only the requested JSON, with no other text."
+)
+CLAUDE_LEAN_FLAGS = (
+    "--system-prompt", LEAN_SYSTEM_PROMPT,
+    "--tools", "",
+    "--strict-mcp-config",
+    "--disable-slash-commands",
+    "--no-session-persistence",
+)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Return the body of a reply wrapped in one Markdown code fence."""
+    stripped = (text or "").strip()
+    if stripped.startswith("```") and stripped.endswith("```") and stripped.count("```") == 2:
+        newline = stripped.find("\n")
+        if newline > 0:
+            return stripped[newline + 1:-3].strip()
+    return text or ""
+
+
 def _invoke_cli(prompt: str) -> str:
     cli = _setting("MEMORY_UPSERT_CLI", pt_platform.CLI_COMMAND).lower()
-    model = _setting("MEMORY_UPSERT_MODEL", "")
+    explicit_model = _setting("MEMORY_UPSERT_MODEL", "")
     try:
         timeout_seconds = int(_setting("MEMORY_UPSERT_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
     except ValueError:
         timeout_seconds = DEFAULT_TIMEOUT_SECONDS
     timeout_seconds = max(10, timeout_seconds)
     if cli == "api":
-        return _invoke_api(prompt, model, timeout_seconds)
+        return _invoke_api(prompt, explicit_model, timeout_seconds)
+    default_model = getattr(pt_platform, "MEMORY_UPSERT_MODEL_DEFAULT", "")
+    lean_model = explicit_model or default_model
+    try:
+        return _strip_code_fence(_invoke_cli_once(cli, prompt, lean_model, True, timeout_seconds))
+    except MemoryJudgeError as exc:
+        # An older CLI may reject the lean flags, or the account may lack the
+        # default small model: retry once with the plain call. Timeouts and a
+        # missing CLI are not retried.
+        if not getattr(exc, "cli_rejected", False):
+            raise
+        if explicit_model == lean_model and cli not in {"claude", "codex"}:
+            raise
+    return _strip_code_fence(_invoke_cli_once(cli, prompt, explicit_model, False, timeout_seconds))
+
+
+def _cli_rejected(message: str) -> MemoryJudgeError:
+    error = MemoryJudgeError(message)
+    error.cli_rejected = True
+    return error
+
+
+def _invoke_cli_once(cli: str, prompt: str, model: str, lean: bool, timeout_seconds: int) -> str:
     child_env = _child_environment()
     inner_cwd = tempfile.gettempdir()
 
@@ -1419,6 +1468,8 @@ def _invoke_cli(prompt: str) -> str:
             cmd.extend(["--output-format", "text"])
             if cli == "claude":
                 cmd.extend(["--setting-sources", "project"])
+                if lean:
+                    cmd.extend(CLAUDE_LEAN_FLAGS)
             try:
                 proc = subprocess.run(
                     cmd,
@@ -1441,7 +1492,7 @@ def _invoke_cli(prompt: str) -> str:
                 except OSError:
                     pass
         if proc.returncode != 0:
-            raise MemoryJudgeError(
+            raise _cli_rejected(
                 f"{cli} judge failed with exit {proc.returncode}: {(proc.stderr or '')[:400]}"
             )
         return proc.stdout or ""
@@ -1449,6 +1500,7 @@ def _invoke_cli(prompt: str) -> str:
     if cli == "codex":
         fd, output_path = tempfile.mkstemp(prefix="tellonce-memory-", suffix=".json")
         os.close(fd)
+        effort = _setting("MEMORY_UPSERT_REASONING", "low" if lean else "high")
         cmd = [
             "codex",
             "exec",
@@ -1459,7 +1511,7 @@ def _invoke_cli(prompt: str) -> str:
             "--sandbox",
             "read-only",
             "-c",
-            'model_reasoning_effort="high"',
+            f'model_reasoning_effort="{effort}"',
             "--output-last-message",
             output_path,
         ]
@@ -1477,7 +1529,7 @@ def _invoke_cli(prompt: str) -> str:
                 cwd=inner_cwd,
             )
             if proc.returncode != 0:
-                raise MemoryJudgeError(
+                raise _cli_rejected(
                     f"codex judge failed with exit {proc.returncode}: {(proc.stderr or '')[:400]}"
                 )
             return Path(output_path).read_text(encoding="utf-8", errors="replace")

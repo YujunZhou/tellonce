@@ -6,7 +6,7 @@ B5_RETRIEVE_BACKEND env var:
   - 'progressive' (default): progressive-disclosure index. Scans the memory
     dir and injects a one-line index of the saved rules every turn, letting
     the main model judge which apply. When the library exceeds PROGRESSIVE_MAX
-    (default 50, configurable via B5_PROGRESSIVE_MAX / config
+    (default 20, configurable via B5_PROGRESSIVE_MAX / config
     `progressive_max`, 0 = no cap), tier-1 rules are pinned when they fit
     under the cap (if tier-1 alone overflows it, the whole library rotates)
     and the remainder rotates in across turns via a persisted cursor; the
@@ -65,7 +65,7 @@ MAX_SHOW = 10
 # B5_PROGRESSIVE_MAX / config `progressive_max`; 0 disables the cap. When the
 # library exceeds the cap, tier-1 rules are always included and the remainder
 # rotates in across turns (persisted cursor) so no rule is permanently starved.
-_PROGRESSIVE_MAX_DEFAULT = 50
+_PROGRESSIVE_MAX_DEFAULT = 20
 PROMPT_TRUNCATE = 4000
 
 
@@ -300,6 +300,16 @@ def _load_active_projection():
                     """
                 ).fetchall()
             ]
+            if not db_active:
+                # A store that never imported or learned a rule (e.g. the legacy
+                # import was refused) is not yet the authority: keep reading the
+                # Markdown rules instead of silently injecting nothing.
+                # Namespaced (experiment) stores never fall back.
+                never_populated = conn.execute('SELECT 1 FROM rules LIMIT 1').fetchone() is None
+                namespaced = conn.execute(
+                    "SELECT 1 FROM meta WHERE key='memory_namespace'").fetchone() is not None
+                if never_populated and not namespaced:
+                    return None
         finally:
             conn.close()
         # SQLite is the sole authority. Reading the canonical rows directly

@@ -75,6 +75,7 @@ test_*.py
 !checks/test_memory_judge_semantic.py
 !checks/test_background_context.py
 !checks/test_correction_interpretation.py
+!checks/test_background_call_weight.py
 !checks/test_batched_rule_checks.py
 !checks/test_compiler_case_preflight.py
 !checks/test_compiler_repair.py

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import sqlite3
 import time
 import uuid
@@ -2282,9 +2283,13 @@ class MemoryStore:
                     )
                     data, body = parse_frontmatter(source_text)
                 except Exception as exc:
+                    # Refuse only for files that are evidently rules: a broken
+                    # frontmatter fence or a rule filename prefix. Any other
+                    # unparsable file (an index, a note) is skipped; matching
+                    # every filename against the atomic-id pattern made such
+                    # files refuse the whole import.
                     likely_rule = (
-                        bool(VALID_ATOMIC_ID.fullmatch(path.stem))
-                        or path.name.startswith(
+                        path.name.startswith(
                             (
                                 "pref_", "pit_", "fric_", "usr_", "proj_",
                                 "ref_", "feedback_",
@@ -2295,6 +2300,11 @@ class MemoryStore:
                     if likely_rule:
                         invalid_paths.append(
                             f"{path}: {type(exc).__name__}: {exc}"
+                        )
+                    else:
+                        print(
+                            f"tellonce: legacy import skipped non-rule file {path}",
+                            file=sys.stderr,
                         )
                     continue
                 atomic_id = str(data.get("atomic_id", "")).strip()

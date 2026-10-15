@@ -38,6 +38,10 @@ RETRIEVE_CLI_DEFAULT = 'claude'
 # explicit Claude model name).
 JUDGE_MODEL_DEFAULT = 'claude-haiku-4-5'
 
+# Small model for background memory learning (one call per user prompt).
+# Overridden by PT_MEMORY_UPSERT_MODEL; '' = the CLI's own default model.
+MEMORY_UPSERT_MODEL_DEFAULT = 'haiku'
+
 # How often the rule index is injected on this platform — used in user-facing
 # wording (the progressive backend's truncation note says rules "rotate in on
 # later <cadence>"). Claude Code / Codex inject per UserPromptSubmit ('turns');

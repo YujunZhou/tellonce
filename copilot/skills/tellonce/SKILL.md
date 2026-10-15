@@ -1,6 +1,6 @@
 ---
 name: tellonce
-description: "EVERY-MESSAGE enforcement: scan for preference/pitfall/friction signals, record to memory, log observations. Also handles memory audit/restructure. Use on EVERY user message — even simple ones, even during intensive technical work, even when you think there's nothing to detect. If you're not invoking this, you're skipping compliance."
+description: "Manage the user's saved preferences and lessons: view, explain, correct, delete, merge or reorganize memory, record a preference by hand when automatic recording is off, and keep the observation log when enforce mode is on. Normal learning and rule injection run automatically through hooks every turn, so this skill does not need to be invoked on every message."
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
 ---
 
@@ -44,13 +44,13 @@ python <plugin>/lib/dashboard.py            # see status at a glance (mode/regis
 
 ## Infrastructure
 
-This skill is more than the Iron Law + Gate Function. It installs 3 layers of infrastructure that run as **automatic hooks**, taking effect without an explicit Skill invocation.
+This skill installs 3 layers of infrastructure that run as **automatic hooks**, taking effect without an explicit Skill invocation.
 
 > **Path placeholder note**: in the text below, `<skill_dir>` defaults to `<skill_dir>/`, `<project_root>` is the current project root, and `<state_dir>` is `<project_root>/.copilot/tellonce-state/`. All paths are resolved at runtime by `lib/path_config.py` (a three-level fallback: env > `~/.tellonce.config.json` > auto-detect); SKILL.md does not hardcode absolute paths to avoid polluting Claude's output.
 
 ### Rule injection (progressive full index — default)
 
-The Copilot variant **does not have** a per-prompt `memory-retrieve-inject.sh` hook (platform limitation, see the injection-timing note above). Rule injection happens **at session start**: `<plugin_root>/hooks/session-start-inject.sh` injects a **one-line index of the rules** saved under my memory dir as `additionalContext`. If the library exceeds the per-session cap (default 50 — `progressive_max` in `~/.tellonce.config.json` or env `PT_PROGRESSIVE_MAX` (legacy `B5_` alias works), `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across sessions, and the block states how many of the total are shown. This is the default `progressive` backend: no prompt matching, no model call, and — unlike the old critical/high-only path — memory-only rules are no longer dropped. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
+The Copilot variant **does not have** a per-prompt `memory-retrieve-inject.sh` hook (platform limitation, see the injection-timing note above). Rule injection happens **at session start**: `<plugin_root>/hooks/session-start-inject.sh` injects a **one-line index of the rules** saved under my memory dir as `additionalContext`. If the library exceeds the per-session cap (default 20 — `progressive_max` in `~/.tellonce.config.json` or env `PT_PROGRESSIVE_MAX` (legacy `B5_` alias works), `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across sessions, and the block states how many of the total are shown. This is the default `progressive` backend: no prompt matching, no model call, and — unlike the old critical/high-only path — memory-only rules are no longer dropped. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
 
 ```
 ### Your saved preferences — check each against this turn and apply the ones that fit:
@@ -99,15 +99,15 @@ When the Gate Function records a new rule to memory, if it's a **high-value dete
 
 ---
 
-## The Iron Law
+## When to use this skill
 
-```
-NO RESPONSE IS COMPLETE WITHOUT A PREFERENCE SCAN.
-```
+Learning and recall are automatic. When the user sends a message, the `UserPromptSubmit` hook queues it and a detached background worker asks a small model whether it contains a durable preference or lesson. If it does, the worker adds or updates a rule. On the next turn, the retrieval hook injects the saved rules into context. None of this requires invoking the skill.
 
-If you haven't scanned for signals and recorded the result, your response is incomplete. This applies to EVERY message, no exceptions.
+Invoke this skill only when:
 
-**Violating the letter of this rule is violating the spirit of this rule.**
+- the user asks to view, explain, correct, delete, merge or reorganize their saved rules;
+- automatic recording is turned off (`hook-status`) and the user states a durable preference that should be recorded by hand;
+- enforce mode is on (`PT_ENFORCE=1`), where the Stop hook requires an observation-log entry each turn (see `## Gate Function`).
 
 ---
 
@@ -133,6 +133,8 @@ After cleanup, grep the progress file for stale route names, old debug terms, an
 
 ## Gate Function
 
+This section applies only under enforce mode (`PT_ENFORCE=1`), or when recording by hand because automatic recording is off. In the default mode nothing has to be done per turn.
+
 ```
 BEFORE considering your response complete:
 
@@ -149,27 +151,12 @@ Skip any step = compliance failure.
 
 **SOFT text-marker scans are DISABLED** (caused spurious blocks because my response text wording varies each turn). The structured log entry itself carries the scan result — that's sufficient audit trail.
 
-**Practical rule for every turn**:
+**Practical rule for every turn under enforce mode**:
 - Append **one** entry to `observations.jsonl` before stopping. Any entry. detected=true or detected=false, doesn't matter for the gate.
 - Keep doing rich structured entries (detection fields, root_cause notes, confirmation_text) — they make the local memory/audit trail more useful, even though the gate doesn't check them. Truncate any user-message excerpt to ~200 chars and never copy secrets/credentials into the log.
 - No need to paste SCAN markers in response text.
 
 **Why it matters**: the gate blocks only when the log genuinely wasn't written (a real miss), not when response wording fails a text regex — this avoids spurious blocks.
-
----
-
-## Red Flags — STOP
-
-If you catch yourself thinking any of these, STOP and do the scan:
-
-- "This is just a status check / simple question"
-- "I'll do the scan after the task"
-- "The task is more urgent than scanning"
-- "I already scanned recently, skip this one"
-- "There's obviously nothing here"
-- "I'm in the middle of something complex"
-- "This message is too short to contain signals"
-- "NOOP / UPDATE doesn't need confirmation_text" → wrong; the detected=true path requires confirmation (see `## Confirmation Strategy`)
 
 ---
 
@@ -257,7 +244,7 @@ Examples:
 ## Overview
 
 This skill has three responsibilities:
-1. **Per-message enforcement** (Gate Function): scan signals → record → store memory
+1. **Automatic learning** (hooks, no invocation needed): queue each user message → background small-model judgment → store memory; the Gate Function applies only under enforce mode
 2. **Init/audit mode** (when invoked by the user): audit the entire memory structure and migrate to the structured format
 3. **Manual management**: handle complex conflicts, batch consolidation, deletion operations, large-scale reorganization
 

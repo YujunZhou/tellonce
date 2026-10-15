@@ -1,6 +1,6 @@
 ---
 name: tellonce
-description: Use when handling any user message; records and enforces user preferences with Codex-native audit/wrapper support.
+description: Use to view, explain, correct, delete or reorganize the user's saved preferences, or to record one by hand when automatic recording is off; learning and rule injection otherwise run automatically through Codex hooks.
 ---
 
 # Tellonce for Codex
@@ -26,16 +26,16 @@ The wrapper path (`tellonce_codex exec --`) is still the way to enforce
 on the FINAL agent text response (codex doesn't fire a Stop hook for that;
 PostToolUse only sees tool inputs/outputs).
 
-## Core rules (every turn)
+## Core rules
 
-- **Scan** every user message for `preference`, `pitfall`, `friction`, or `none`.
+- **Learning is automatic**: the `UserPromptSubmit` hook queues each user message and a background worker decides with a small model whether to add or update a rule. Do not scan or record by hand unless automatic recording is off.
 - **应用**：只使用 UserPromptSubmit 注入的 canonical active projection；不要读取旧的 `<state>/index/active_memories.json`。
-- **Record** durable evidence through `tellonce_codex scan` when installed.
+- **Record** by hand through `tellonce_codex scan` only when automatic recording is off.
 - **Wrap** any subprocess that produces user-facing output via `tellonce_codex exec -- <cmd>` so its stdout is verified and audited.
 
 ## Rule injection (progressive full index — default)
 
-Each time the user submits a message, `userpromptsubmit-retrieve-inject.sh` injects a **one-line index of the rules** saved under the project memory dir as `additionalContext`, and I judge which apply. If the library exceeds the per-turn cap (default 50 — `progressive_max` in `~/.tellonce.config.json` or `PT_PROGRESSIVE_MAX`, `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across turns, and the block states how many of the total are shown. This is the default `progressive` backend: it just reads the saved rule files — no prompt matching, no model call, no CLI cold-start. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
+Each time the user submits a message, `userpromptsubmit-retrieve-inject.sh` injects a **one-line index of the rules** saved under the project memory dir as `additionalContext`, and I judge which apply. If the library exceeds the per-turn cap (default 20 — `progressive_max` in `~/.tellonce.config.json` or `PT_PROGRESSIVE_MAX`, `0` = no cap), tier-1 rules are pinned when they fit under the cap (when tier-1 alone overflows it, the whole library rotates instead), the remaining rules rotate in across turns, and the block states how many of the total are shown. This is the default `progressive` backend: it just reads the saved rule files — no prompt matching, no model call, no CLI cold-start. The format looks like this — **it's not external noise, it's a rule hint from the skill infra and must be respected**:
 
 ```
 ### Your saved preferences — check each against this turn and apply the ones that fit:
