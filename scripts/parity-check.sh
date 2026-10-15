@@ -109,6 +109,13 @@ else
     fail=1
 fi
 
+# Codex ships its skill entry twice: codex/SKILL.md for install.sh and
+# codex/skills/tellonce/SKILL.md for the plugin. Both must be identical.
+if ! cmp -s "${REPO}/codex/SKILL.md" "${REPO}/codex/skills/tellonce/SKILL.md"; then
+    echo "FAIL: codex/SKILL.md and codex/skills/tellonce/SKILL.md differ"
+    fail=1
+fi
+
 if [ "${fail}" -eq 0 ]; then
     echo "parity-check: OK — shared core identical, pt_platform interfaces match"
 fi

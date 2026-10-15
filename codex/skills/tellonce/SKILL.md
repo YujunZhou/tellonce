@@ -30,8 +30,7 @@ PostToolUse only sees tool inputs/outputs).
 ## Core rules
 
 - **Learning is automatic**: the `UserPromptSubmit` hook queues each user message and a background worker decides with a small model whether to add or update a rule. Do not scan or record by hand unless automatic recording is off.
-- **Apply** known preferences before responding from the shared SQLite-derived
-  `.tellonce/memory/.tellonce-active.json` projection.
+- **应用**：只使用 UserPromptSubmit 注入的 canonical active projection；不要读取旧的 `<state>/index/active_memories.json`。
 - **Record** by hand through `tellonce_codex scan` only when automatic recording is off.
 - **Wrap** any subprocess that produces user-facing output via `tellonce_codex exec -- <cmd>` so its stdout is verified and audited.
 
@@ -67,7 +66,7 @@ The state lives in `<state_root>/mode.json`. `register_project` only writes the 
 | Bootstrap state for this project | `tellonce_codex install --project-root .` |
 | Record a scan event for the latest user message | `tellonce_codex scan --project-root . --message "..."` |
 | Audit a subprocess's stdout (the main wrapper path) | `tellonce_codex exec --project-root . -- <cmd...>` |
-| 提交候选偏好 | 调用 `tellonce_codex.promote.promote_candidate(state, candidate)`；该入口只入队，不直接写 Markdown |
+| 提交持久偏好 | 无需手工调用；UserPromptSubmit hook 会异步入队完整原始用户轮次 |
 | Health check + leak audit | `tellonce_codex doctor --project-root .` |
 | Summary | `tellonce_codex dashboard --project-root .` |
 | Uninstall integration (keep data) | `tellonce_codex uninstall --project-root .` |

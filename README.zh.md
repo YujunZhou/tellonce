@@ -1,6 +1,6 @@
 # Tellonce
 
-**1.8.1** 让日常使用更轻：后台学习改用小模型（Claude Code 用 Haiku，Codex 用 gpt-6-luna）并只发最简提示，每轮注入的规则上限降到 20 条，记忆目录里混入非规则文件不再导致规则无法注入，技能也不再要求每条消息都调用。Claude Code、Codex 和 Copilot 仍默认开启后台记忆记录，保留已有显式关闭设置；硬拦截和 shadow judge 仍需单独开启。详见[版本说明](docs/releases/1.8.1.md)；1.8.1 的改动见[其说明](docs/releases/1.8.0.md)。
+**1.8.2** 统一了 Codex 两种安装方式读取的技能介绍（[说明](docs/releases/1.8.2.md)）。1.8.1 让日常使用更轻：后台学习改用小模型（Claude Code 用 Haiku，Codex 用 gpt-6-luna）并只发最简提示，每轮注入的规则上限降到 20 条，记忆目录里混入非规则文件不再导致规则无法注入，技能也不再要求每条消息都调用。Claude Code、Codex 和 Copilot 仍默认开启后台记忆记录，保留已有显式关闭设置；硬拦截和 shadow judge 仍需单独开启。详见[版本说明](docs/releases/1.8.1.md)；1.8.1 的改动见[其说明](docs/releases/1.8.0.md)。
 
 [English](README.md) · **中文**
 
@@ -112,19 +112,19 @@ bash ~/.codex/skills/tellonce/codex/doctor.sh
 
 ## 🚀 快速开始（GitHub Copilot CLI）
 
-一键引导脚本（推荐——钉在不可变 tag `v1.8.1`、SHA256 已公布，可在管道前核对，见
+一键引导脚本（推荐——钉在不可变 tag `v1.8.2`、SHA256 已公布，可在管道前核对，见
 [`copilot/README.md`](copilot/README.md#verify-integrity)）：
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.sh | bash
 ```
 
 它会：下载 **Copilot 适配版插件**（`copilot/` 子插件——SessionStart 注入、

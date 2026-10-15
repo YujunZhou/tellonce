@@ -1,6 +1,6 @@
 # Tellonce
 
-Version **1.8.1** makes everyday use lighter: background learning calls a small model (Haiku on Claude Code, gpt-6-luna on Codex) with a minimal prompt, the per-turn rule index is capped at 20, a stray non-rule file in the memory folder no longer stops rules from being injected, and the skill is no longer invoked on every message. Background memory recording stays on by default across Claude Code, Codex and Copilot, explicit opt-out is respected, and hard enforcement and the shadow judge remain opt-in. See [release notes](docs/releases/1.8.1.md); 1.8.1 changes are in [its notes](docs/releases/1.8.0.md).
+Version **1.8.2** makes the two Codex skill entries identical ([notes](docs/releases/1.8.2.md)). Version 1.8.1 made everyday use lighter: background learning calls a small model (Haiku on Claude Code, gpt-6-luna on Codex) with a minimal prompt, the per-turn rule index is capped at 20, a stray non-rule file in the memory folder no longer stops rules from being injected, and the skill is no longer invoked on every message. Background memory recording stays on by default across Claude Code, Codex and Copilot, explicit opt-out is respected, and hard enforcement and the shadow judge remain opt-in. See [release notes](docs/releases/1.8.1.md); 1.8.1 changes are in [its notes](docs/releases/1.8.0.md).
 
 **English** · [中文](README.zh.md)
 
@@ -130,20 +130,20 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-One-command bootstrap (recommended — pinned to the immutable tag `v1.8.1`, SHA256
+One-command bootstrap (recommended — pinned to the immutable tag `v1.8.2`, SHA256
 published for pre-verification, see
 [`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.1/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.1/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.sh | bash
 ```
 
 It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with
