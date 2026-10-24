@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / 'lib'))
 
 import memory_judge  # noqa: E402
 import memory_store  # noqa: E402
+import memory_upsert  # noqa: E402
 
 RULE = (
     "---\n"
@@ -63,6 +64,25 @@ class LegacyImportCases(unittest.TestCase):
                 memory_store.MemoryStore(memory_dir).initialize()
             self.assertTrue((memory_dir / memory_store.DB_FILENAME).exists())
             self.assertIn('wf-pref-501', _retrieve(memory_dir, home))
+
+
+class InboxOrderCases(unittest.TestCase):
+    def test_requests_written_at_the_same_instant_keep_enqueue_order(self):
+        # Regression: two requests inside one clock tick used to sort by their
+        # random suffix, so a newer instruction could be processed first.
+        with tempfile.TemporaryDirectory() as td:
+            memory_dir = Path(td)
+            paths = []
+            with mock.patch.object(memory_upsert.time, 'time_ns', return_value=1_700_000_000_000_000_000), \
+                    mock.patch.object(memory_upsert.time, 'time', return_value=1_700_000_000.0):
+                for text in ('old', 'new'):
+                    path, published = memory_upsert._write_inbox_request({'source_text': text}, memory_dir)
+                    self.assertTrue(published)
+                    paths.append(path)
+            pending = memory_upsert._pending_request_paths(memory_dir)
+            self.assertEqual(pending, paths)
+            self.assertEqual([json.loads(p.read_text(encoding='utf-8'))['source_text'] for p in pending],
+                             ['old', 'new'])
 
 
 class LeanCliCallCases(unittest.TestCase):

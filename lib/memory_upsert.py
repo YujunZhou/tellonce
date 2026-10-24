@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import inspect as _inspect_module
+import itertools
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,7 @@ FINAL_STATUSES = {
 }
 INBOX_DIRNAME = ".tellonce-inbox"
 INBOX_SUFFIX = ".json"
+_INBOX_SEQUENCE = itertools.count()
 TEMP_RECOVERY_AGE_SECONDS = 300
 CONFIG_PATH = Path.home() / ".tellonce.config.json"
 PRESENTATION_DIRNAME = ".tellonce-clarification-presentations"
@@ -247,7 +249,11 @@ def _write_inbox_request(request: dict, memory_dir=None) -> tuple[Path, bool]:
         os.chmod(inbox_dir, 0o700)
     except OSError:
         pass
-    path = inbox_dir / f"{int(time.time() * 1000)}-{uuid.uuid4().hex}{INBOX_SUFFIX}"
+    # Pending requests are drained in filename order. A millisecond stamp let
+    # two requests written within the same millisecond fall back to random
+    # order; the nanosecond stamp plus a per-process sequence keeps
+    # same-process requests in enqueue order.
+    path = inbox_dir / f"{time.time_ns()}-{next(_INBOX_SEQUENCE):06d}-{uuid.uuid4().hex}{INBOX_SUFFIX}"
     tmp = inbox_dir / f".{path.name}.tmp.{os.getpid()}"
     published = False
     try:
