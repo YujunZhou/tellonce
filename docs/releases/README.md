@@ -2,6 +2,7 @@
 
 | Version | Summary |
 |---|---|
+| [1.8.3](1.8.3.md) | Queued learning requests keep their enqueue order; install guide and FAQ moved under docs/. |
 | [1.8.2](1.8.2.md) | The two Codex skill entries now have identical text. |
 | [1.8.1](1.8.1.md) | Lighter everyday use: small-model background learning, 20-rule injection cap, legacy import fix, skill no longer invoked on every message. |
 | [1.8.0](1.8.0.md) | Correction interpretation step, stricter admission, blind compiler review with repair, batched rule checks. |

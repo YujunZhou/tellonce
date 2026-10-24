@@ -9,7 +9,7 @@ worker sends redacted user input to the platform CLI model. Run
 `python "<plugin>/lib/memory_upsert.py" disable-hooks` to turn recording off;
 existing explicit opt-out remains respected. The shadow judge remains off.
 
-The pinned v1.8.2 install commands below include this default. Existing explicit
+The pinned v1.8.3 install commands below include this default. Existing explicit
 opt-out remains respected when upgrading.
 
 For the project overview and the other platforms, see the
@@ -21,19 +21,19 @@ For the project overview and the other platforms, see the
 
 > Prerequisites: GitHub Copilot CLI and Python 3.7+. Everything else is
 > automatic. **Restart Copilot after install.**
-> The command is pinned to the immutable release tag `v1.8.2` (it won't change
+> The command is pinned to the immutable release tag `v1.8.3` (it won't change
 > when `main` does), which is safer.
 
 ### Windows (PowerShell)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.3/copilot/bootstrap.ps1 | iex"
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.3/copilot/bootstrap.sh | bash
 ```
 
 This command automatically: downloads the plugin → copies it into Copilot's
@@ -41,23 +41,23 @@ plugin directory → installs the optional dependency → registers it with Copi
 (so the hooks load) → sets the safe `observe` mode → records your Python path.
 **Restart Copilot when it's done.**
 
-> v1.8.2 starts in **observe** with background recording enabled. Hard blocking
+> v1.8.3 starts in **observe** with background recording enabled. Hard blocking
 > and the shadow judge remain off; `disable-hooks` opts out of recording.
 
 ### Verify integrity
 
 If you'd rather not pipe a script straight into a shell, download it first, read
-it, and check its SHA256 against the value published for `v1.8.2`:
+it, and check its SHA256 against the value published for `v1.8.3`:
 
 ```bash
-# Windows: irm ".../v1.8.2/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
-# macOS/Linux: curl -fsSL ".../v1.8.2/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
+# Windows: irm ".../v1.8.3/copilot/bootstrap.ps1" -OutFile bootstrap.ps1; Get-FileHash bootstrap.ps1 -Algorithm SHA256
+# macOS/Linux: curl -fsSL ".../v1.8.3/copilot/bootstrap.sh" -o bootstrap.sh; sha256sum bootstrap.sh
 ```
 
-| File | SHA256 (v1.8.2) |
+| File | SHA256 (v1.8.3) |
 |------|------------------|
-| `bootstrap.ps1` | `cec673b93cb3a63f25636ff5762ac4f857e2f6285cbd0637dc8b6ff550323f69` |
-| `bootstrap.sh`  | `a28c07cc6f46b481cb98301d95dadf26e42fc42372a99767f85383029519093c` |
+| `bootstrap.ps1` | `d3687876674ce824b4c2406a10ac484fa97c921344d29e052945f1a2ec8d03f2` |
+| `bootstrap.sh`  | `2554cf5755068e75b791c1db7c6f84ddd147b2c103065771bab583d884026c64` |
 
 ---
 
@@ -104,11 +104,11 @@ then the plugin files; your saved memory is kept):
 
 Windows (PowerShell):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/uninstall.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.3/copilot/uninstall.ps1 | iex"
 ```
 macOS / Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.3/copilot/uninstall.sh | bash
 ```
 **Restart Copilot afterward.** To also wipe your saved memory/state, download the
 script and run it with `-Purge` (PowerShell) / `--purge` (bash). Note that

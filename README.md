@@ -5,7 +5,7 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2606.13174-b31b1b.svg)](https://arxiv.org/abs/2606.13174)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Latest release: **v1.8.2** · [What changed](docs/releases/README.md)
+Latest release: **v1.8.3** · [What changed](docs/releases/README.md)
 
 > Stop re-explaining yourself to your AI coding agent. Tellonce
 > remembers the corrections you make and — when you ask it to — enforces them, so
@@ -130,20 +130,20 @@ See [`codex/docs/README.md`](codex/docs/README.md) for modes and the wrapper flo
 
 ## 🚀 Quick start (GitHub Copilot CLI)
 
-One-command bootstrap (recommended — pinned to the immutable tag `v1.8.2`, SHA256
+One-command bootstrap (recommended — pinned to the immutable tag `v1.8.3`, SHA256
 published for pre-verification, see
 [`copilot/README.md`](copilot/README.md#verify-integrity)):
 
 **Windows (PowerShell)**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.3/copilot/bootstrap.ps1 | iex"
 ```
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.2/copilot/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YujunZhou/tellonce/v1.8.3/copilot/bootstrap.sh | bash
 ```
 
 It downloads the **Copilot-adapted plugin** (the `copilot/` sub-plugin — with
