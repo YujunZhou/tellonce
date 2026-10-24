@@ -25,6 +25,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.9", "3.12"]
+        # ubuntu-latest is Ubuntu 26.04 since 2026-10-19 and has no Python 3.9
+        # build; keep the 3.9 floor on 24.04.
+        exclude:
+          - os: ubuntu-latest
+            python: "3.9"
+        include:
+          - os: ubuntu-24.04
+            python: "3.9"
     env:
       PYTHONIOENCODING: utf-8
     steps:
@@ -76,7 +84,29 @@ jobs:
 
       - name: Background memory and isolated runtime regression checks
         if: runner.os != 'Windows'
-        run: python -m pytest checks -q
+        run: python -m pytest checks -q -rf --junitxml=pytest-report.xml
+
+      # Surface each failed test as a check annotation so the failure is
+      # readable from the public API without downloading the job log.
+      - name: Annotate failed tests
+        if: failure() && runner.os != 'Windows'
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET, pathlib
+          p = pathlib.Path('pytest-report.xml')
+          if not p.exists():
+              print('::error::pytest-report.xml missing (pytest did not run to completion)')
+              raise SystemExit
+          for case in ET.parse(p).getroot().iter('testcase'):
+              for kind in ('failure', 'error'):
+                  node = case.find(kind)
+                  if node is None:
+                      continue
+                  text = (node.get('message') or '') + ' | ' + (node.text or '')
+                  text = ' '.join(text.split())[:900]
+                  name = f"{case.get('classname')}.{case.get('name')}"
+                  print(f"::error file={case.get('file') or 'checks'},line={case.get('line') or 1}::{name}: {text}")
+          PY
 
       - name: Cross-variant parity check
         if: runner.os != 'Windows'
