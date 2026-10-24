@@ -38,7 +38,7 @@ python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py \
 cd /path/to/your/project && bash ~/.claude/skills/tellonce/install.sh
 ```
 
-See [`../INSTALL.md`](../INSTALL.md) for the full comparison plus upgrade /
+See [`install.md`](install.md) for the full comparison plus upgrade /
 uninstall steps. The per-project `install.sh` is robust across all five phases
 (prepare → install → collect → execute → uninstall-ready): it auto-detects cwd /
 OS user / Python / Claude CLI, versioned-backs-up `settings.json`, runs a doctor

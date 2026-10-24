@@ -1,7 +1,7 @@
 # FAQ — Tellonce
 
 11 common questions. For the full architecture see
-[`docs/claude-code.md`](docs/claude-code.md) + `SKILL.md`.
+[`docs/claude-code.md`](claude-code.md) + `SKILL.md`.
 
 ---
 

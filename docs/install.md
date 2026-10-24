@@ -7,8 +7,8 @@ violating (for example a Chinese reply mixing in plain English loanwords, or
 Environment: Linux / macOS (POSIX), Python 3.7+, Claude Code CLI.
 
 > This guide covers the **Claude Code** variant (repo root). For GitHub Copilot
-> CLI see [`copilot/README.md`](copilot/README.md); for Codex see
-> [`codex/docs/README.md`](codex/docs/README.md).
+> CLI see [`copilot/README.md`](../copilot/README.md); for Codex see
+> [`codex/docs/README.md`](../codex/docs/README.md).
 
 ---
 
@@ -298,5 +298,5 @@ it only runs in `full` mode / `PT_SHADOW=1`).
 
 GitHub Issues: https://github.com/YujunZhou/tellonce/issues
 
-See [`FAQ.md`](FAQ.md) for common questions, and
-[`docs/claude-code.md`](docs/claude-code.md) for design and implementation.
+See [`faq.md`](faq.md) for common questions, and
+[`docs/claude-code.md`](claude-code.md) for design and implementation.

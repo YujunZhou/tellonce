@@ -1,11 +1,11 @@
 # Tellonce
 
-**1.8.2** 统一了 Codex 两种安装方式读取的技能介绍（[说明](docs/releases/1.8.2.md)）。1.8.1 让日常使用更轻：后台学习改用小模型（Claude Code 用 Haiku，Codex 用 gpt-6-luna）并只发最简提示，每轮注入的规则上限降到 20 条，记忆目录里混入非规则文件不再导致规则无法注入，技能也不再要求每条消息都调用。Claude Code、Codex 和 Copilot 仍默认开启后台记忆记录，保留已有显式关闭设置；硬拦截和 shadow judge 仍需单独开启。详见[版本说明](docs/releases/1.8.1.md)；1.8.1 的改动见[其说明](docs/releases/1.8.0.md)。
-
 [English](README.md) · **中文**
 
 [![arXiv](https://img.shields.io/badge/arXiv-2606.13174-b31b1b.svg)](https://arxiv.org/abs/2606.13174)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+最新版本：**v1.8.2** · [版本说明](docs/releases/README.md)
 
 > 别再一遍遍跟你的 AI 编码助手重复同样的话。Tellonce 记住你做过的纠正，
 > 并在你需要时强制执行，让同一个错误不再回来。在我们的评测里，编码 agent
@@ -78,7 +78,7 @@ python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.c
 
 这样注册到用户级 `~/.claude/settings.json`（所有项目生效；状态/记忆仍按项目隔离）。
 只想对单个项目：`cd <project> && bash ~/.claude/skills/tellonce/install.sh`。完整指南
-（强制执行、卸载）见 [`INSTALL.md`](INSTALL.md)。**只用一种方式**：如果你既走 settings.json
+（强制执行、卸载）见 [`docs/install.md`](docs/install.md)。**只用一种方式**：如果你既走 settings.json
 注册又用 `/plugin install`，hooks 会触发两次——加一个前先把另一个移除（`...--remove`）。
 </details>
 
@@ -205,13 +205,18 @@ copilot plugin uninstall tellonce
 ## 目录结构
 
 ```
-README.md                 # 英文落地页
-README.zh.md              # 本文（中文）
-copilot/                  # GitHub Copilot CLI 变体——公开发布版
-codex/                    # Codex 变体（wrapper 驱动）
-docs/claude-code.md       # Claude Code 变体详解
-hooks/ lib/ SKILL.md ...  # Claude Code 变体（位于仓库根目录）
-seed_memory/              # 默认为空，新用户从空白开始
+README.md, README.zh.md   # 首页（英文 / 中文）
+SKILL.md, hooks/, lib/    # Claude Code 版（放在仓库根目录，插件安装和直接
+                          #   git clone 都能用）
+install.sh, uninstall.sh  # Claude Code 安装 / 卸载
+doctor.sh, dashboard.sh   # Claude Code 自检和状态查看
+seed_memory/              # 默认为空，新用户从零开始
+codex/                    # Codex 版
+copilot/                  # GitHub Copilot CLI 版
+docs/                     # 安装指南、常见问题、Claude Code 细节、版本说明
+checks/                   # 测试（CI 自动运行）
+scripts/                  # 维护者用的发布和一致性检查
+.claude-plugin/, .agents/, .github/   # 插件市场清单和 CI
 LICENSE
 ```
 

@@ -1,11 +1,11 @@
 # Tellonce
 
-Version **1.8.2** makes the two Codex skill entries identical ([notes](docs/releases/1.8.2.md)). Version 1.8.1 made everyday use lighter: background learning calls a small model (Haiku on Claude Code, gpt-6-luna on Codex) with a minimal prompt, the per-turn rule index is capped at 20, a stray non-rule file in the memory folder no longer stops rules from being injected, and the skill is no longer invoked on every message. Background memory recording stays on by default across Claude Code, Codex and Copilot, explicit opt-out is respected, and hard enforcement and the shadow judge remain opt-in. See [release notes](docs/releases/1.8.1.md); 1.8.1 changes are in [its notes](docs/releases/1.8.0.md).
-
 **English** · [中文](README.zh.md)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2606.13174-b31b1b.svg)](https://arxiv.org/abs/2606.13174)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Latest release: **v1.8.2** · [What changed](docs/releases/README.md)
 
 > Stop re-explaining yourself to your AI coding agent. Tellonce
 > remembers the corrections you make and — when you ask it to — enforces them, so
@@ -92,7 +92,7 @@ python3 ~/.claude/skills/tellonce/lib/_install_merge_settings.py --settings ~/.c
 That registers Tellonce user-global in `~/.claude/settings.json` (every project
 covered; state/memory still per-project). Per-project instead:
 `cd <project> && bash ~/.claude/skills/tellonce/install.sh`. Full guide —
-enforcement, uninstall — in [`INSTALL.md`](INSTALL.md). **Pick one method:** if
+enforcement, uninstall — in [`docs/install.md`](docs/install.md). **Pick one method:** if
 you register via settings.json AND `/plugin install`, the hooks fire twice —
 remove one (`...--remove`) before adding the other.
 </details>
@@ -237,13 +237,18 @@ copilot plugin uninstall tellonce
 ## Project layout
 
 ```
-README.md                 # this landing page (English)
-README.zh.md              # Chinese companion
-copilot/                  # GitHub Copilot CLI variant — the public release
-codex/                    # Codex variant (wrapper-driven)
-docs/claude-code.md       # Claude Code variant, in depth
-hooks/ lib/ SKILL.md ...  # Claude Code variant (lives at the repo root)
+README.md, README.zh.md   # this landing page (English / Chinese)
+SKILL.md, hooks/, lib/    # Claude Code variant (kept at the repo root so the
+                          #   plugin and a plain git clone both work)
+install.sh, uninstall.sh  # Claude Code install / uninstall
+doctor.sh, dashboard.sh   # Claude Code self-check and status
 seed_memory/              # empty by default; new users start with a blank slate
+codex/                    # Codex variant
+copilot/                  # GitHub Copilot CLI variant
+docs/                     # install guide, FAQ, Claude Code details, release notes
+checks/                   # test suite (run in CI)
+scripts/                  # release and consistency checks for maintainers
+.claude-plugin/, .agents/, .github/   # plugin marketplace manifests and CI
 LICENSE
 ```
 

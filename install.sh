@@ -5,7 +5,7 @@
 #   bash <skill_dir>/install.sh [--state-dir <path>] [--quiet] [--dry-run]
 #                               [--i-know-i-am-installing-globally]
 #   (the last flag allows running from HOME and registers into the user-scope
-#    ~/.claude/settings.json so every project is covered — INSTALL.md Option A)
+#    ~/.claude/settings.json so every project is covered — docs/install.md Option A)
 #
 # Five robust phases:
 #   1. Prepare (pre-install doctor-style checks)
@@ -47,7 +47,7 @@ HOOKS_DIR="${PROJECT_ROOT}/.claude/hooks"
 SETTINGS="${PROJECT_ROOT}/.claude/settings.local.json"
 # Global install = user scope. settings.local.json under HOME would only apply
 # to sessions whose cwd is HOME itself; ~/.claude/settings.json is what Claude
-# Code loads for every project (matches INSTALL.md Option A).
+# Code loads for every project (matches docs/install.md Option A).
 if [[ "${ALLOW_GLOBAL}" == true ]]; then
     SETTINGS="${HOME}/.claude/settings.json"
 fi
@@ -482,7 +482,7 @@ log "    subprocess that may take tens of seconds to a few minutes) — this is 
 log "    To disable it entirely: export PT_SHADOW_DISABLED=1"
 log ""
 log "Next steps:"
-log "  - Read README.md / FAQ.md"
+log "  - Read README.md / docs/faq.md"
 log "  - Run dashboard.sh to view the latest shadow-judge alerts (only populated in full mode)"
 log "  - Disable shadow judge: export PT_SHADOW_DISABLED=1 (recommended when no claude CLI)"
 log "  - Disable deterministic: export PT_DETERMINISTIC_DISABLED=1"
